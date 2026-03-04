@@ -79,7 +79,16 @@ export class LLMClient {
     }
   }
 
+  private alertCount = 0;
+  private readonly maxAlerts = 2;
+
   private emergencyAlert(err: any): void {
+    if (this.alertCount >= this.maxAlerts) {
+      console.error(`[LLM] Alert suppressed (limit ${this.maxAlerts} reached):`, err?.message);
+      return;
+    }
+    this.alertCount++;
+    console.error(`[LLM] Emergency alert ${this.alertCount}/${this.maxAlerts}:`, err?.message);
     try {
       const msg = err?.message || '';
       let text: string;
