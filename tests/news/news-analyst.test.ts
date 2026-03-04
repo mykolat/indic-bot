@@ -53,4 +53,28 @@ describe('NewsAnalystAgent', () => {
 
     expect(result.top_signals).toHaveLength(0);
   });
+
+  it('analyst output includes needs_grounding field', async () => {
+    const mockLlm = {
+      call: vi.fn().mockResolvedValue(JSON.stringify({
+        market_summary: 'test',
+        top_signals: [
+          {
+            coins: ['BTC'], direction: 'bullish', importance: 9,
+            catalyst: 'SEC ETF approval', needs_grounding: true,
+            timeframe: 'short', reasoning: 'big if true', price_impact: 'high',
+            expires_hours: 24, source_count: 1, conflicting: false,
+          },
+        ],
+        overall_sentiment: 'bullish',
+        macro_signals: { fed_stance: 'neutral', risk_appetite: 'high', dominance_trend: 'stable' },
+        risk_events: [],
+      })),
+    };
+    const analyst = new NewsAnalystAgent(mockLlm as any);
+    const result = await analyst.analyze([
+      { title: 'SEC approves BTC ETF', date: '', coins: ['BTC'], sentiment: 5, source: 'unknown' },
+    ]);
+    expect(result.top_signals[0].needs_grounding).toBe(true);
+  });
 });

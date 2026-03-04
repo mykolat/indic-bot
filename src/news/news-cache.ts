@@ -14,6 +14,7 @@ export interface NewsSignal {
   expires_hours: number;
   source_count: number;
   conflicting: boolean;
+  needs_grounding?: boolean;
 }
 
 export interface NewsAnalysis {

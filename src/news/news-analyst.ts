@@ -20,7 +20,8 @@ Return exactly this structure:
       "price_impact": "high",
       "expires_hours": 48,
       "source_count": 3,
-      "conflicting": false
+      "conflicting": false,
+      "needs_grounding": false
     }
   ],
   "overall_sentiment": "bullish|bearish|neutral|cautiously_bullish|cautiously_bearish",
@@ -34,10 +35,13 @@ Return exactly this structure:
 
 Rules:
 - importance 1-10 (10 = market moving)
-- Include all signals with importance >= 3; aim for 15-25 signals when headlines are rich
+- Only include signals with importance >= 4
 - expires_hours: how long this news stays relevant (6-168)
 - conflicting: true if multiple sources disagree on direction
-- timeframe: short (<24h), medium (1-7d), long (>7d)`;
+- timeframe: short (<24h), medium (1-7d), long (>7d)
+- needs_grounding: true if claim is extraordinary, from single source, could be fake, or has major market impact (importance >= 7 from single source)
+- source_count: count how many DIFFERENT headlines/sources report the same event. Higher = more reliable.
+- importance scale: 1-3 = background noise, 4-6 = notable, 7-8 = significant, 9-10 = market-moving (ETF approvals, major hacks, regulatory actions)`;
 
 const FALLBACK: NewsAnalysis = {
   market_summary: 'News analysis unavailable',
