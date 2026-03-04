@@ -14,6 +14,7 @@ export interface Config {
     port: number;
     secret: string | undefined;
   };
+  apifyToken: string | undefined;
   trading: {
     pairs: string[];
     maxLeverage: number;
@@ -22,6 +23,8 @@ export interface Config {
     maxPositionPct: number;
     maxExposurePct: number;
     maxStopLossPct: number;
+    targetReturnPct: number;
+    minTakeProfitPct: number;
   };
 }
 
@@ -46,14 +49,17 @@ export function loadConfig(): Config {
       port: parseInt(process.env.WEBHOOK_PORT || '3000', 10),
       secret: process.env.WEBHOOK_SECRET,
     },
+    apifyToken: process.env.APIFY_API_TOKEN,
     trading: {
       pairs: (process.env.TRADING_PAIRS || 'BTCUSDT').split(','),
-      maxLeverage: parseInt(process.env.MAX_LEVERAGE || '10', 10),
-      loopIntervalMs: parseInt(process.env.LOOP_INTERVAL_MS || '300000', 10),
+      maxLeverage: parseInt(process.env.MAX_LEVERAGE || '20', 10),
+      loopIntervalMs: parseInt(process.env.LOOP_INTERVAL_MS || '60000', 10),
       maxLossUsd: parseFloat(process.env.MAX_LOSS_USD || '5'),
-      maxPositionPct: 33,
-      maxExposurePct: 50,
-      maxStopLossPct: 3,
+      maxPositionPct: parseFloat(process.env.MAX_POSITION_PCT || '50'),
+      maxExposurePct: parseFloat(process.env.MAX_EXPOSURE_PCT || '150'),
+      maxStopLossPct: parseFloat(process.env.MAX_STOP_LOSS_PCT || '5'),
+      targetReturnPct: parseFloat(process.env.TARGET_RETURN_PCT || '100'),
+      minTakeProfitPct: parseFloat(process.env.MIN_TAKE_PROFIT_PCT || '5'),
     },
   };
 }
