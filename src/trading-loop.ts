@@ -73,7 +73,8 @@ export class TradingLoop {
         const closes = snap.candles1h.map(c => parseFloat(c.close));
         const highs = snap.candles1h.map(c => parseFloat(c.high));
         const lows = snap.candles1h.map(c => parseFloat(c.low));
-        indicators.set(snap.pair, computeIndicators(closes, highs, lows));
+        const volumes = snap.candles1h.map(c => parseFloat(c.volume));
+        indicators.set(snap.pair, computeIndicators(closes, highs, lows, volumes));
       }
 
       // 4. Refresh news cache if stale, then fetch sentiment
