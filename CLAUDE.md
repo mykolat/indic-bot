@@ -76,6 +76,15 @@ pm2 flush indic-bot
 
 **TradingView webhook** (`src/webhook/`): Express server on `WEBHOOK_PORT` (default 3000); signals buffered in-memory and drained each cycle into LLM context.
 
+## Infrastructure
+
+**GCP VM (production)**: `34.179.171.213` — europe-west3-a (Frankfurt), e2-small, Debian 12
+- SSH: `ssh -i ~/.ssh/google_compute_engine mykolat@34.179.171.213`
+- Bot runs via pm2, logs at `~/indic-bot/logs/pm2.log`
+- This IP is whitelisted in Binance API key
+- Session files: `~/.indic-bot/` (oauth-credentials.json, memory.json, news-cache.json)
+- To deploy updates: `rsync -az -e "ssh -i ~/.ssh/google_compute_engine" --exclude node_modules --exclude .git /path/to/04_Indic/ mykolat@34.179.171.213:~/indic-bot/`
+
 ## Key Gotchas
 
 - **TypeScript ESM** — all local imports require `.js` extension (e.g. `import ... from './config.js'`), even though files are `.ts`. This is required by `"module": "NodeNext"`.

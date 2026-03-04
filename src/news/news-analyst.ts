@@ -34,7 +34,7 @@ Return exactly this structure:
 
 Rules:
 - importance 1-10 (10 = market moving)
-- Only include signals with importance >= 4
+- Include all signals with importance >= 3; aim for 15-25 signals when headlines are rich
 - expires_hours: how long this news stays relevant (6-168)
 - conflicting: true if multiple sources disagree on direction
 - timeframe: short (<24h), medium (1-7d), long (>7d)`;
