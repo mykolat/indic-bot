@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "audit:bot": "tsx scripts/audit.ts",
-    "audit:remote": "bash scripts/remote-audit.sh"
+    "audit:remote": "bash scripts/remote-audit.sh",
+    "soul:insight": "tsx scripts/soul-insight.ts"
   },
   "keywords": [],
   "author": "",
