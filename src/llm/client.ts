@@ -2,7 +2,7 @@ import os from 'node:os';
 import type { MarketSnapshot } from '../binance/market-data.js';
 import type { PortfolioState, TradeDecision } from '../risk/manager.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
-import { SYSTEM_PROMPT, buildUserPrompt } from './prompts.js';
+import { SYSTEM_PROMPT, buildUserPrompt, buildSystemPrompt, type EnrichedPromptData } from './prompts.js';
 
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex/responses';
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
@@ -18,27 +18,28 @@ function extractAccountId(token: string): string {
 
 export class LLMClient {
   private accountId: string;
+  private systemPrompt: string;
 
   constructor(
     private accessToken: string,
     private model: string,
+    promptConfig?: { targetReturnPct: number; minTakeProfitPct: number; maxLeverage: number; maxPositionPct: number; maxStopLossPct: number },
   ) {
     this.accountId = extractAccountId(accessToken);
+    this.systemPrompt = promptConfig ? buildSystemPrompt(promptConfig) : SYSTEM_PROMPT;
   }
 
   async analyze(
-    snapshots: MarketSnapshot[],
-    portfolio: PortfolioState,
-    signals: TradingViewSignal[],
+    data: EnrichedPromptData,
   ): Promise<TradeDecision[]> {
     try {
-      const userPrompt = buildUserPrompt(snapshots, portfolio, signals);
+      const userPrompt = buildUserPrompt(data);
 
       const body = {
         model: this.model,
         store: false,
         stream: true,
-        instructions: SYSTEM_PROMPT,
+        instructions: this.systemPrompt,
         input: [{ role: 'user', content: userPrompt }],
         text: { verbosity: 'medium' },
         include: ['reasoning.encrypted_content'],

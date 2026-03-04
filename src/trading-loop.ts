@@ -4,6 +4,10 @@ import type { LLMClient } from './llm/client.js';
 import type { RiskManager, TradeDecision, PortfolioState } from './risk/manager.js';
 import type { SignalBuffer } from './webhook/signal-buffer.js';
 import type { Logger } from './logger/index.js';
+import type { CryptoPanicClient } from './news/cryptopanic.js';
+import { computeIndicators, type Indicators } from './indicators/technical.js';
+import { fetchFearGreed } from './news/fear-greed.js';
+import { SessionMemory } from './memory/session.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -13,12 +17,22 @@ interface TradingLoopDeps {
   riskManager: RiskManager;
   signalBuffer: SignalBuffer;
   logger: Logger;
+  newsClient?: CryptoPanicClient;
+  memory: SessionMemory;
+  tradingConfig: {
+    targetReturnPct: number;
+    minTakeProfitPct: number;
+    maxLeverage: number;
+    maxPositionPct: number;
+    maxStopLossPct: number;
+  };
 }
 
 export class TradingLoop {
   private deps: TradingLoopDeps;
   private _shutdown = false;
   private sessionPnl = 0;
+  private cycleCount = 0;
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
@@ -43,11 +57,36 @@ export class TradingLoop {
       const portfolio: PortfolioState = await marketData.getPortfolioState();
       portfolio.sessionPnl = this.sessionPnl;
 
-      // 3. Drain TradingView signals
+      // 3. Compute indicators for each pair
+      const indicators = new Map<string, Indicators>();
+      for (const snap of snapshots) {
+        const closes = snap.candles1h.map(c => parseFloat(c.close));
+        const highs = snap.candles1h.map(c => parseFloat(c.high));
+        const lows = snap.candles1h.map(c => parseFloat(c.low));
+        indicators.set(snap.pair, computeIndicators(closes, highs, lows));
+      }
+
+      // 4. Fetch news & sentiment in parallel
+      const [news, fearGreed] = await Promise.all([
+        this.deps.newsClient ? this.deps.newsClient.fetchNews() : Promise.resolve([]),
+        fetchFearGreed(),
+      ]);
+
+      // 5. Drain TradingView signals
       const signals = signalBuffer.drain();
 
-      // 4. LLM analysis
-      const decisions = await llm.analyze(snapshots, portfolio, signals);
+      // 6. LLM analysis with enriched data
+      const memState = this.deps.memory.load();
+      const decisions = await llm.analyze({
+        snapshots,
+        indicators,
+        portfolio,
+        signals,
+        news,
+        fearGreed,
+        sessionNotes: memState.session_notes || undefined,
+        recentTrades: memState.recent_trades.slice(0, 5),
+      });
 
       // 5. Process each decision
       for (const decision of decisions) {
@@ -74,7 +113,7 @@ export class TradingLoop {
         if (decision.action === 'CLOSE') {
           const pos = portfolio.positions.find((p) => p.pair === decision.pair);
           if (pos) {
-            const result = await orders.close(decision.pair, pos.sizeUsd, pos.side);
+            const result = await orders.close(decision.pair, pos.side);
             if (result.success) {
               logger.logTrade({ type: 'CLOSE', pair: decision.pair, orderId: result.orderId });
             } else {
@@ -96,6 +135,13 @@ export class TradingLoop {
           }
         }
       }
+      logger.logPerformance({
+        balance: portfolio.balanceUsd,
+        openPositions: portfolio.positions.length,
+        sessionPnl: this.sessionPnl,
+        cycleCount: this.cycleCount,
+      });
+      this.cycleCount++;
     } catch (err: any) {
       logger.logError('LOOP_ERROR', err.message);
     }

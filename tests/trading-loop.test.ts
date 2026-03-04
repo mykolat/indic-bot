@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('../src/news/fear-greed.js', () => ({
+  fetchFearGreed: vi.fn().mockResolvedValue({ value: 50, label: 'Neutral' }),
+}));
+
 import { TradingLoop } from '../src/trading-loop.js';
 
 describe('TradingLoop', () => {
@@ -39,6 +44,7 @@ describe('TradingLoop', () => {
       logDecision: vi.fn(),
       logTrade: vi.fn(),
       logError: vi.fn(),
+      logPerformance: vi.fn(),
     };
 
     loop = new TradingLoop({
@@ -49,6 +55,8 @@ describe('TradingLoop', () => {
       riskManager: mockRisk,
       signalBuffer: mockSignalBuffer,
       logger: mockLogger,
+      memory: { load: vi.fn().mockReturnValue({ session_notes: '', recent_trades: [] }), addTrade: vi.fn(), updateNotes: vi.fn(), save: vi.fn() } as any,
+      tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
     });
   });
 
