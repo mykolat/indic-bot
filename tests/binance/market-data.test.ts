@@ -24,7 +24,7 @@ describe('MarketDataFetcher', () => {
         { fundingRate: '0.0001', fundingTime: 1000 },
         { fundingRate: '0.0002', fundingTime: 2000 },
       ]),
-      getTopLongShortPositionRatio: vi.fn().mockResolvedValue([
+      getTopTradersLongShortPositionRatio: vi.fn().mockResolvedValue([
         { longShortRatio: '1.23', longAccount: '0.55', shortAccount: '0.45', timestamp: 1000 },
       ]),
       getOrderBook: vi.fn().mockResolvedValue({
