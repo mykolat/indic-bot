@@ -5,6 +5,8 @@ import type { RiskManager, TradeDecision, PortfolioState } from './risk/manager.
 import type { SignalBuffer } from './webhook/signal-buffer.js';
 import type { Logger } from './logger/index.js';
 import type { CryptoPanicClient } from './news/cryptopanic.js';
+import type { NewsCache } from './news/news-cache.js';
+import type { NewsAnalystAgent } from './news/news-analyst.js';
 import { computeIndicators, type Indicators } from './indicators/technical.js';
 import { fetchFearGreed } from './news/fear-greed.js';
 import { SessionMemory } from './memory/session.js';
@@ -19,6 +21,12 @@ interface TradingLoopDeps {
   logger: Logger;
   newsClient?: CryptoPanicClient;
   memory: SessionMemory;
+  newsCache: NewsCache;
+  newsAnalyst: NewsAnalystAgent;
+  newsConfig: {
+    refreshIntervalH: number;
+    maxItems: number;
+  };
   tradingConfig: {
     targetReturnPct: number;
     minTakeProfitPct: number;
@@ -66,11 +74,22 @@ export class TradingLoop {
         indicators.set(snap.pair, computeIndicators(closes, highs, lows));
       }
 
-      // 4. Fetch news & sentiment in parallel
-      const [news, fearGreed] = await Promise.all([
-        this.deps.newsClient ? this.deps.newsClient.fetchNews() : Promise.resolve([]),
-        fetchFearGreed(),
-      ]);
+      // 4. Refresh news cache if stale, then fetch sentiment
+      if (this.deps.newsClient && this.deps.newsCache.shouldRefresh(this.deps.newsConfig.refreshIntervalH)) {
+        console.log('[News] Cache stale — fetching fresh news...');
+        const items = await this.deps.newsClient.fetchNews(this.deps.newsConfig.maxItems);
+        const analysis = await this.deps.newsAnalyst.analyze(items);
+        const cacheState = {
+          items,
+          fetchedAt: new Date().toISOString(),
+          analysis,
+          analyzedAt: new Date().toISOString(),
+        };
+        this.deps.newsCache.save(cacheState);
+        this.deps.newsCache.appendHistory(cacheState);
+      }
+      const newsAnalysis = this.deps.newsCache.getAnalysis() ?? undefined;
+      const fearGreed = await fetchFearGreed();
 
       // 5. Drain TradingView signals
       const signals = signalBuffer.drain();
@@ -82,10 +101,11 @@ export class TradingLoop {
         indicators,
         portfolio,
         signals,
-        news,
+        news: [],
         fearGreed,
         sessionNotes: memState.session_notes || undefined,
         recentTrades: memState.recent_trades.slice(0, 5),
+        newsAnalysis,
       });
 
       // 5. Process each decision
@@ -95,6 +115,23 @@ export class TradingLoop {
           ...decision,
           portfolio: { balance: portfolio.balanceUsd, sessionPnl: this.sessionPnl },
         });
+
+        if (decision.action === 'FETCH_NEWS') {
+          console.log(`[News] LLM requested refresh: ${decision.reasoning}`);
+          if (this.deps.newsClient) {
+            const items = await this.deps.newsClient.fetchNews(this.deps.newsConfig.maxItems);
+            const analysis = await this.deps.newsAnalyst.analyze(items);
+            const cacheState = {
+              items,
+              fetchedAt: new Date().toISOString(),
+              analysis,
+              analyzedAt: new Date().toISOString(),
+            };
+            this.deps.newsCache.save(cacheState);
+            this.deps.newsCache.appendHistory(cacheState);
+          }
+          continue;
+        }
 
         if (decision.action === 'HOLD') continue;
 

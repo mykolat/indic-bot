@@ -11,6 +11,8 @@ import { createWebhookServer } from './webhook/server.js';
 import { TradingLoop } from './trading-loop.js';
 import { Logger } from './logger/index.js';
 import { CryptoPanicClient } from './news/cryptopanic.js';
+import { NewsCache } from './news/news-cache.js';
+import { NewsAnalystAgent } from './news/news-analyst.js';
 import { SessionMemory } from './memory/session.js';
 
 async function main() {
@@ -55,6 +57,9 @@ async function main() {
   };
   const llm = new LLMClient(accessToken, config.openai.model, promptConfig);
 
+  const newsCache = new NewsCache();
+  const newsAnalyst = new NewsAnalystAgent(llm);
+
   const riskManager = new RiskManager({
     maxLeverage: config.trading.maxLeverage,
     maxPositionPct: config.trading.maxPositionPct,
@@ -88,6 +93,12 @@ async function main() {
     signalBuffer,
     logger,
     newsClient,
+    newsCache,
+    newsAnalyst,
+    newsConfig: {
+      refreshIntervalH: config.trading.newsRefreshIntervalH,
+      maxItems: config.trading.newsMaxItems,
+    },
     memory,
     tradingConfig: promptConfig,
   });

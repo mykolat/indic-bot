@@ -56,6 +56,22 @@ describe('TradingLoop', () => {
       signalBuffer: mockSignalBuffer,
       logger: mockLogger,
       memory: { load: vi.fn().mockReturnValue({ session_notes: '', recent_trades: [] }), addTrade: vi.fn(), updateNotes: vi.fn(), save: vi.fn() } as any,
+      newsCache: {
+        shouldRefresh: vi.fn().mockReturnValue(false),
+        getAnalysis: vi.fn().mockReturnValue(null),
+        save: vi.fn(),
+        appendHistory: vi.fn(),
+      },
+      newsAnalyst: {
+        analyze: vi.fn().mockResolvedValue({
+          market_summary: 'test',
+          top_signals: [],
+          overall_sentiment: 'neutral',
+          macro_signals: { fed_stance: 'neutral', risk_appetite: 'moderate', dominance_trend: 'stable' },
+          risk_events: [],
+        }),
+      },
+      newsConfig: { refreshIntervalH: 12, maxItems: 100 },
       tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
     });
   });
