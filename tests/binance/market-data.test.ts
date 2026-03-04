@@ -24,6 +24,13 @@ describe('MarketDataFetcher', () => {
         { fundingRate: '0.0001', fundingTime: 1000 },
         { fundingRate: '0.0002', fundingTime: 2000 },
       ]),
+      getTopLongShortPositionRatio: vi.fn().mockResolvedValue([
+        { longShortRatio: '1.23', longAccount: '0.55', shortAccount: '0.45', timestamp: 1000 },
+      ]),
+      getOrderBook: vi.fn().mockResolvedValue({
+        bids: [['100', '5'], ['99', '10'], ['98', '8'], ['97', '3'], ['96', '2']],
+        asks: [['101', '3'], ['102', '6'], ['103', '4'], ['104', '2'], ['105', '1']],
+      }),
       getPositions: vi.fn().mockResolvedValue([]),
       getBalance: vi.fn().mockResolvedValue([
         { asset: 'USDT', balance: '10.00', availableBalance: '10.00' },
@@ -39,7 +46,6 @@ describe('MarketDataFetcher', () => {
     expect(snapshot.candles1h).toHaveLength(2);
     expect(snapshot.fundingRate).toBe('0.0001');
     expect(snapshot.openInterest).toBe('80000.00');
-    // 1h + 4h + 15m = 3 getKlines calls
     expect(mockClient.getKlines).toHaveBeenCalledTimes(3);
   });
 
@@ -58,5 +64,14 @@ describe('MarketDataFetcher', () => {
     expect(snapshot.fundingHistory).toBeDefined();
     expect(snapshot.fundingHistory.length).toBe(2);
     expect(snapshot.fundingHistory[0].rate).toBeCloseTo(0.0001);
+  });
+
+  it('getSnapshot includes longShortRatio and orderBookImbalance', async () => {
+    const snapshot = await fetcher.getSnapshot('BTCUSDT');
+
+    expect(snapshot.longShortRatio).toBeCloseTo(1.23);
+    expect(snapshot.orderBookBidPct).toBeGreaterThan(0);
+    expect(snapshot.orderBookAskPct).toBeGreaterThan(0);
+    expect(snapshot.orderBookBidPct + snapshot.orderBookAskPct).toBeCloseTo(100, 0);
   });
 });

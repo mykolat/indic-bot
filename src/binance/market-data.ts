@@ -23,6 +23,9 @@ export interface MarketSnapshot {
   fundingHistory: FundingRatePoint[];
   openInterest: string;
   markPrice: string;
+  longShortRatio: number | null;
+  orderBookBidPct: number;
+  orderBookAskPct: number;
   openInterestDelta?: number;
 }
 
@@ -30,14 +33,23 @@ export class MarketDataFetcher {
   constructor(private client: any) {}
 
   async getSnapshot(pair: string): Promise<MarketSnapshot> {
-    const [candles1h, candles4h, candles15m, markPrice, oi, fundingHist] = await Promise.all([
-      this.client.getKlines({ symbol: pair, interval: '1h', limit: 50 }),
-      this.client.getKlines({ symbol: pair, interval: '4h', limit: 50 }),
-      this.client.getKlines({ symbol: pair, interval: '15m', limit: 50 }),
-      this.client.getMarkPrice({ symbol: pair }),
-      this.client.getOpenInterest({ symbol: pair }),
-      this.client.getFundingRateHistory({ symbol: pair, limit: 8 }).catch(() => []),
-    ]);
+    const [candles1h, candles4h, candles15m, markPrice, oi, fundingHist, lsRatio, orderBook] =
+      await Promise.all([
+        this.client.getKlines({ symbol: pair, interval: '1h', limit: 50 }),
+        this.client.getKlines({ symbol: pair, interval: '4h', limit: 50 }),
+        this.client.getKlines({ symbol: pair, interval: '15m', limit: 50 }),
+        this.client.getMarkPrice({ symbol: pair }),
+        this.client.getOpenInterest({ symbol: pair }),
+        this.client.getFundingRateHistory({ symbol: pair, limit: 8 }).catch(() => []),
+        this.client.getTopLongShortPositionRatio({ symbol: pair, period: '1h', limit: 1 }).catch(() => null),
+        this.client.getOrderBook({ symbol: pair, limit: 5 }),
+      ]);
+
+    const bids = (orderBook.bids as [string, string][]).reduce((s, [, qty]) => s + parseFloat(qty), 0);
+    const asks = (orderBook.asks as [string, string][]).reduce((s, [, qty]) => s + parseFloat(qty), 0);
+    const totalDepth = bids + asks;
+
+    const lsData = Array.isArray(lsRatio) && lsRatio.length > 0 ? lsRatio[0] : null;
 
     return {
       pair,
@@ -51,6 +63,9 @@ export class MarketDataFetcher {
       })),
       openInterest: oi.openInterest,
       markPrice: markPrice.markPrice,
+      longShortRatio: lsData ? parseFloat(lsData.longShortRatio) : null,
+      orderBookBidPct: totalDepth > 0 ? (bids / totalDepth) * 100 : 50,
+      orderBookAskPct: totalDepth > 0 ? (asks / totalDepth) * 100 : 50,
     };
   }
 

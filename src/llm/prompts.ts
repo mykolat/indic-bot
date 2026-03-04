@@ -133,6 +133,16 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
       prompt += `Funding history (${snap.fundingHistory.length} periods): avg=${(avg * 100).toFixed(4)}% trend=${trend}\n`;
     }
 
+    // L/S ratio
+    if (snap.longShortRatio !== null && snap.longShortRatio !== undefined) {
+      const lsLabel = snap.longShortRatio > 1.5 ? ' (crowded longs ⚠)' :
+                      snap.longShortRatio < 0.7 ? ' (crowded shorts ⚠)' : '';
+      prompt += `L/S ratio: ${snap.longShortRatio.toFixed(2)}${lsLabel}\n`;
+    }
+
+    // Order book
+    prompt += `Order book depth: ${snap.orderBookBidPct.toFixed(0)}% bids / ${snap.orderBookAskPct.toFixed(0)}% asks\n`;
+
     prompt += `Funding: ${snap.fundingRate} | OI: ${snap.openInterest}\n`;
 
     const recentCloses = snap.candles1h.slice(-10).map(c => c.close).join(', ');
