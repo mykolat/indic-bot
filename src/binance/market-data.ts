@@ -41,7 +41,7 @@ export class MarketDataFetcher {
         this.client.getMarkPrice({ symbol: pair }),
         this.client.getOpenInterest({ symbol: pair }),
         this.client.getFundingRateHistory({ symbol: pair, limit: 8 }).catch(() => []),
-        this.client.getTopLongShortPositionRatio({ symbol: pair, period: '1h', limit: 1 }).catch(() => null),
+        this.client.getTopTradersLongShortPositionRatio({ symbol: pair, period: '1h', limit: 1 }).catch(() => null),
         this.client.getOrderBook({ symbol: pair, limit: 5 }),
       ]);
 
