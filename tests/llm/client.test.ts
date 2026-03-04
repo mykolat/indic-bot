@@ -100,4 +100,38 @@ describe('LLMClient', () => {
     const decisions = await llm.analyze(makePromptData());
     expect(decisions).toHaveLength(0);
   });
+
+  it('parses JSON even with explanation text around it', async () => {
+    const jsonWithExplanation = `Here's my analysis of the market conditions.
+
+{"decisions":[{"pair":"BTCUSDT","action":"HOLD","size_pct":0,"leverage":0,"stop_loss_pct":0,"take_profit_pct":0,"reasoning":"test","confidence":75}]}
+
+I hope this helps.`;
+
+    mockSSEResponse(jsonWithExplanation);
+    const data = makePromptData();
+    const result = await llm.analyze(data);
+    expect(result).toHaveLength(1);
+    expect(result[0].action).toBe('HOLD');
+  });
+
+  it('handles confidence field in decisions', async () => {
+    const json = JSON.stringify({
+      decisions: [{ pair: 'BTCUSDT', action: 'LONG', size_pct: 10, leverage: 5, stop_loss_pct: 2, take_profit_pct: 10, reasoning: 'strong', confidence: 85 }],
+    });
+    mockSSEResponse(json);
+    const result = await llm.analyze(makePromptData());
+    expect(result[0].confidence).toBe(85);
+  });
+
+  it('throws on API error so TradingLoop can switch layers', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => 'Unauthorized',
+      body: undefined,
+    }));
+
+    await expect(llm.analyze(makePromptData())).rejects.toThrow('401');
+  });
 });

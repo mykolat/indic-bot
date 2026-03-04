@@ -1,5 +1,6 @@
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { mkdirSync, appendFileSync } from 'node:fs';
 import type { MarketSnapshot } from '../binance/market-data.js';
 import type { PortfolioState, TradeDecision } from '../risk/manager.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
@@ -74,11 +75,48 @@ export class LLMClient {
         return [];
       }
 
-      return this.parseResponse(content);
+      let decisions = this.parseResponse(content);
+
+      // Retry once if parse failed (null = parse error, [] = valid empty)
+      if (decisions === null && content.length > 10) {
+        console.log('[LLM] Parse failed, retrying with clarification prompt...');
+        const retryBody = {
+          model: this.model,
+          store: false,
+          stream: true,
+          instructions: this.systemPrompt,
+          input: [{ role: 'user', content: 'Your last response was not valid JSON. Respond ONLY with the JSON object containing "decisions" array. No explanation.' }],
+          text: { verbosity: 'medium' },
+          include: ['reasoning.encrypted_content'],
+        };
+        try {
+          const retryResponse = await fetch(CODEX_BASE_URL, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${this.accessToken}`,
+              'chatgpt-account-id': this.accountId,
+              'OpenAI-Beta': 'responses=experimental',
+              'User-Agent': `indic-bot (${os.platform()} ${os.release()}; ${os.arch()})`,
+              'Content-Type': 'application/json',
+              'Accept': 'text/event-stream',
+            },
+            body: JSON.stringify(retryBody),
+          });
+          if (retryResponse.ok) {
+            const retryResult = await this.streamSSE(retryResponse);
+            this.tokenLogger.log({ method: 'analyze', label: 'retry', tokensIn: retryResult.usageIn, tokensOut: retryResult.usageOut, model: this.model });
+            decisions = this.parseResponse(retryResult.content);
+          }
+        } catch (retryErr) {
+          console.error('[LLM] Retry failed:', retryErr);
+        }
+      }
+
+      return decisions ?? [];
     } catch (err: any) {
       console.error('[LLM] API error:', err);
       this.emergencyAlert(err);
-      return [];
+      throw err;  // Let TradingLoop switch to Layer 2/3
     }
   }
 
@@ -238,19 +276,41 @@ export class LLMClient {
     return { content: output, usageIn: 0, usageOut: 0 };
   }
 
-  private parseResponse(content: string): TradeDecision[] {
+  private parseResponse(content: string): TradeDecision[] | null {
     try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return [];
+      // Try targeted regex first: look for object containing "decisions" array
+      let jsonMatch = content.match(/\{[^{}]*"decisions"\s*:\s*\[[\s\S]*?\]\s*[^{}]*\}/);
+      if (!jsonMatch) {
+        // Fallback: greedy match (handles nested objects in reasoning)
+        jsonMatch = content.match(/\{[\s\S]*"decisions"[\s\S]*\}/);
+      }
+      if (!jsonMatch) {
+        this.logParseError(content, 'No JSON with "decisions" key found');
+        return null;
+      }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      if (!parsed.decisions || !Array.isArray(parsed.decisions)) return [];
-
+      if (!Array.isArray(parsed.decisions)) {
+        this.logParseError(content, 'decisions is not an array');
+        return null;
+      }
       return parsed.decisions;
-    } catch {
-      console.error('[LLM] Failed to parse response:', content.slice(0, 200));
-      return [];
+    } catch (err: any) {
+      this.logParseError(content, err.message);
+      return null;
     }
+  }
+
+  private logParseError(content: string, reason: string): void {
+    console.error(`[LLM] Parse failed: ${reason} — response: ${content.slice(0, 200)}`);
+    try {
+      mkdirSync('logs', { recursive: true });
+      appendFileSync('logs/parse-errors.jsonl', JSON.stringify({
+        ts: new Date().toISOString(),
+        reason,
+        response: content.slice(0, 2000),
+      }) + '\n', 'utf-8');
+    } catch { /* non-critical */ }
   }
 
   updateAccessToken(token: string): void {
