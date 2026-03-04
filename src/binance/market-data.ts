@@ -54,7 +54,7 @@ export class MarketDataFetcher {
         const notional = Math.abs(parseFloat(p.notional));
         const leverage = parseInt(p.leverage, 10);
         const margin = notional / leverage;
-        const unrealizedProfit = parseFloat(p.unrealizedProfit || '0');
+        const unrealizedProfit = parseFloat(p.unRealizedProfit || p.unrealizedProfit || '0');
         const unrealizedPnlPct = margin > 0 ? (unrealizedProfit / margin) * 100 : 0;
         const updateTime = parseInt(p.updateTime || '0', 10);
         const heldHours = updateTime > 0
