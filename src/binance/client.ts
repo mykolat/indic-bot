@@ -7,9 +7,12 @@ export interface BinanceConfig {
 }
 
 export function createBinanceClient(config: BinanceConfig): USDMClient {
+  const mode = config.testnet ? 'TESTNET' : 'LIVE';
+  console.log(`[Binance] Mode: ${mode}`);
+
   return new USDMClient({
     api_key: config.apiKey,
     api_secret: config.apiSecret,
-    ...(config.testnet && { baseUrl: 'https://testnet.binancefuture.com' }),
+    ...(config.testnet && { useTestnet: true }),
   });
 }
