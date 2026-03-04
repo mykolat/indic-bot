@@ -8,6 +8,7 @@ export interface TokenLogEntry {
   tokensOut: number;
   model: string;
   cycle?: number;
+  estimated?: boolean;
 }
 
 export class TokenLogger {
@@ -24,6 +25,7 @@ export class TokenLogger {
         tokens_out: entry.tokensOut,
         model: entry.model,
         cycle: entry.cycle,
+        estimated: entry.estimated || false,
       }) + '\n';
       appendFileSync(this.logFile, line, 'utf-8');
     } catch {

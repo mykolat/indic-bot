@@ -192,16 +192,18 @@ if (tokenLogs.length === 0) {
   const totalIn = todayTokens.reduce((s: number, t: any) => s + (t.tokens_in ?? 0), 0);
   const totalOut = todayTokens.reduce((s: number, t: any) => s + (t.tokens_out ?? 0), 0);
   const avgIn = todayTokens.length > 0 ? Math.round(totalIn / todayTokens.length) : 0;
+  const hasEstimated = todayTokens.some((t: any) => t.estimated);
+  const estMark = hasEstimated ? ' (estimated)' : '';
 
   row('Today calls',       todayTokens.length);
-  row('Today tokens in',  `${totalIn.toLocaleString()}`);
-  row('Today tokens out', `${totalOut.toLocaleString()}`);
-  row('Avg per call',     `${avgIn.toLocaleString()} in`);
+  row('Today tokens in',  `${hasEstimated ? '~' : ''}${totalIn.toLocaleString()}${estMark}`);
+  row('Today tokens out', `${hasEstimated ? '~' : ''}${totalOut.toLocaleString()}${estMark}`);
+  row('Avg per call',     `${hasEstimated ? '~' : ''}${avgIn.toLocaleString()} in`);
 
   if (todayTokens.length > 0) {
     const biggest = todayTokens.reduce((max: any, t: any) => (t.tokens_in ?? 0) > (max.tokens_in ?? 0) ? t : max, todayTokens[0]);
     const method = biggest.label ? `${biggest.method}:${biggest.label}` : biggest.method;
-    row('Biggest call',    `${method} — ${(biggest.tokens_in ?? 0).toLocaleString()} in @ ${biggest.ts?.slice(11,16)}`);
+    row('Biggest call',    `${method} — ${hasEstimated ? '~' : ''}${(biggest.tokens_in ?? 0).toLocaleString()} in @ ${biggest.ts?.slice(11,16)}`);
   }
 
   row('All-time calls',   tokenLogs.length);

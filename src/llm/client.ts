@@ -67,8 +67,9 @@ export class LLMClient {
         throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
       }
 
-      const { content, usageIn, usageOut } = await this.streamSSE(response);
-      this.tokenLogger.log({ method: 'analyze', tokensIn: usageIn, tokensOut: usageOut, model: this.model });
+      const promptLength = this.systemPrompt.length + userPrompt.length;
+      const { content, usageIn, usageOut, estimated } = await this.streamSSE(response, promptLength);
+      this.tokenLogger.log({ method: 'analyze', tokensIn: usageIn, tokensOut: usageOut, model: this.model, estimated });
 
       if (!content) {
         console.error('[LLM] Empty response from Codex API');
@@ -103,8 +104,9 @@ export class LLMClient {
             body: JSON.stringify(retryBody),
           });
           if (retryResponse.ok) {
-            const retryResult = await this.streamSSE(retryResponse);
-            this.tokenLogger.log({ method: 'analyze', label: 'retry', tokensIn: retryResult.usageIn, tokensOut: retryResult.usageOut, model: this.model });
+            const retryPromptLen = this.systemPrompt.length + 100; // retry prompt is short
+            const retryResult = await this.streamSSE(retryResponse, retryPromptLen);
+            this.tokenLogger.log({ method: 'analyze', label: 'retry', tokensIn: retryResult.usageIn, tokensOut: retryResult.usageOut, model: this.model, estimated: retryResult.estimated });
             decisions = this.parseResponse(retryResult.content);
           }
         } catch (retryErr) {
@@ -155,10 +157,11 @@ export class LLMClient {
     }
   }
 
-  private async streamSSE(response: Response): Promise<{ content: string; usageIn: number; usageOut: number }> {
+  private async streamSSE(response: Response, promptLength = 0): Promise<{ content: string; usageIn: number; usageOut: number; estimated: boolean }> {
     if (!response.body) {
       const text = await response.text();
-      return this.parseSSEText(text);
+      const result = this.parseSSEText(text);
+      return { ...result, estimated: result.usageIn === 0 };
     }
 
     const reader = response.body.getReader();
@@ -243,7 +246,15 @@ export class LLMClient {
       console.log(`[LLM] Reasoning: ${reasoning.length} chars`);
     }
 
-    return { content: output, usageIn, usageOut };
+    // Estimation fallback if API didn't provide usage
+    let estimated = false;
+    if (usageIn === 0 && usageOut === 0 && (promptLength > 0 || output.length > 0)) {
+      usageIn = Math.ceil(promptLength / 4);
+      usageOut = Math.ceil(output.length / 4);
+      estimated = true;
+    }
+
+    return { content: output, usageIn, usageOut, estimated };
   }
 
   private parseSSEText(text: string): { content: string; usageIn: number; usageOut: number } {
@@ -346,8 +357,9 @@ export class LLMClient {
       throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
     }
 
-    const { content, usageIn, usageOut } = await this.streamSSE(response);
-    this.tokenLogger.log({ method: 'call', tokensIn: usageIn, tokensOut: usageOut, model: this.model });
+    const callPromptLen = systemPrompt.length + userPrompt.length;
+    const { content, usageIn, usageOut, estimated } = await this.streamSSE(response, callPromptLen);
+    this.tokenLogger.log({ method: 'call', tokensIn: usageIn, tokensOut: usageOut, model: this.model, estimated });
     return content;
   }
 }
