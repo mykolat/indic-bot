@@ -165,6 +165,8 @@ export class TradingLoop {
           if (pos) {
             const result = await orders.close(decision.pair, pos.side);
             if (result.success) {
+              const pnlUsd = pos.unrealizedPnlPct * (pos.sizeUsd / pos.leverage) / 100;
+              this.sessionPnl += pnlUsd;
               logger.logTrade({ type: 'CLOSE', pair: decision.pair, orderId: result.orderId });
               this.lastClosedAt.set(decision.pair, Date.now());
             } else {

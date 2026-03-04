@@ -144,6 +144,30 @@ describe('TradingLoop', () => {
     expect(secondCallData.snapshots[0].openInterestDelta).toBeCloseTo(20);
   });
 
+  it('accumulates sessionPnl after successful CLOSE', async () => {
+    mockLlm.analyze.mockResolvedValueOnce([
+      { pair: 'BTCUSDT', action: 'CLOSE', size_pct: 0, leverage: 1, stop_loss_pct: 0, take_profit_pct: 0, reasoning: 'exit' },
+    ]);
+    mockMarketData.getPortfolioState.mockResolvedValueOnce({
+      balanceUsd: 1000,
+      positions: [{
+        pair: 'BTCUSDT', side: 'LONG',
+        sizeUsd: 100, leverage: 5,
+        entryPrice: 50000, unrealizedPnlPct: 8, heldHours: 2,
+      }],
+      sessionPnl: 0,
+    });
+    mockOrders.close.mockResolvedValueOnce({ success: true, orderId: 99 });
+
+    await loop.runOnce();
+
+    // sessionPnl passed to logPerformance should reflect the closed trade
+    // sizeUsd = $100 notional, leverage = 5x → margin = $20
+    // unrealizedPnlPct = 8% of margin → pnlUsd = 8 * 20 / 100 = $1.60
+    const perfCall = mockLogger.logPerformance.mock.calls[0][0];
+    expect(perfCall.sessionPnl).toBeCloseTo(1.60);
+  });
+
   it('skips LONG/SHORT within cooldown after closing same pair', async () => {
     // Cycle 1: close a position
     mockLlm.analyze.mockResolvedValueOnce([
