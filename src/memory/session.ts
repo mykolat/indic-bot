@@ -1,9 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
-const MEMORY_DIR = join(process.env.HOME || '.', '.indic-bot');
-const MEMORY_FILE = join(MEMORY_DIR, 'memory.json');
-
 export interface TradeRecord {
   pair: string;
   action: string;
@@ -19,9 +16,12 @@ export interface MemoryState {
 }
 
 export class SessionMemory {
+  private get memoryDir() { return join(process.env.HOME || '.', '.indic-bot'); }
+  private get memoryFile() { return join(this.memoryDir, 'memory.json'); }
+
   load(): MemoryState {
     try {
-      const raw = readFileSync(MEMORY_FILE, 'utf-8');
+      const raw = readFileSync(this.memoryFile, 'utf-8');
       return JSON.parse(raw) as MemoryState;
     } catch {
       return { session_notes: '', recent_trades: [], last_updated: '' };
@@ -29,8 +29,8 @@ export class SessionMemory {
   }
 
   save(state: MemoryState): void {
-    mkdirSync(MEMORY_DIR, { recursive: true });
-    writeFileSync(MEMORY_FILE, JSON.stringify(state, null, 2), 'utf-8');
+    mkdirSync(this.memoryDir, { recursive: true });
+    writeFileSync(this.memoryFile, JSON.stringify(state, null, 2), 'utf-8');
   }
 
   addTrade(trade: TradeRecord): void {
