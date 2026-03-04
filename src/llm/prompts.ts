@@ -45,7 +45,8 @@ Respond ONLY with valid JSON:
   ]
 }
 
-Always include a decision for every pair. HOLD = do nothing. CLOSE = close existing position.`;
+Always include a decision for every pair. HOLD = do nothing. CLOSE = close existing position.
+If you need fresher news data, add one extra decision: { "pair": "_meta", "action": "FETCH_NEWS", "size_pct": 0, "leverage": 0, "stop_loss_pct": 0, "take_profit_pct": 0, "reasoning": "<why you need fresh news>" }`;
 }
 
 // Backward-compatible constant for tests

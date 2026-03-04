@@ -1,6 +1,6 @@
 export interface TradeDecision {
   pair: string;
-  action: 'LONG' | 'SHORT' | 'CLOSE' | 'HOLD';
+  action: 'LONG' | 'SHORT' | 'CLOSE' | 'HOLD' | 'FETCH_NEWS';
   size_pct: number;
   leverage: number;
   stop_loss_pct: number;
@@ -42,7 +42,7 @@ export class RiskManager {
   constructor(private config: RiskConfig) {}
 
   validate(decision: TradeDecision, portfolio: PortfolioState): ValidationResult {
-    if (decision.action === 'HOLD' || decision.action === 'CLOSE') {
+    if (decision.action === 'HOLD' || decision.action === 'CLOSE' || decision.action === 'FETCH_NEWS') {
       return { approved: true };
     }
 
