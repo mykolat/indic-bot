@@ -4,6 +4,7 @@ import type { MarketSnapshot } from '../binance/market-data.js';
 import type { PortfolioState, TradeDecision } from '../risk/manager.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
 import { SYSTEM_PROMPT, buildUserPrompt, buildSystemPrompt, type EnrichedPromptData } from './prompts.js';
+import { TokenLogger } from './token-logger.js';
 
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex/responses';
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
@@ -20,6 +21,7 @@ function extractAccountId(token: string): string {
 export class LLMClient {
   private accountId: string;
   private systemPrompt: string;
+  private tokenLogger = new TokenLogger('logs/tokens.jsonl');
 
   constructor(
     private accessToken: string,
@@ -64,7 +66,8 @@ export class LLMClient {
         throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
       }
 
-      const content = await this.streamSSE(response);
+      const { content, usageIn, usageOut } = await this.streamSSE(response);
+      this.tokenLogger.log({ method: 'analyze', tokensIn: usageIn, tokensOut: usageOut, model: this.model });
 
       if (!content) {
         console.error('[LLM] Empty response from Codex API');
@@ -114,7 +117,7 @@ export class LLMClient {
     }
   }
 
-  private async streamSSE(response: Response): Promise<string> {
+  private async streamSSE(response: Response): Promise<{ content: string; usageIn: number; usageOut: number }> {
     if (!response.body) {
       const text = await response.text();
       return this.parseSSEText(text);
@@ -125,6 +128,8 @@ export class LLMClient {
     let buffer = '';
     let output = '';
     let reasoning = '';
+    let usageIn = 0;
+    let usageOut = 0;
 
     console.log('[LLM] Streaming response...\n');
 
@@ -170,7 +175,7 @@ export class LLMClient {
             process.stdout.write(event.delta);
           }
 
-          // Response completed — extract full text as fallback
+          // Response completed — extract full text as fallback and usage
           if (event.type === 'response.completed' && event.response?.output) {
             for (const item of event.response.output) {
               if (item.type === 'message' && item.content) {
@@ -180,6 +185,12 @@ export class LLMClient {
                   }
                 }
               }
+            }
+            // Extract usage
+            const usage = event.response.usage;
+            if (usage) {
+              usageIn = usage.input_tokens ?? 0;
+              usageOut = usage.output_tokens ?? 0;
             }
           }
         } catch {}
@@ -194,10 +205,10 @@ export class LLMClient {
       console.log(`[LLM] Reasoning: ${reasoning.length} chars`);
     }
 
-    return output;
+    return { content: output, usageIn, usageOut };
   }
 
-  private parseSSEText(text: string): string {
+  private parseSSEText(text: string): { content: string; usageIn: number; usageOut: number } {
     let output = '';
 
     for (const line of text.split('\n')) {
@@ -215,7 +226,7 @@ export class LLMClient {
             if (item.type === 'message' && item.content) {
               for (const block of item.content) {
                 if (block.type === 'output_text' && block.text) {
-                  return block.text;
+                  return { content: block.text, usageIn: 0, usageOut: 0 };
                 }
               }
             }
@@ -224,7 +235,7 @@ export class LLMClient {
       } catch {}
     }
 
-    return output;
+    return { content: output, usageIn: 0, usageOut: 0 };
   }
 
   private parseResponse(content: string): TradeDecision[] {
@@ -275,6 +286,8 @@ export class LLMClient {
       throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
     }
 
-    return this.streamSSE(response);
+    const { content, usageIn, usageOut } = await this.streamSSE(response);
+    this.tokenLogger.log({ method: 'call', tokensIn: usageIn, tokensOut: usageOut, model: this.model });
+    return content;
   }
 }
