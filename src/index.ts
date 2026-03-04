@@ -8,6 +8,7 @@ import { createBinanceClient } from './binance/client.js';
 import { MarketDataFetcher } from './binance/market-data.js';
 import { OrderExecutor } from './binance/orders.js';
 import { LLMClient } from './llm/client.js';
+import { FallbackLLMClient } from './llm/fallback-client.js';
 import { getOpenAIAccessToken } from './llm/oauth.js';
 import { RiskManager } from './risk/manager.js';
 import { SignalBuffer } from './webhook/signal-buffer.js';
@@ -68,6 +69,15 @@ async function main() {
     fearGreedLeverageCap: config.trading.fearGreedLeverageCap,
   };
   const llm = new LLMClient(accessToken, config.openai.model, promptConfig);
+
+  const fallbackLlm = config.openai.apiKeyFallback
+    ? new FallbackLLMClient(config.openai.apiKeyFallback, config.openai.fallbackModel)
+    : undefined;
+  if (fallbackLlm) {
+    console.log(`[Fallback] Layer 2 enabled — ${config.openai.fallbackModel} (OPENAI_API_KEY_FALLBACK)`);
+  } else {
+    console.log('[Fallback] No OPENAI_API_KEY_FALLBACK — Layer 3 (rule-based) on Codex failure');
+  }
 
   const soulKeeper = new SoulKeeper(join(process.env.HOME || '.', '.indic-bot'));
   const soulReview = new SoulReviewAgent({ llm, soulKeeper });
@@ -132,6 +142,7 @@ async function main() {
     macroFetcher,
     macroAnalyst,
     macroRefreshIntervalMs: 10_800_000,
+    fallbackLlm,
     soulKeeper,
     soulReview,
   });
