@@ -1,0 +1,84 @@
+import 'dotenv/config';
+import OpenAI from 'openai';
+import { loadConfig } from './config.js';
+import { createBinanceClient } from './binance/client.js';
+import { MarketDataFetcher } from './binance/market-data.js';
+import { OrderExecutor } from './binance/orders.js';
+import { LLMClient } from './llm/client.js';
+import { RiskManager } from './risk/manager.js';
+import { SignalBuffer } from './webhook/signal-buffer.js';
+import { createWebhookServer } from './webhook/server.js';
+import { TradingLoop } from './trading-loop.js';
+import { Logger } from './logger/index.js';
+
+async function main() {
+  const config = loadConfig();
+  const logger = new Logger('logs');
+
+  console.log('=== AI Futures Trading Bot ===');
+  console.log(`Pairs: ${config.trading.pairs.join(', ')}`);
+  console.log(`Max leverage: ${config.trading.maxLeverage}x`);
+  console.log(`Loop interval: ${config.trading.loopIntervalMs / 1000}s`);
+  console.log(`Max loss: $${config.trading.maxLossUsd}`);
+  console.log(`Testnet: ${config.binance.testnet}`);
+  console.log('==============================\n');
+
+  // Initialize components
+  const binanceClient = createBinanceClient(config.binance);
+  const marketData = new MarketDataFetcher(binanceClient);
+  const orders = new OrderExecutor(binanceClient);
+
+  const openai = new OpenAI({ apiKey: config.openai.apiKey });
+  const llm = new LLMClient(openai, config.openai.model);
+
+  const riskManager = new RiskManager({
+    maxLeverage: config.trading.maxLeverage,
+    maxPositionPct: config.trading.maxPositionPct,
+    maxExposurePct: config.trading.maxExposurePct,
+    maxStopLossPct: config.trading.maxStopLossPct,
+    maxLossUsd: config.trading.maxLossUsd,
+  });
+
+  const signalBuffer = new SignalBuffer({ maxSize: 50, ttlMs: 30 * 60 * 1000 });
+
+  // Start webhook server
+  const app = createWebhookServer(signalBuffer, logger, config.webhook.secret);
+  app.listen(config.webhook.port, () => {
+    console.log(`Webhook server listening on :${config.webhook.port}`);
+  });
+
+  // Create trading loop
+  const loop = new TradingLoop({
+    pairs: config.trading.pairs,
+    marketData,
+    llm,
+    orders,
+    riskManager,
+    signalBuffer,
+    logger,
+  });
+
+  // Run loop
+  console.log('Starting trading loop...\n');
+
+  const runCycle = async () => {
+    if (loop.isShutdown()) {
+      console.log('\n*** BOT SHUTDOWN — max loss reached ***');
+      process.exit(0);
+    }
+
+    console.log(`\n--- Cycle at ${new Date().toISOString()} ---`);
+    await loop.runOnce();
+  };
+
+  // Run first cycle immediately
+  await runCycle();
+
+  // Then every N ms
+  setInterval(runCycle, config.trading.loopIntervalMs);
+}
+
+main().catch((err) => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});
