@@ -62,12 +62,15 @@ describe('RiskManager', () => {
 
   it('rejects when total exposure would exceed max', () => {
     const decision: TradeDecision = {
-      pair: 'ETHUSDT', action: 'LONG', size_pct: 30,
+      pair: 'ETHUSDT', action: 'LONG', size_pct: 20,
       leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
     };
+    // Existing position: sizeUsd=$300 notional, leverage=5x → margin=$60 = 60% of $100 balance
+    // New trade: 20% of $100 = $20 margin
+    // Total = 60% + 20% = 80% > maxExposurePct(50%) → rejected
     const portfolio: PortfolioState = {
-      balanceUsd: 10,
-      positions: [{ pair: 'BTCUSDT', sizeUsd: 3, leverage: 5, side: 'LONG' }],
+      balanceUsd: 100,
+      positions: [{ pair: 'BTCUSDT', sizeUsd: 300, leverage: 5, side: 'LONG', entryPrice: 50000, unrealizedPnlPct: 1.5, heldHours: 2 }],
       sessionPnl: 0,
     };
 

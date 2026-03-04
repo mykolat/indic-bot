@@ -23,8 +23,8 @@ export class MarketDataFetcher {
 
   async getSnapshot(pair: string): Promise<MarketSnapshot> {
     const [candles1h, candles4h, markPrice, oi] = await Promise.all([
-      this.client.getKlines({ symbol: pair, interval: '1h', limit: 20 }),
-      this.client.getKlines({ symbol: pair, interval: '4h', limit: 20 }),
+      this.client.getKlines({ symbol: pair, interval: '1h', limit: 50 }),
+      this.client.getKlines({ symbol: pair, interval: '4h', limit: 50 }),
       this.client.getMarkPrice({ symbol: pair }),
       this.client.getOpenInterest({ symbol: pair }),
     ]);
@@ -50,12 +50,27 @@ export class MarketDataFetcher {
 
     const openPositions: Position[] = positions
       .filter((p: any) => parseFloat(p.positionAmt) !== 0)
-      .map((p: any) => ({
-        pair: p.symbol,
-        sizeUsd: Math.abs(parseFloat(p.notional)),
-        leverage: parseInt(p.leverage, 10),
-        side: parseFloat(p.positionAmt) > 0 ? 'LONG' as const : 'SHORT' as const,
-      }));
+      .map((p: any) => {
+        const notional = Math.abs(parseFloat(p.notional));
+        const leverage = parseInt(p.leverage, 10);
+        const margin = notional / leverage;
+        const unrealizedProfit = parseFloat(p.unrealizedProfit || '0');
+        const unrealizedPnlPct = margin > 0 ? (unrealizedProfit / margin) * 100 : 0;
+        const updateTime = parseInt(p.updateTime || '0', 10);
+        const heldHours = updateTime > 0
+          ? (Date.now() - updateTime) / 3_600_000
+          : 0;
+
+        return {
+          pair: p.symbol,
+          sizeUsd: notional,
+          leverage,
+          side: parseFloat(p.positionAmt) > 0 ? 'LONG' as const : 'SHORT' as const,
+          entryPrice: parseFloat(p.entryPrice || '0'),
+          unrealizedPnlPct: parseFloat(unrealizedPnlPct.toFixed(2)),
+          heldHours: parseFloat(heldHours.toFixed(1)),
+        };
+      });
 
     return {
       balanceUsd,

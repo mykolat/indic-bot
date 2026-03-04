@@ -13,6 +13,9 @@ export interface Position {
   sizeUsd: number;
   leverage: number;
   side: 'LONG' | 'SHORT';
+  entryPrice: number;        // from Binance p.entryPrice
+  unrealizedPnlPct: number;  // signed % of margin (e.g. -2.4 or +8.1)
+  heldHours: number;         // hours since position opened
 }
 
 export interface PortfolioState {
@@ -63,7 +66,8 @@ export class RiskManager {
       return { approved: false, reason: `stop-loss ${decision.stop_loss_pct}% exceeds max ${this.config.maxStopLossPct}%` };
     }
 
-    const currentExposureUsd = portfolio.positions.reduce((sum, p) => sum + p.sizeUsd, 0);
+    // Use margin (collateral) not notional — sizeUsd / leverage = actual margin used
+    const currentExposureUsd = portfolio.positions.reduce((sum, p) => sum + p.sizeUsd / p.leverage, 0);
     const newPositionUsd = (decision.size_pct / 100) * portfolio.balanceUsd;
     const totalExposurePct = ((currentExposureUsd + newPositionUsd) / portfolio.balanceUsd) * 100;
 
