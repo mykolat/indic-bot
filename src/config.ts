@@ -39,7 +39,7 @@ export function loadConfig(): Config {
       testnet: process.env.BINANCE_TESTNET === 'true',
     },
     openai: {
-      apiKey: requiredEnv('OPENAI_API_KEY'),
+      apiKey: process.env.OPENAI_API_KEY || 'oauth',
       model: process.env.OPENAI_MODEL || 'gpt-4o',
     },
     webhook: {

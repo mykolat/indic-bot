@@ -5,6 +5,7 @@ import { createBinanceClient } from './binance/client.js';
 import { MarketDataFetcher } from './binance/market-data.js';
 import { OrderExecutor } from './binance/orders.js';
 import { LLMClient } from './llm/client.js';
+import { getOpenAIAccessToken } from './llm/oauth.js';
 import { RiskManager } from './risk/manager.js';
 import { SignalBuffer } from './webhook/signal-buffer.js';
 import { createWebhookServer } from './webhook/server.js';
@@ -28,7 +29,17 @@ async function main() {
   const marketData = new MarketDataFetcher(binanceClient);
   const orders = new OrderExecutor(binanceClient);
 
-  const openai = new OpenAI({ apiKey: config.openai.apiKey });
+  // OpenAI auth: OAuth (default) or API key fallback
+  let apiKey: string;
+  if (config.openai.apiKey && config.openai.apiKey !== 'oauth') {
+    console.log('[Auth] Using OpenAI API key from env');
+    apiKey = config.openai.apiKey;
+  } else {
+    console.log('[Auth] Using OpenAI OAuth flow...');
+    apiKey = await getOpenAIAccessToken();
+  }
+
+  const openai = new OpenAI({ apiKey });
   const llm = new LLMClient(openai, config.openai.model);
 
   const riskManager = new RiskManager({
