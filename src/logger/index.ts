@@ -26,6 +26,10 @@ export class Logger {
     console.error(`[ERROR] ${code}: ${message}`);
   }
 
+  logPerformance(entry: { balance: number; openPositions: number; sessionPnl: number; cycleCount: number }): void {
+    this.append('performance.jsonl', entry);
+  }
+
   private append(file: string, data: Record<string, unknown>): void {
     const line = JSON.stringify({ ...data, timestamp: new Date().toISOString() });
     appendFileSync(join(this.dir, file), line + '\n', 'utf-8');

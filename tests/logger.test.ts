@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Logger } from '../src/logger/index.js';
 import { readFileSync, rmSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 const TEST_LOG_DIR = 'logs/test';
 
@@ -56,5 +57,12 @@ describe('Logger', () => {
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]).pair).toBe('BTCUSDT');
     expect(JSON.parse(lines[1]).pair).toBe('ETHUSDT');
+  });
+
+  it('logs a performance snapshot to performance.jsonl', () => {
+    logger.logPerformance({ balance: 5100, openPositions: 2, sessionPnl: 100, cycleCount: 10 });
+    const content = readFileSync(join(TEST_LOG_DIR, 'performance.jsonl'), 'utf-8');
+    expect(content).toContain('5100');
+    expect(content).toContain('cycleCount');
   });
 });
