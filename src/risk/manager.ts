@@ -36,6 +36,7 @@ interface RiskConfig {
   maxExposurePct: number;
   maxStopLossPct: number;
   maxLossUsd: number;
+  maxLossPct: number;  // % of balance; overrides maxLossUsd if > 0
 }
 
 export class RiskManager {
@@ -46,8 +47,12 @@ export class RiskManager {
       return { approved: true };
     }
 
-    if (portfolio.sessionPnl <= -this.config.maxLossUsd) {
-      return { approved: false, reason: 'Session loss exceeded max — shutdown triggered', shutdown: true };
+    const effectiveMaxLoss = this.config.maxLossPct > 0
+      ? portfolio.balanceUsd * this.config.maxLossPct / 100
+      : this.config.maxLossUsd;
+
+    if (portfolio.sessionPnl <= -effectiveMaxLoss) {
+      return { approved: false, reason: `Session loss exceeded max $${effectiveMaxLoss.toFixed(2)} — shutdown triggered`, shutdown: true };
     }
 
     if (decision.leverage > this.config.maxLeverage) {
