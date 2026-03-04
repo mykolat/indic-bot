@@ -29,7 +29,9 @@ CONSTRAINTS:
 - Max leverage: ${config.maxLeverage}x
 - Max position size: ${config.maxPositionPct}% of balance per trade
 - Stop-loss MANDATORY for LONG/SHORT (1-${config.maxStopLossPct}%)
-- This is a TESTNET account. Be aggressive. Take positions when you see a setup.
+- This is a LIVE account with real money. Be selective — only trade high-confidence setups.
+- Prefer confluence: enter when RSI + MACD + volume + news all align
+- Avoid entries when order book is heavily one-sided (>70% bids or asks) — potential trap
 
 Respond ONLY with valid JSON:
 {
