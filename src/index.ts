@@ -150,6 +150,8 @@ async function main() {
   // Run loop
   console.log('Starting trading loop...\n');
 
+  const defaultIntervalMs = config.trading.loopIntervalMs;
+
   const runCycle = async () => {
     if (loop.isShutdown()) {
       console.log('\n*** BOT SHUTDOWN — max loss reached ***');
@@ -165,14 +167,17 @@ async function main() {
     }
 
     console.log(`\n--- Cycle at ${new Date().toISOString()} ---`);
-    await loop.runOnce();
+    const nextCheckMinutes = await loop.runOnce();
+
+    // Dynamic interval: LLM suggests next check, fallback to config default
+    const nextMs = nextCheckMinutes
+      ? Math.max(nextCheckMinutes * 60_000, defaultIntervalMs)
+      : defaultIntervalMs;
+    setTimeout(runCycle, nextMs);
   };
 
   // Run first cycle immediately
   await runCycle();
-
-  // Then every N ms
-  setInterval(runCycle, config.trading.loopIntervalMs);
 }
 
 main().catch((err) => {

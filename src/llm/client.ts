@@ -33,6 +33,8 @@ export class LLMClient {
     this.systemPrompt = promptConfig ? buildSystemPrompt(promptConfig) : SYSTEM_PROMPT;
   }
 
+  lastNextCheckMinutes: number | undefined;
+
   async analyze(
     data: EnrichedPromptData,
   ): Promise<TradeDecision[]> {
@@ -76,10 +78,10 @@ export class LLMClient {
         return [];
       }
 
-      let decisions = this.parseResponse(content);
+      let result = this.parseResponse(content);
 
       // Retry once if parse failed (null = parse error, [] = valid empty)
-      if (decisions === null && content.length > 10) {
+      if (result === null && content.length > 10) {
         console.log('[LLM] Parse failed, retrying with clarification prompt...');
         const retryBody = {
           model: this.model,
@@ -107,14 +109,21 @@ export class LLMClient {
             const retryPromptLen = this.systemPrompt.length + 100; // retry prompt is short
             const retryResult = await this.streamSSE(retryResponse, retryPromptLen);
             this.tokenLogger.log({ method: 'analyze', label: 'retry', tokensIn: retryResult.usageIn, tokensOut: retryResult.usageOut, model: this.model, estimated: retryResult.estimated });
-            decisions = this.parseResponse(retryResult.content);
+            result = this.parseResponse(retryResult.content);
           }
         } catch (retryErr) {
           console.error('[LLM] Retry failed:', retryErr);
         }
       }
 
-      return decisions ?? [];
+      if (result) {
+        this.lastNextCheckMinutes = result.nextCheckMinutes;
+        if (result.nextCheckMinutes) {
+          console.log(`[LLM] Next check in ${result.nextCheckMinutes} min`);
+        }
+        return result.decisions;
+      }
+      return [];
     } catch (err: any) {
       console.error('[LLM] API error:', err);
       this.emergencyAlert(err);
@@ -287,7 +296,7 @@ export class LLMClient {
     return { content: output, usageIn: 0, usageOut: 0 };
   }
 
-  private parseResponse(content: string): TradeDecision[] | null {
+  private parseResponse(content: string): { decisions: TradeDecision[]; nextCheckMinutes?: number } | null {
     try {
       // Try targeted regex first: look for object containing "decisions" array
       let jsonMatch = content.match(/\{[^{}]*"decisions"\s*:\s*\[[\s\S]*?\]\s*[^{}]*\}/);
@@ -305,7 +314,9 @@ export class LLMClient {
         this.logParseError(content, 'decisions is not an array');
         return null;
       }
-      return parsed.decisions;
+      const ncm = parsed.next_check_minutes;
+      const nextCheckMinutes = typeof ncm === 'number' && ncm >= 1 && ncm <= 30 ? ncm : undefined;
+      return { decisions: parsed.decisions, nextCheckMinutes };
     } catch (err: any) {
       this.logParseError(content, err.message);
       return null;

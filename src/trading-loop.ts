@@ -73,8 +73,8 @@ export class TradingLoop {
     return this._shutdown;
   }
 
-  async runOnce(): Promise<void> {
-    if (this._shutdown) return;
+  async runOnce(): Promise<number | undefined> {
+    if (this._shutdown) return undefined;
 
     const { pairs, marketData, llm, orders, riskManager, signalBuffer, logger } = this.deps;
 
@@ -306,6 +306,15 @@ export class TradingLoop {
         return;
       }
 
+      // Extract next_check_minutes from LLM (Layer 1 only)
+      let nextCheckMinutes = currentLayer === 1 ? llm.lastNextCheckMinutes : undefined;
+
+      // Hard limits: if open positions → max 2 min, otherwise LLM decides (1-30)
+      const hasPositions = portfolio.positions.length > 0;
+      if (hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes > 2)) {
+        nextCheckMinutes = 1;
+      }
+
       // Safety guard: in Layer 2/3, filter out any LONG/SHORT decisions
       if (currentLayer >= 2) {
         decisions = decisions.filter(d => d.action === 'HOLD' || d.action === 'CLOSE');
@@ -424,6 +433,10 @@ export class TradingLoop {
         this.deps.soulKeeper.updateStats(stats);
       }
 
+      if (nextCheckMinutes) {
+        console.log(`[Loop] Next cycle in ${nextCheckMinutes} min${hasPositions ? ' (positions open — capped)' : ''}`);
+      }
+
       // Soul review (LLM self-reflection)
       if (this.deps.soulReview) {
         const streak = this.deps.memory.load().recent_trades.reduce((s, t) => {
@@ -445,8 +458,10 @@ export class TradingLoop {
           }
         }
       }
+      return nextCheckMinutes;
     } catch (err: any) {
       logger.logError('LOOP_ERROR', err.message);
+      return undefined;
     }
   }
 }

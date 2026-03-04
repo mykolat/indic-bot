@@ -96,8 +96,16 @@ Respond ONLY with valid JSON:
       "reasoning": "<2-3 sentences: what signals aligned, what's the thesis>",
       "confidence": <1-100>
     }
-  ]
+  ],
+  "next_check_minutes": <1-30>
 }
+
+next_check_minutes guide: How soon to re-analyze. Consider:
+- Open positions → 1-2 min (monitor SL/TP, exits)
+- High volume (>1x) + strong setup forming → 1-3 min
+- Normal market, no positions → 5-10 min
+- Low volume (<0.5x), all HOLD, no catalyst → 15-30 min
+- Off-hours, dead tape → 20-30 min
 
 confidence guide: <30 = very uncertain, 30-55 = weak, 55-70 = moderate, 70-85 = strong, >85 = very strong
 Always include a decision for every pair. HOLD = do nothing.
