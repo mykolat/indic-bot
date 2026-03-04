@@ -9,31 +9,46 @@ export interface CandleData {
   volume: string;
 }
 
+export interface FundingRatePoint {
+  rate: number;
+  time: number;  // unix ms
+}
+
 export interface MarketSnapshot {
   pair: string;
   candles1h: CandleData[];
   candles4h: CandleData[];
+  candles15m: CandleData[];
   fundingRate: string;
+  fundingHistory: FundingRatePoint[];
   openInterest: string;
   markPrice: string;
+  openInterestDelta?: number;
 }
 
 export class MarketDataFetcher {
   constructor(private client: any) {}
 
   async getSnapshot(pair: string): Promise<MarketSnapshot> {
-    const [candles1h, candles4h, markPrice, oi] = await Promise.all([
+    const [candles1h, candles4h, candles15m, markPrice, oi, fundingHist] = await Promise.all([
       this.client.getKlines({ symbol: pair, interval: '1h', limit: 50 }),
       this.client.getKlines({ symbol: pair, interval: '4h', limit: 50 }),
+      this.client.getKlines({ symbol: pair, interval: '15m', limit: 50 }),
       this.client.getMarkPrice({ symbol: pair }),
       this.client.getOpenInterest({ symbol: pair }),
+      this.client.getFundingRateHistory({ symbol: pair, limit: 8 }).catch(() => []),
     ]);
 
     return {
       pair,
       candles1h: this.parseCandles(candles1h),
       candles4h: this.parseCandles(candles4h),
+      candles15m: this.parseCandles(candles15m),
       fundingRate: markPrice.lastFundingRate,
+      fundingHistory: (fundingHist as any[]).map(f => ({
+        rate: parseFloat(f.fundingRate),
+        time: f.fundingTime,
+      })),
       openInterest: oi.openInterest,
       markPrice: markPrice.markPrice,
     };

@@ -1,5 +1,6 @@
 import type { MarketSnapshot } from '../binance/market-data.js';
 import type { Indicators } from '../indicators/technical.js';
+import { computeRSI } from '../indicators/technical.js';
 import type { PortfolioState } from '../risk/manager.js';
 import type { CryptoNews, FearGreedData } from '../news/types.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
@@ -114,6 +115,22 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
       prompt += `Trend: ${ind.trend} | VWAP: $${ind.vwap.toFixed(2)} | Vol ratio: ${ind.volumeRatio.toFixed(2)}x\n`;
       prompt += `MACD: ${ind.macd.toFixed(4)} | Signal: ${ind.macdSignal.toFixed(4)} | Hist: ${ind.macdHistogram >= 0 ? '+' : ''}${ind.macdHistogram.toFixed(4)}\n`;
       prompt += `Bollinger: L=$${ind.bollingerLower.toFixed(2)} M=$${ind.bollingerMiddle.toFixed(2)} U=$${ind.bollingerUpper.toFixed(2)} | %B: ${ind.bollingerPercentB.toFixed(0)}% | BW: ${ind.bollingerBandwidth.toFixed(1)}%\n`;
+    }
+
+    // 15m RSI
+    if (snap.candles15m && snap.candles15m.length > 15) {
+      const closes15m = snap.candles15m.map(c => parseFloat(c.close));
+      const rsi15m = computeRSI(closes15m);
+      prompt += `RSI(14) 15m: ${rsi15m.toFixed(1)}\n`;
+    }
+
+    // Funding history
+    if (snap.fundingHistory && snap.fundingHistory.length > 0) {
+      const avg = snap.fundingHistory.reduce((s, f) => s + f.rate, 0) / snap.fundingHistory.length;
+      const trend = snap.fundingHistory.length >= 2
+        ? (snap.fundingHistory[snap.fundingHistory.length - 1].rate > snap.fundingHistory[0].rate ? '↑' : '↓')
+        : '→';
+      prompt += `Funding history (${snap.fundingHistory.length} periods): avg=${(avg * 100).toFixed(4)}% trend=${trend}\n`;
     }
 
     prompt += `Funding: ${snap.fundingRate} | OI: ${snap.openInterest}\n`;
