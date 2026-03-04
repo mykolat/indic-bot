@@ -6,14 +6,26 @@ import type { CryptoNews, FearGreedData } from '../news/types.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
 import type { TradeRecord } from '../memory/session.js';
 
+export interface MacroAnalysis {
+  macro_summary: string;
+  risk_environment: 'risk_on' | 'risk_off' | 'neutral';
+  crypto_correlation_signal: 'bullish' | 'bearish' | 'neutral';
+  key_levels: string[];
+  refreshed_at: string;
+}
+
 export function buildSystemPrompt(config: {
   targetReturnPct: number;
   minTakeProfitPct: number;
   maxLeverage: number;
   maxPositionPct: number;
   maxStopLossPct: number;
+  pairs?: string[];
 }): string {
-  return `You are an aggressive crypto futures trader. Target: +${config.targetReturnPct}% returns.
+  return `You are an aggressive crypto futures trader managing a live account.
+Trading pairs: ${config.pairs?.join(', ') ?? 'BTCUSDT, ETHUSDT, SOLUSDT'}
+Monitoring macro: Oil (WTI), DXY, S&P500, VIX, EUR/USD, Gold, BTC Dominance
+Target: +${config.targetReturnPct}% returns.
 
 You receive: technical indicators, candles, funding rate, open interest, Fear & Greed, news, portfolio with open positions (entry price + P&L).
 
@@ -69,6 +81,8 @@ export interface EnrichedPromptData {
   sessionNotes?: string;
   recentTrades?: TradeRecord[];
   newsAnalysis?: import('../news/news-cache.js').NewsAnalysis;
+  recentNewsWithAge?: Array<CryptoNews & { age_hours: number }>;
+  macroAnalysis?: MacroAnalysis;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -98,8 +112,27 @@ export function buildUserPrompt(
   });
 }
 
+function getTradingSession(utcHour: number): string {
+  if (utcHour >= 13 && utcHour < 16) return 'EU/US overlap (high liquidity)';
+  if (utcHour >= 7 && utcHour < 8) return 'Asia close / EU open overlap';
+  if (utcHour >= 0 && utcHour < 8) return 'Asia session';
+  if (utcHour >= 7 && utcHour < 16) return 'European session';
+  if (utcHour >= 13 && utcHour < 22) return 'US session';
+  return 'Off-hours (low liquidity)';
+}
+
+function formatCurrentTime(): string {
+  const now = new Date();
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const day = days[now.getUTCDay()];
+  const h = now.getUTCHours().toString().padStart(2, '0');
+  const m = now.getUTCMinutes().toString().padStart(2, '0');
+  const session = getTradingSession(now.getUTCHours());
+  return `${now.toISOString().slice(0,10)} ${h}:${m} UTC (${day}) — ${session}`;
+}
+
 function buildEnrichedPrompt(data: EnrichedPromptData): string {
-  let prompt = '## Technical Analysis\n\n';
+  let prompt = `## Context\nCurrent time: ${formatCurrentTime()}\n\n## Technical Analysis\n\n`;
 
   for (const snap of data.snapshots) {
     const ind = data.indicators.get(snap.pair);
@@ -170,11 +203,49 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   prompt += '## Market Sentiment\n';
   prompt += `Fear & Greed: ${data.fearGreed.value} (${data.fearGreed.label})\n\n`;
 
-  // News
-  if (data.newsAnalysis) {
+  // Macro markets
+  if (data.macroAnalysis) {
+    const m = data.macroAnalysis;
+    const ageH = Math.round((Date.now() - new Date(m.refreshed_at).getTime()) / 3_600_000);
+    prompt += `## Macro Markets (refreshed ${ageH}h ago)\n`;
+    prompt += `Environment: ${m.risk_environment.toUpperCase()} | Crypto signal: ${m.crypto_correlation_signal.toUpperCase()}\n`;
+    prompt += `${m.macro_summary}\n`;
+    if (m.key_levels.length > 0) {
+      prompt += `Key levels: ${m.key_levels.join(' | ')}\n`;
+    }
+    prompt += '\n';
+  }
+
+  // News section
+  if (data.recentNewsWithAge && data.recentNewsWithAge.length > 0) {
+    prompt += '## News (last 48h)\n';
+    if (data.newsAnalysis) {
+      const na = data.newsAnalysis;
+      prompt += `Sentiment: ${na.overall_sentiment} | fed=${na.macro_signals.fed_stance}, risk=${na.macro_signals.risk_appetite}\n`;
+      prompt += `Summary: ${na.market_summary}\n`;
+      if (na.top_signals.length > 0) {
+        prompt += 'Key signals:\n';
+        for (const s of na.top_signals.sort((a, b) => b.importance - a.importance).slice(0, 10)) {
+          const coins = s.coins.join('/');
+          prompt += `  [${s.importance}/10] ${coins} ${s.direction.toUpperCase()} (${s.timeframe}) — ${s.catalyst}\n`;
+        }
+      }
+      if (na.risk_events.length > 0) {
+        prompt += `Risk: ${na.risk_events.slice(0, 3).join(' | ')}\n`;
+      }
+    }
+    prompt += '\nHeadlines:\n';
+    for (const n of data.recentNewsWithAge.slice(0, 30)) {
+      const age = Math.round(n.age_hours);
+      const coins = n.coins.length > 0 ? `[${n.coins.join('/')}] ` : '';
+      const sent = n.sentiment > 0 ? '▲' : n.sentiment < 0 ? '▼' : '─';
+      prompt += `  [${age}h ago] ${coins}${sent} ${n.title}\n`;
+    }
+    prompt += '\n';
+  } else if (data.newsAnalysis) {
     const na = data.newsAnalysis;
     prompt += '## News Analysis\n';
-    prompt += `Sentiment: ${na.overall_sentiment} | Macro: fed=${na.macro_signals.fed_stance}, risk=${na.macro_signals.risk_appetite}\n`;
+    prompt += `Sentiment: ${na.overall_sentiment} | fed=${na.macro_signals.fed_stance}, risk=${na.macro_signals.risk_appetite}\n`;
     prompt += `Summary: ${na.market_summary}\n`;
     if (na.top_signals.length > 0) {
       prompt += 'Signals:\n';
@@ -188,7 +259,6 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     }
     prompt += '\n';
   } else if (data.news.length > 0) {
-    // Fallback to raw headlines if no analysis yet
     prompt += '## Recent News\n';
     for (const n of data.news) {
       const sentimentStr = n.sentiment > 0 ? `+${n.sentiment}` : `${n.sentiment}`;
