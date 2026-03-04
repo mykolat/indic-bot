@@ -83,6 +83,7 @@ export class LLMClient {
   private readonly maxAlerts = 2;
 
   private emergencyAlert(err: any): void {
+    if (process.env.NODE_ENV === 'test') return;
     if (this.alertCount >= this.maxAlerts) {
       console.error(`[LLM] Alert suppressed (limit ${this.maxAlerts} reached):`, err?.message);
       return;
