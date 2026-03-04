@@ -1,16 +1,5 @@
 import type { TradeRecord } from './session.js';
-
-export interface SoulStats {
-  winRate: number;         // 0-100
-  avgWinPct: number;
-  avgLossPct: number;
-  profitFactor: number;
-  currentStreak: number;   // positive = wins, negative = losses
-  sessionPnlPct: number;
-  bestPair: string;
-  worstPair: string;
-  totalTrades: number;
-}
+import type { SoulStats } from './soul-keeper.js';
 
 export function computeSoulStats(trades: TradeRecord[], sessionPnlPct: number): SoulStats {
   if (trades.length === 0) {
