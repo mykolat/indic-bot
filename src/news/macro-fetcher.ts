@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from '../utils/fetch-timeout.js';
+
 export interface MacroSnapshot {
   symbol: string;
   name: string;
@@ -25,13 +27,14 @@ export class MacroFetcher {
   async fetch(): Promise<MacroSnapshot[]> {
     try {
       const tickers = SYMBOLS.map(s => s.symbol);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `https://api.apify.com/v2/acts/${ACTOR_ID}/run-sync-get-dataset-items?token=${this.apifyToken}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tickers }),
-        }
+        },
+        15_000,
       );
 
       if (!response.ok) throw new Error(`Apify macro ${response.status}`);
@@ -58,7 +61,7 @@ export class MacroFetcher {
 
   async fetchBTCDominance(): Promise<{ dominance: number } | null> {
     try {
-      const r = await fetch('https://api.coingecko.com/api/v3/global');
+      const r = await fetchWithTimeout('https://api.coingecko.com/api/v3/global', {}, 10_000);
       if (!r.ok) return null;
       const data = await r.json() as any;
       return { dominance: data.data?.market_cap_percentage?.btc ?? 0 };

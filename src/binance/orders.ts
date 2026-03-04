@@ -36,7 +36,7 @@ export class OrderExecutor {
         ? price * (1 + decision.take_profit_pct / 100)
         : price * (1 - decision.take_profit_pct / 100);
 
-      // SL and TP are best-effort — log failures but don't fail the trade
+      // Stop-Loss (MANDATORY — fail = cancel trade)
       try {
         await this.client.submitNewOrder({
           symbol: decision.pair,
@@ -46,7 +46,23 @@ export class OrderExecutor {
           closePosition: 'true',
         });
       } catch (slErr: any) {
-        console.error(`[Orders] SL placement failed for ${decision.pair}: ${slErr.message}`);
+        console.error(`[Orders] SL placement FAILED for ${decision.pair} — closing position!`, slErr.message);
+        // Close the entry position immediately
+        try {
+          const positions = await this.client.getPositions({ symbol: decision.pair });
+          const pos = positions.find((p: any) => p.symbol === decision.pair && parseFloat(p.positionAmt) !== 0);
+          const closeQty = pos ? Math.abs(parseFloat(pos.positionAmt)) : quantity;
+          await this.client.submitNewOrder({
+            symbol: decision.pair,
+            side: closeSide,
+            type: 'MARKET',
+            quantity: String(closeQty),
+            reduceOnly: 'true',
+          });
+        } catch (closeErr: any) {
+          console.error(`[Orders] CRITICAL: Failed to close unprotected position ${decision.pair}!`, closeErr.message);
+        }
+        return { success: false, error: `SL failed: ${slErr.message} — position closed` };
       }
 
       try {
