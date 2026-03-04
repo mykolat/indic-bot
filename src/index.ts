@@ -10,10 +10,18 @@ import { SignalBuffer } from './webhook/signal-buffer.js';
 import { createWebhookServer } from './webhook/server.js';
 import { TradingLoop } from './trading-loop.js';
 import { Logger } from './logger/index.js';
+import { CryptoPanicClient } from './news/cryptopanic.js';
+import { SessionMemory } from './memory/session.js';
 
 async function main() {
   const config = loadConfig();
   const logger = new Logger('logs');
+
+  const memory = new SessionMemory();
+  const memState = memory.load();
+  if (memState.session_notes) {
+    console.log('[Memory] Loaded session notes from prior session');
+  }
 
   console.log('=== AI Futures Trading Bot ===');
   console.log(`Pairs: ${config.trading.pairs.join(', ')}`);
@@ -38,7 +46,14 @@ async function main() {
     accessToken = await getOpenAIAccessToken();
   }
 
-  const llm = new LLMClient(accessToken, config.openai.model);
+  const promptConfig = {
+    targetReturnPct: config.trading.targetReturnPct,
+    minTakeProfitPct: config.trading.minTakeProfitPct,
+    maxLeverage: config.trading.maxLeverage,
+    maxPositionPct: config.trading.maxPositionPct,
+    maxStopLossPct: config.trading.maxStopLossPct,
+  };
+  const llm = new LLMClient(accessToken, config.openai.model, promptConfig);
 
   const riskManager = new RiskManager({
     maxLeverage: config.trading.maxLeverage,
@@ -49,6 +64,13 @@ async function main() {
   });
 
   const signalBuffer = new SignalBuffer({ maxSize: 50, ttlMs: 30 * 60 * 1000 });
+
+  // News client (optional — only if Apify token is provided)
+  const newsClient = config.apifyToken
+    ? new CryptoPanicClient(config.apifyToken)
+    : undefined;
+  if (newsClient) console.log('[News] CryptoPanic via Apify enabled');
+  else console.log('[News] No APIFY_API_TOKEN — news disabled');
 
   // Start webhook server
   const app = createWebhookServer(signalBuffer, logger, config.webhook.secret);
@@ -65,6 +87,9 @@ async function main() {
     riskManager,
     signalBuffer,
     logger,
+    newsClient,
+    memory,
+    tradingConfig: promptConfig,
   });
 
   // Run loop
@@ -74,6 +99,14 @@ async function main() {
     if (loop.isShutdown()) {
       console.log('\n*** BOT SHUTDOWN — max loss reached ***');
       process.exit(0);
+    }
+
+    // Auto-refresh OAuth token if needed (getOpenAIAccessToken returns cached or refreshes)
+    try {
+      const freshToken = await getOpenAIAccessToken();
+      llm.updateAccessToken(freshToken);
+    } catch (err: any) {
+      console.warn('[Auth] Token refresh skipped:', err.message);
     }
 
     console.log(`\n--- Cycle at ${new Date().toISOString()} ---`);
