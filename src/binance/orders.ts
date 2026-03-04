@@ -36,23 +36,30 @@ export class OrderExecutor {
         ? price * (1 + decision.take_profit_pct / 100)
         : price * (1 - decision.take_profit_pct / 100);
 
-      await this.client.submitNewOrder({
-        symbol: decision.pair,
-        side: closeSide,
-        type: 'STOP_MARKET',
-        stopPrice: String(this.roundPrice(stopPrice)),
-        quantity: String(quantity),
-        reduceOnly: 'true',
-      });
+      // SL and TP are best-effort — log failures but don't fail the trade
+      try {
+        await this.client.submitNewOrder({
+          symbol: decision.pair,
+          side: closeSide,
+          type: 'STOP_MARKET',
+          stopPrice: String(this.roundPrice(stopPrice)),
+          closePosition: 'true',
+        });
+      } catch (slErr: any) {
+        console.error(`[Orders] SL placement failed for ${decision.pair}: ${slErr.message}`);
+      }
 
-      await this.client.submitNewOrder({
-        symbol: decision.pair,
-        side: closeSide,
-        type: 'TAKE_PROFIT_MARKET',
-        stopPrice: String(this.roundPrice(tpPrice)),
-        quantity: String(quantity),
-        reduceOnly: 'true',
-      });
+      try {
+        await this.client.submitNewOrder({
+          symbol: decision.pair,
+          side: closeSide,
+          type: 'TAKE_PROFIT_MARKET',
+          stopPrice: String(this.roundPrice(tpPrice)),
+          closePosition: 'true',
+        });
+      } catch (tpErr: any) {
+        console.error(`[Orders] TP placement failed for ${decision.pair}: ${tpErr.message}`);
+      }
 
       return { success: true, orderId: order.orderId };
     } catch (err: any) {
