@@ -105,12 +105,17 @@ const errors = readJsonl('logs/errors.jsonl');
 const decisions = readJsonl('logs/decisions.jsonl');
 
 if (perf.length > 0) {
-  const first = perf[0];
-  const last = perf[perf.length - 1];
+  // Use very first log entry as start (when no positions open, available ≈ wallet)
+  const startBalance = perf[0].balance;
+  const currentWallet = parseFloat(account.totalWalletBalance);
+  const pnlUsd = currentWallet - startBalance;
+  const roiPct = startBalance > 0 ? (pnlUsd / startBalance) * 100 : 0;
+  const roiSign = pnlUsd >= 0 ? '+' : '';
+
   row('Bot cycles logged',   perf.length);
-  row('First balance',       `$${first.balance.toFixed(2)} at ${first.timestamp}`);
-  row('Last balance',        `$${last.balance.toFixed(2)} at ${last.timestamp}`);
-  row('Change',              `${(last.balance - first.balance) >= 0 ? '+' : ''}$${(last.balance - first.balance).toFixed(2)}`);
+  row('Start balance',       `$${startBalance.toFixed(2)} at ${perf[0].timestamp}`);
+  row('Current wallet',      `$${currentWallet.toFixed(2)}`);
+  row('Session PnL',         `${roiSign}$${pnlUsd.toFixed(2)} (${roiSign}${roiPct.toFixed(2)}% ROI)`);
 }
 
 const executedTrades = trades.filter(t => ['LONG','SHORT','CLOSE'].includes(t.type));
