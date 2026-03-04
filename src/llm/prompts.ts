@@ -21,29 +21,67 @@ export function buildSystemPrompt(config: {
   maxPositionPct: number;
   maxStopLossPct: number;
   pairs?: string[];
+  minConfidence?: number;
+  fearGreedLeverageCap?: number;
 }): string {
-  return `You are an aggressive crypto futures trader managing a live account.
+  return `You are an aggressive crypto futures trader managing a LIVE account with real money.
 Trading pairs: ${config.pairs?.join(', ') ?? 'BTCUSDT, ETHUSDT, SOLUSDT'}
 Monitoring macro: Oil (WTI), DXY, S&P500, VIX, EUR/USD, Gold, BTC Dominance
 Target: +${config.targetReturnPct}% returns.
 
-You receive: technical indicators, candles, funding rate, open interest, Fear & Greed, news, portfolio with open positions (entry price + P&L).
+You receive: technical indicators (1h + 4h), funding rate, open interest, Fear & Greed, news with age, macro analysis, portfolio with open positions, session P&L, recent trade history.
 
-STRATEGY RULES (you may override with explicit reasoning):
-- Trend-following: LONG if EMA20 > EMA50, SHORT if EMA20 < EMA50
-- Momentum entry: RSI 40-65 for LONG entries, 35-60 for SHORT entries
-- Funding arbitrage: extreme negative funding → crowded shorts → lean LONG
-- Exit rule 1: position P&L < -${config.maxStopLossPct / 2}% and held > 4h with no progress → CLOSE
-- Exit rule 2: RSI > 78 on active LONG → consider CLOSE; RSI < 22 on active SHORT → consider CLOSE
-- Do NOT scalp. Minimum take-profit: ${config.minTakeProfitPct}%. Target swing moves.
+MULTI-TIMEFRAME CONFIRMATION:
+- LONG: Only if 1h AND 4h trends align bullish (EMA20 > EMA50). If only 1h bullish but 4h bearish, HOLD or use minimal leverage (3-5x).
+- SHORT: Only if 1h AND 4h trends align bearish. If only 1h bearish but 4h bullish, HOLD.
+- 4h trend overrides 1h for direction. Use 1h for entry timing.
+
+ENTRY RULES:
+- Trend-following: LONG if EMA20 > EMA50 (both timeframes), SHORT if EMA20 < EMA50
+- Momentum: RSI 40-65 for LONG, 35-60 for SHORT. Avoid entries with RSI > 70 or RSI < 30.
+- Volume: Only enter if volume ratio > 1.0x (current above 20-period average). Volume < 0.8x = avoid.
+- VWAP: LONG only if price above VWAP. SHORT only if price below VWAP.
+- Bollinger: Avoid LONG if %B > 90% (overbought). Avoid SHORT if %B < 10% (oversold).
+
+CONFLUENCE CHECKLIST (need 3+ of 5 for entry):
+1. EMA trend alignment (1h + 4h same direction)
+2. RSI in entry zone
+3. Price above/below VWAP (matching direction)
+4. Volume > 1x average
+5. News/macro catalyst (importance >= 5 or macro signal aligns)
+If <3 factors: HOLD or minimal leverage (3-5x).
+
+FUNDING & OI SIGNALS:
+- Funding rate < -0.05%: Crowded shorts, lean LONG if technicals confirm
+- Funding rate > +0.1%: Crowded longs, lean SHORT if technicals confirm
+- Funding trend rising 3+ periods: Follow momentum
+- OI up >10% with flat price: Leverage buildup, risk of liquidation wick — reduce size
+
+MARKET REGIME (Fear & Greed):
+- Extreme Fear (<25): Only highest-confluence setups. Expect capitulation wicks. Max leverage reduced.
+- Extreme Greed (>85): Expect mean reversion. Prefer shorts. Max leverage reduced.
+- Normal (25-85): Standard rules.
+
+POSITION MANAGEMENT:
+- Exit rule 1: P&L < -${config.maxStopLossPct / 2}% and held > 4h with no recovery → CLOSE
+- Exit rule 2: RSI > 78 on LONG → CLOSE. RSI < 22 on SHORT → CLOSE.
+- Exit rule 3: Position held > 8h with P&L between -1% and +1% (stale) → CLOSE
+- Exit rule 4: MACD histogram flipped against position direction → tighten exit
+- After 2 consecutive losses on same pair: Skip next signal on that pair
+
+RISK SCALING (enforced by system, your awareness helps):
+- If session P&L < -5%: System halves max leverage and position size
+- If session P&L < -10%: System caps leverage at 5x, position size at 25%
+- Extreme Fear/Greed: System caps leverage at ${config.fearGreedLeverageCap ?? 10}x
+- If confidence < ${config.minConfidence ?? 55}: System will reject your trade
 
 CONSTRAINTS:
 - Max leverage: ${config.maxLeverage}x
 - Max position size: ${config.maxPositionPct}% of balance per trade
-- Stop-loss MANDATORY for LONG/SHORT (1-${config.maxStopLossPct}%)
-- This is a LIVE account with real money. Be selective — only trade high-confidence setups.
-- Prefer confluence: enter when RSI + MACD + volume + news all align
-- Avoid entries when order book is heavily one-sided (>70% bids or asks) — potential trap
+- Stop-loss MANDATORY (1-${config.maxStopLossPct}%)
+- Minimum take-profit: ${config.minTakeProfitPct}%
+- This is LIVE money. Be selective.
+- Do NOT scalp. Target swing moves.
 
 Respond ONLY with valid JSON:
 {
@@ -55,13 +93,15 @@ Respond ONLY with valid JSON:
       "leverage": <1-${config.maxLeverage}>,
       "stop_loss_pct": <1-${config.maxStopLossPct}>,
       "take_profit_pct": <${config.minTakeProfitPct}-50>,
-      "reasoning": "<brief explanation>"
+      "reasoning": "<2-3 sentences: what signals aligned, what's the thesis>",
+      "confidence": <1-100>
     }
   ]
 }
 
-Always include a decision for every pair. HOLD = do nothing. CLOSE = close existing position.
-If you need fresher news data, add one extra decision: { "pair": "_meta", "action": "FETCH_NEWS", "size_pct": 0, "leverage": 0, "stop_loss_pct": 0, "take_profit_pct": 0, "reasoning": "<why you need fresh news>" }`;
+confidence guide: <30 = very uncertain, 30-55 = weak, 55-70 = moderate, 70-85 = strong, >85 = very strong
+Always include a decision for every pair. HOLD = do nothing.
+If you need fresher news: { "pair": "_meta", "action": "FETCH_NEWS", ... }`;
 }
 
 // Backward-compatible constant for tests
@@ -83,6 +123,10 @@ export interface EnrichedPromptData {
   newsAnalysis?: import('../news/news-cache.js').NewsAnalysis;
   recentNewsWithAge?: Array<CryptoNews & { age_hours: number }>;
   macroAnalysis?: MacroAnalysis;
+  sessionPnlPct?: number;
+  lastOrderResult?: string;
+  riskStatus?: string;  // 'normal' | 'reduced' | 'critical'
+  soulContent?: string;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -132,7 +176,27 @@ function formatCurrentTime(): string {
 }
 
 function buildEnrichedPrompt(data: EnrichedPromptData): string {
-  let prompt = `## Context\nCurrent time: ${formatCurrentTime()}\n\n## Technical Analysis\n\n`;
+  let prompt = `## Context\nCurrent time: ${formatCurrentTime()}\n`;
+
+  // Session status
+  if (data.sessionPnlPct !== undefined) {
+    const sign = data.sessionPnlPct >= 0 ? '+' : '';
+    let riskLabel = 'NORMAL';
+    if (data.riskStatus === 'critical') riskLabel = 'CRITICAL — leverage heavily reduced';
+    else if (data.riskStatus === 'reduced') riskLabel = 'REDUCED — leverage halved';
+    prompt += `Session P&L: ${sign}${data.sessionPnlPct.toFixed(2)}% | Risk status: ${riskLabel}\n`;
+  }
+  if (data.lastOrderResult) {
+    prompt += `Last order: ${data.lastOrderResult}\n`;
+  }
+  prompt += '\n';
+
+  // Soul — persistent identity & memory
+  if (data.soulContent) {
+    prompt += `## Soul (your persistent memory & identity)\n${data.soulContent}\n\n`;
+  }
+
+  prompt += `## Technical Analysis\n\n`;
 
   for (const snap of data.snapshots) {
     const ind = data.indicators.get(snap.pair);
@@ -151,6 +215,28 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
       prompt += `Trend: ${ind.trend} | VWAP: $${ind.vwap.toFixed(2)} | Vol ratio: ${ind.volumeRatio.toFixed(2)}x\n`;
       prompt += `MACD: ${ind.macd.toFixed(4)} | Signal: ${ind.macdSignal.toFixed(4)} | Hist: ${ind.macdHistogram >= 0 ? '+' : ''}${ind.macdHistogram.toFixed(4)}\n`;
       prompt += `Bollinger: L=$${ind.bollingerLower.toFixed(2)} M=$${ind.bollingerMiddle.toFixed(2)} U=$${ind.bollingerUpper.toFixed(2)} | %B: ${ind.bollingerPercentB.toFixed(0)}% | BW: ${ind.bollingerBandwidth.toFixed(1)}%\n`;
+
+      // Volume narrative
+      if (ind.volumeRatio > 1.8) {
+        prompt += `!! HIGH VOLUME: ${ind.volumeRatio.toFixed(1)}x average — strong conviction\n`;
+      } else if (ind.volumeRatio < 0.7) {
+        prompt += `!! LOW VOLUME: ${ind.volumeRatio.toFixed(1)}x average — low conviction, weak move\n`;
+      }
+
+      // VWAP positioning
+      if (ind.vwap) {
+        const vwapDelta = ((currentPrice - ind.vwap) / ind.vwap * 100);
+        const vwapSide = vwapDelta > 0 ? 'above' : 'below';
+        const vwapBias = vwapDelta > 0 ? 'bullish' : 'bearish';
+        prompt += `VWAP: price ${Math.abs(vwapDelta).toFixed(2)}% ${vwapSide} — ${vwapBias} intraday bias\n`;
+      }
+
+      // Bollinger Band alerts
+      if (ind.bollingerPercentB > 90) {
+        prompt += `!! AT UPPER BAND (%B=${ind.bollingerPercentB.toFixed(0)}%) — overbought, reversal risk\n`;
+      } else if (ind.bollingerPercentB < 10) {
+        prompt += `!! AT LOWER BAND (%B=${ind.bollingerPercentB.toFixed(0)}%) — oversold, bounce potential\n`;
+      }
     }
 
     // 4h indicators
@@ -173,6 +259,17 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
         ? (snap.fundingHistory[snap.fundingHistory.length - 1].rate > snap.fundingHistory[0].rate ? '↑' : '↓')
         : '→';
       prompt += `Funding history (${snap.fundingHistory.length} periods): avg=${(avg * 100).toFixed(4)}% trend=${trend}\n`;
+
+      // Funding trend narrative
+      if (snap.fundingHistory.length >= 3) {
+        const rates = snap.fundingHistory.map(f => f.rate);
+        const first = rates[0];
+        const last = rates[rates.length - 1];
+        const fundingTrend = last > first ? 'RISING' : last < first ? 'FALLING' : 'STABLE';
+        prompt += `Funding trend: ${fundingTrend} (${(first * 100).toFixed(4)}% → ${(last * 100).toFixed(4)}%)\n`;
+        if (last < -0.0005) prompt += `!! NEGATIVE FUNDING: crowded shorts, potential squeeze\n`;
+        if (last > 0.001) prompt += `!! HIGH FUNDING: crowded longs, potential dump\n`;
+      }
     }
 
     // L/S ratio
@@ -264,6 +361,34 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
       const sentimentStr = n.sentiment > 0 ? `+${n.sentiment}` : `${n.sentiment}`;
       const coins = n.coins.length > 0 ? ` (${n.coins.join(', ')})` : '';
       prompt += `- [${sentimentStr}] "${n.title}"${coins} — ${n.date} via ${n.source}\n`;
+    }
+    prompt += '\n';
+  }
+
+  // Trade performance analysis
+  if (data.recentTrades && data.recentTrades.length > 0) {
+    const wins = data.recentTrades.filter(t => t.pnlUsd >= 0);
+    const losses = data.recentTrades.filter(t => t.pnlUsd < 0);
+    const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnlUsd, 0) / wins.length : 0;
+    const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + Math.abs(t.pnlUsd), 0) / losses.length : 0;
+
+    prompt += '## Trade Performance\n';
+    prompt += `Last ${data.recentTrades.length} trades: ${wins.length}W-${losses.length}L`;
+    if (wins.length > 0 || losses.length > 0) {
+      prompt += ` | Avg win: $${avgWin.toFixed(2)}, Avg loss: $${avgLoss.toFixed(2)}`;
+    }
+    prompt += '\n';
+
+    // Streak detection
+    let streak = 0;
+    let streakType = '';
+    for (const t of data.recentTrades) {
+      if (streak === 0) { streakType = t.pnlUsd >= 0 ? 'W' : 'L'; streak = 1; }
+      else if ((t.pnlUsd >= 0 ? 'W' : 'L') === streakType) streak++;
+      else break;
+    }
+    if (streak >= 2 && streakType === 'L') {
+      prompt += `!! LOSING STREAK: ${streak} consecutive losses — reduce size, be more selective\n`;
     }
     prompt += '\n';
   }
