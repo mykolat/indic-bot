@@ -72,18 +72,34 @@ export class LLMClient {
       }
 
       return this.parseResponse(content);
-    } catch (err) {
+    } catch (err: any) {
       console.error('[LLM] API error:', err);
-      this.emergencyAlert('LLM failure');
+      this.emergencyAlert(err);
       return [];
     }
   }
 
-  private emergencyAlert(reason: string): void {
+  private emergencyAlert(err: any): void {
     try {
-      // macOS: play system sound + TTS (temporary — will be replaced with backup API)
+      const msg = err?.message || '';
+      let text: string;
+
+      if (msg.includes('401') || msg.includes('account_id') || msg.includes('Unauthorized')) {
+        text = 'Токен AI прострочений, потрібна авторизація';
+      } else if (msg.includes('429') || msg.includes('rate limit') || msg.includes('quota')) {
+        text = 'Ліміт запитів до AI вичерпано';
+      } else if (msg.match(/50[0-9]/)) {
+        text = 'Сервер AI недоступний';
+      } else if (msg.includes('fetch') || msg.includes('ECONNREFUSED') || msg.includes('UND_ERR') || msg.includes('socket')) {
+        text = 'Немає зʼєднання з AI';
+      } else if (msg.includes('parse') || msg.includes('JSON') || msg.includes('decisions')) {
+        text = 'AI відповів некоректно, не вдалося розпарсити рішення';
+      } else {
+        text = `Помилка AI: ${msg.slice(0, 60).replace(/"/g, '')}`;
+      }
+
       execSync('afplay /System/Library/Sounds/Basso.aiff', { stdio: 'ignore' });
-      execSync(`say "Emergency: ${reason.replace(/"/g, '')}"`, { stdio: 'ignore' });
+      execSync(`say "${text}"`, { stdio: 'ignore' });
     } catch {
       // Non-macOS or audio unavailable — silently skip
     }
