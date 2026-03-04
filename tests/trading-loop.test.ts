@@ -217,6 +217,35 @@ describe('TradingLoop', () => {
     expect(callArg.indicators4h.has('BTCUSDT')).toBe(false);
   });
 
+  it('records closed trade to memory after successful CLOSE', async () => {
+    mockLlm.analyze.mockResolvedValueOnce([
+      { pair: 'BTCUSDT', action: 'CLOSE', size_pct: 0, leverage: 1, stop_loss_pct: 0, take_profit_pct: 0, reasoning: 'exit' },
+    ]);
+    mockMarketData.getPortfolioState.mockResolvedValueOnce({
+      balanceUsd: 1000,
+      positions: [{
+        pair: 'BTCUSDT', side: 'LONG',
+        sizeUsd: 100, leverage: 5,
+        entryPrice: 50000, unrealizedPnlPct: 5, heldHours: 2,
+      }],
+      sessionPnl: 0,
+    });
+    mockOrders.close.mockResolvedValueOnce({ success: true, orderId: 99 });
+
+    const mockMemory = loop['deps'].memory as any;
+    mockMemory.addTrade.mockClear();
+
+    await loop.runOnce();
+
+    expect(mockMemory.addTrade).toHaveBeenCalledOnce();
+    const tradeArg = mockMemory.addTrade.mock.calls[0][0];
+    expect(tradeArg.pair).toBe('BTCUSDT');
+    expect(tradeArg.action).toBe('CLOSE');
+    expect(tradeArg.pnlPct).toBe(5);
+    expect(tradeArg.pnlUsd).toBeCloseTo(1.0); // 5% of ($100/5) margin = 5% of $20 = $1.00
+    expect(typeof tradeArg.closedAt).toBe('string');
+  });
+
   it('skips LONG/SHORT within cooldown after closing same pair', async () => {
     // Cycle 1: close a position
     mockLlm.analyze.mockResolvedValueOnce([

@@ -182,6 +182,13 @@ export class TradingLoop {
               this.sessionPnl += pnlUsd;
               logger.logTrade({ type: 'CLOSE', pair: decision.pair, orderId: result.orderId });
               this.lastClosedAt.set(decision.pair, Date.now());
+              this.deps.memory.addTrade({
+                pair: decision.pair,
+                action: 'CLOSE',
+                pnlUsd: parseFloat(pnlUsd.toFixed(2)),
+                pnlPct: pos.unrealizedPnlPct,
+                closedAt: new Date().toISOString(),
+              });
             } else {
               logger.logError('ORDER_FAIL', result.error || 'Unknown error');
             }
