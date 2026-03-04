@@ -7,12 +7,12 @@ export interface BinanceConfig {
 }
 
 export function createBinanceClient(config: BinanceConfig): USDMClient {
-  const mode = config.testnet ? 'TESTNET' : 'LIVE';
+  const mode = config.testnet ? 'TESTNET (demo-fapi)' : 'LIVE';
   console.log(`[Binance] Mode: ${mode}`);
 
   return new USDMClient({
     api_key: config.apiKey,
     api_secret: config.apiSecret,
-    ...(config.testnet && { useTestnet: true }),
+    ...(config.testnet && { baseUrl: 'https://demo-fapi.binance.com' }),
   });
 }
