@@ -1,10 +1,11 @@
 import type { CryptoNews } from './types.js';
+import type { NewsFetcher } from './news-fetcher.js';
 import { fetchWithTimeout } from '../utils/fetch-timeout.js';
 
 // Apify REST API requires '~' instead of '/' in actor IDs
 const ACTOR_ID = 'piotrv1001~cryptopanic-news-scraper';
 
-export class CryptoPanicClient {
+export class CryptoPanicClient implements NewsFetcher {
   constructor(private apifyToken: string) {}
 
   async fetchNews(limit = 100): Promise<CryptoNews[]> {

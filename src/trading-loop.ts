@@ -4,7 +4,7 @@ import type { LLMClient } from './llm/client.js';
 import type { RiskManager, TradeDecision, PortfolioState } from './risk/manager.js';
 import type { SignalBuffer } from './webhook/signal-buffer.js';
 import type { Logger } from './logger/index.js';
-import type { CryptoPanicClient } from './news/cryptopanic.js';
+import type { NewsFetcher } from './news/news-fetcher.js';
 import type { NewsCache } from './news/news-cache.js';
 import type { NewsAnalystAgent } from './news/news-analyst.js';
 import type { MacroFetcher } from './news/macro-fetcher.js';
@@ -25,7 +25,7 @@ interface TradingLoopDeps {
   riskManager: RiskManager;
   signalBuffer: SignalBuffer;
   logger: Logger;
-  newsClient?: CryptoPanicClient;
+  newsClient?: NewsFetcher;
   memory: SessionMemory;
   newsCache: NewsCache;
   newsAnalyst: NewsAnalystAgent;
