@@ -47,9 +47,18 @@ export class OrderExecutor {
     }
   }
 
-  async close(pair: string, quantity: number, side: 'LONG' | 'SHORT'): Promise<OrderResult> {
+  async close(pair: string, side: 'LONG' | 'SHORT'): Promise<OrderResult> {
     try {
       const closeSide = side === 'LONG' ? 'SELL' : 'BUY';
+
+      // Fetch exact position size from Binance to avoid precision errors
+      const positions = await this.client.getPositions({ symbol: pair });
+      const pos = positions.find((p: any) => p.symbol === pair && parseFloat(p.positionAmt) !== 0);
+      if (!pos) {
+        return { success: false, error: `No open position found for ${pair}` };
+      }
+      const quantity = Math.abs(parseFloat(pos.positionAmt));
+
       const order = await this.client.submitNewOrder({
         symbol: pair,
         side: closeSide,

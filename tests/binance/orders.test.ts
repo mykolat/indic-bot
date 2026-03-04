@@ -17,6 +17,9 @@ describe('OrderExecutor', () => {
         type: 'MARKET',
       }),
       getSymbolPriceTicker: vi.fn().mockResolvedValue({ symbol: 'BTCUSDT', price: '50000.00' }),
+      getPositions: vi.fn().mockResolvedValue([
+        { symbol: 'BTCUSDT', positionAmt: '0.001' },
+      ]),
     };
     executor = new OrderExecutor(mockClient);
   });
@@ -47,8 +50,11 @@ describe('OrderExecutor', () => {
   });
 
   it('closes a position', async () => {
-    const result = await executor.close('BTCUSDT', 0.001, 'LONG');
+    const result = await executor.close('BTCUSDT', 'LONG');
+    expect(mockClient.getPositions).toHaveBeenCalledWith({ symbol: 'BTCUSDT' });
     expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(1);
+    const call = mockClient.submitNewOrder.mock.calls[0][0];
+    expect(call.reduceOnly).toBe('true');
     expect(result.success).toBe(true);
   });
 
