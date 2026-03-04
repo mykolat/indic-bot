@@ -1,4 +1,5 @@
 import os from 'node:os';
+import { execSync } from 'node:child_process';
 import type { MarketSnapshot } from '../binance/market-data.js';
 import type { PortfolioState, TradeDecision } from '../risk/manager.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
@@ -73,7 +74,18 @@ export class LLMClient {
       return this.parseResponse(content);
     } catch (err) {
       console.error('[LLM] API error:', err);
+      this.emergencyAlert('LLM failure');
       return [];
+    }
+  }
+
+  private emergencyAlert(reason: string): void {
+    try {
+      // macOS: play system sound + TTS (temporary — will be replaced with backup API)
+      execSync('afplay /System/Library/Sounds/Basso.aiff', { stdio: 'ignore' });
+      execSync(`say "Emergency: ${reason.replace(/"/g, '')}"`, { stdio: 'ignore' });
+    } catch {
+      // Non-macOS or audio unavailable — silently skip
     }
   }
 
