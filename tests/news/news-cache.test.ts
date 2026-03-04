@@ -40,7 +40,9 @@ describe('NewsCache', () => {
     cache.save(state);
     const loaded = cache.load();
     expect(loaded?.analysis?.market_summary).toBe('BTC bullish');
-    expect(loaded?.items).toHaveLength(1);
+    // items are now stored in SQLite; JSON always has items: []
+    expect(loaded?.items).toHaveLength(0);
+    expect(cache.dbCount()).toBe(1);
   });
 
   it('shouldRefresh returns true when no cache', () => {
