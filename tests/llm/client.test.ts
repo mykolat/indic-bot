@@ -1,12 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LLMClient } from '../../src/llm/client.js';
 import type { MarketSnapshot } from '../../src/binance/market-data.js';
 import type { TradingViewSignal } from '../../src/webhook/signal-buffer.js';
 import type { PortfolioState } from '../../src/risk/manager.js';
 
+// Fake JWT with chatgpt_account_id
+const FAKE_JWT_PAYLOAD = Buffer.from(JSON.stringify({
+  'https://api.openai.com/auth': { chatgpt_account_id: 'acc_test123' },
+})).toString('base64');
+const FAKE_TOKEN = `eyJhbGciOiJSUzI1NiJ9.${FAKE_JWT_PAYLOAD}.fakesig`;
+
 describe('LLMClient', () => {
   let llm: LLMClient;
-  let mockOpenAI: any;
+  let originalFetch: typeof globalThis.fetch;
 
   const fakeSnapshot: MarketSnapshot = {
     pair: 'BTCUSDT',
@@ -20,73 +26,64 @@ describe('LLMClient', () => {
   const fakePortfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0 };
 
   beforeEach(() => {
-    mockOpenAI = {
-      chat: {
-        completions: {
-          create: vi.fn().mockResolvedValue({
-            choices: [{
-              message: {
-                content: JSON.stringify({
-                  decisions: [{
-                    pair: 'BTCUSDT',
-                    action: 'LONG',
-                    size_pct: 20,
-                    leverage: 5,
-                    stop_loss_pct: 2,
-                    take_profit_pct: 4,
-                    reasoning: 'bullish momentum',
-                  }],
-                }),
-              },
-            }],
-          }),
-        },
-      },
-    };
-    llm = new LLMClient(mockOpenAI, 'gpt-4o');
+    originalFetch = globalThis.fetch;
+    llm = new LLMClient(FAKE_TOKEN, 'gpt-5.3-chat-latest');
   });
 
-  it('returns parsed trade decisions from GPT', async () => {
-    const decisions = await llm.analyze([fakeSnapshot], fakePortfolio, []);
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
+  function mockFetchResponse(output_text: string) {
+    const mock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ output_text }),
+    });
+    globalThis.fetch = mock as any;
+    return mock;
+  }
+
+  it('returns parsed trade decisions', async () => {
+    mockFetchResponse(JSON.stringify({
+      decisions: [{
+        pair: 'BTCUSDT', action: 'LONG', size_pct: 20, leverage: 5,
+        stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'bullish momentum',
+      }],
+    }));
+
+    const decisions = await llm.analyze([fakeSnapshot], fakePortfolio, []);
     expect(decisions).toHaveLength(1);
     expect(decisions[0].pair).toBe('BTCUSDT');
     expect(decisions[0].action).toBe('LONG');
     expect(decisions[0].leverage).toBe(5);
   });
 
-  it('handles GPT returning HOLD for all pairs', async () => {
-    mockOpenAI.chat.completions.create.mockResolvedValue({
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            decisions: [{ pair: 'BTCUSDT', action: 'HOLD', size_pct: 0, leverage: 0, stop_loss_pct: 0, take_profit_pct: 0, reasoning: 'sideways market' }],
-          }),
-        },
-      }],
-    });
+  it('handles HOLD decisions', async () => {
+    mockFetchResponse(JSON.stringify({
+      decisions: [{ pair: 'BTCUSDT', action: 'HOLD', size_pct: 0, leverage: 0, stop_loss_pct: 0, take_profit_pct: 0, reasoning: 'sideways' }],
+    }));
 
     const decisions = await llm.analyze([fakeSnapshot], fakePortfolio, []);
     expect(decisions[0].action).toBe('HOLD');
   });
 
-  it('includes TradingView signals in context', async () => {
-    const signals: TradingViewSignal[] = [
-      { signal: 'BUY', pair: 'BTCUSDT', indicator: 'RSI', value: 72, timeframe: '1h' },
-    ];
+  it('sends request to Codex backend API with correct structure', async () => {
+    const mock = mockFetchResponse('{"decisions":[]}');
 
-    await llm.analyze([fakeSnapshot], fakePortfolio, signals);
+    await llm.analyze([fakeSnapshot], fakePortfolio, []);
 
-    const callArgs = mockOpenAI.chat.completions.create.mock.calls[0][0];
-    const userMsg = callArgs.messages.find((m: any) => m.role === 'user');
-    expect(userMsg.content).toContain('RSI');
-    expect(userMsg.content).toContain('BUY');
+    expect(mock).toHaveBeenCalledTimes(1);
+    const [url, opts] = mock.mock.calls[0];
+    expect(url).toBe('https://chatgpt.com/backend-api/codex/responses');
+
+    const body = JSON.parse(opts.body);
+    expect(body.model).toBe('gpt-5.3-chat-latest');
+    expect(body.instructions).toBeDefined();
+    expect(body.input).toContain('BTCUSDT');
   });
 
   it('returns empty decisions on parse error', async () => {
-    mockOpenAI.chat.completions.create.mockResolvedValue({
-      choices: [{ message: { content: 'not json' } }],
-    });
+    mockFetchResponse('not json');
 
     const decisions = await llm.analyze([fakeSnapshot], fakePortfolio, []);
     expect(decisions).toHaveLength(0);

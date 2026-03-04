@@ -1,13 +1,30 @@
+import os from 'node:os';
 import type { MarketSnapshot } from '../binance/market-data.js';
 import type { PortfolioState, TradeDecision } from '../risk/manager.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
 import { SYSTEM_PROMPT, buildUserPrompt } from './prompts.js';
 
+const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex/responses';
+const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
+
+function extractAccountId(token: string): string {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('Invalid JWT token');
+  const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+  const accountId = payload?.[JWT_CLAIM_PATH]?.chatgpt_account_id;
+  if (!accountId) throw new Error('No chatgpt_account_id in token');
+  return accountId;
+}
+
 export class LLMClient {
+  private accountId: string;
+
   constructor(
-    private openai: any,
+    private accessToken: string,
     private model: string,
-  ) {}
+  ) {
+    this.accountId = extractAccountId(accessToken);
+  }
 
   async analyze(
     snapshots: MarketSnapshot[],
@@ -15,22 +32,161 @@ export class LLMClient {
     signals: TradingViewSignal[],
   ): Promise<TradeDecision[]> {
     try {
-      const response = await this.openai.chat.completions.create({
+      const userPrompt = buildUserPrompt(snapshots, portfolio, signals);
+
+      const body = {
         model: this.model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserPrompt(snapshots, portfolio, signals) },
-        ],
-        temperature: 0.3,
-        max_tokens: 1000,
+        store: false,
+        stream: true,
+        instructions: SYSTEM_PROMPT,
+        input: [{ role: 'user', content: userPrompt }],
+        text: { verbosity: 'medium' },
+        include: ['reasoning.encrypted_content'],
+      };
+
+      const response = await fetch(CODEX_BASE_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'chatgpt-account-id': this.accountId,
+          'OpenAI-Beta': 'responses=experimental',
+          'User-Agent': `indic-bot (${os.platform()} ${os.release()}; ${os.arch()})`,
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify(body),
       });
 
-      const content = response.choices[0]?.message?.content || '';
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
+      }
+
+      const content = await this.streamSSE(response);
+
+      if (!content) {
+        console.error('[LLM] Empty response from Codex API');
+        return [];
+      }
+
       return this.parseResponse(content);
     } catch (err) {
       console.error('[LLM] API error:', err);
       return [];
     }
+  }
+
+  private async streamSSE(response: Response): Promise<string> {
+    if (!response.body) {
+      const text = await response.text();
+      return this.parseSSEText(text);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let output = '';
+    let reasoning = '';
+
+    console.log('[LLM] Streaming response...\n');
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx = buffer.indexOf('\n');
+      while (idx !== -1) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+
+        if (!line.startsWith('data:')) {
+          idx = buffer.indexOf('\n');
+          continue;
+        }
+
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') {
+          idx = buffer.indexOf('\n');
+          continue;
+        }
+
+        try {
+          const event = JSON.parse(data);
+
+          // Reasoning/thinking deltas
+          if (event.type === 'response.reasoning.delta' && event.delta) {
+            reasoning += event.delta;
+            process.stdout.write(`\x1b[90m${event.delta}\x1b[0m`);
+          }
+
+          // Reasoning summary
+          if (event.type === 'response.reasoning_summary_text.delta' && event.delta) {
+            process.stdout.write(`\x1b[33m${event.delta}\x1b[0m`);
+          }
+
+          // Text output deltas
+          if (event.type === 'response.output_text.delta' && event.delta) {
+            output += event.delta;
+            process.stdout.write(event.delta);
+          }
+
+          // Response completed — extract full text as fallback
+          if (event.type === 'response.completed' && event.response?.output) {
+            for (const item of event.response.output) {
+              if (item.type === 'message' && item.content) {
+                for (const block of item.content) {
+                  if (block.type === 'output_text' && block.text && !output) {
+                    output = block.text;
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+
+        idx = buffer.indexOf('\n');
+      }
+    }
+
+    console.log('\n');
+
+    if (reasoning) {
+      console.log(`[LLM] Reasoning: ${reasoning.length} chars`);
+    }
+
+    return output;
+  }
+
+  private parseSSEText(text: string): string {
+    let output = '';
+
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') continue;
+
+      try {
+        const event = JSON.parse(data);
+        if (event.type === 'response.output_text.delta' && event.delta) {
+          output += event.delta;
+        }
+        if (event.type === 'response.completed' && event.response?.output) {
+          for (const item of event.response.output) {
+            if (item.type === 'message' && item.content) {
+              for (const block of item.content) {
+                if (block.type === 'output_text' && block.text) {
+                  return block.text;
+                }
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return output;
   }
 
   private parseResponse(content: string): TradeDecision[] {
@@ -46,5 +202,10 @@ export class LLMClient {
       console.error('[LLM] Failed to parse response:', content.slice(0, 200));
       return [];
     }
+  }
+
+  updateAccessToken(token: string): void {
+    this.accessToken = token;
+    this.accountId = extractAccountId(token);
   }
 }

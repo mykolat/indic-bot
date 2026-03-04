@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import OpenAI from 'openai';
 import { loadConfig } from './config.js';
 import { createBinanceClient } from './binance/client.js';
 import { MarketDataFetcher } from './binance/market-data.js';
@@ -30,17 +29,16 @@ async function main() {
   const orders = new OrderExecutor(binanceClient);
 
   // OpenAI auth: OAuth (default) or API key fallback
-  let apiKey: string;
+  let accessToken: string;
   if (config.openai.apiKey && config.openai.apiKey !== 'oauth') {
     console.log('[Auth] Using OpenAI API key from env');
-    apiKey = config.openai.apiKey;
+    accessToken = config.openai.apiKey;
   } else {
     console.log('[Auth] Using OpenAI OAuth flow...');
-    apiKey = await getOpenAIAccessToken();
+    accessToken = await getOpenAIAccessToken();
   }
 
-  const openai = new OpenAI({ apiKey });
-  const llm = new LLMClient(openai, config.openai.model);
+  const llm = new LLMClient(accessToken, config.openai.model);
 
   const riskManager = new RiskManager({
     maxLeverage: config.trading.maxLeverage,

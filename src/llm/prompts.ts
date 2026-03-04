@@ -31,7 +31,7 @@ Rules:
 - CLOSE means close existing position
 - Max leverage: 10x
 - Stop-loss is MANDATORY for LONG and SHORT (1-3%)
-- Be conservative — only trade when there's a clear signal
+- Be proactive — this is a demo/testnet account, take positions when you see any reasonable setup
 - Consider funding rate: very high positive = shorts being squeezed, very negative = longs being squeezed
 - Consider open interest changes for momentum confirmation`;
 
