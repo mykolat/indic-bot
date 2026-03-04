@@ -168,6 +168,55 @@ describe('TradingLoop', () => {
     expect(perfCall.sessionPnl).toBeCloseTo(1.60);
   });
 
+  it('computes and passes 4h indicators to llm.analyze', async () => {
+    const make4hCandles = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        openTime: i, open: '50000', high: '51000', low: '49000',
+        close: String(50000 + i * 10), volume: '100',
+      }));
+
+    mockMarketData.getSnapshot.mockResolvedValueOnce({
+      pair: 'BTCUSDT',
+      candles1h: [],
+      candles4h: make4hCandles(50),
+      candles15m: [],
+      fundingRate: '0.0001', fundingHistory: [],
+      openInterest: '80000', markPrice: '50000',
+      longShortRatio: null, orderBookBidPct: 50, orderBookAskPct: 50,
+    });
+
+    await loop.runOnce();
+
+    const callArg = mockLlm.analyze.mock.calls[0][0];
+    expect(callArg.indicators4h).toBeDefined();
+    expect(callArg.indicators4h.has('BTCUSDT')).toBe(true);
+    const ind4h = callArg.indicators4h.get('BTCUSDT');
+    expect(typeof ind4h.rsi).toBe('number');
+  });
+
+  it('omits 4h indicators when candles4h has fewer than 20 entries', async () => {
+    const makeCandles = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        openTime: i, open: '50000', high: '51000', low: '49000',
+        close: String(50000 + i * 10), volume: '100',
+      }));
+
+    mockMarketData.getSnapshot.mockResolvedValueOnce({
+      pair: 'BTCUSDT',
+      candles1h: [],
+      candles4h: makeCandles(10), // < 20 — should be skipped
+      candles15m: [],
+      fundingRate: '0.0001', fundingHistory: [],
+      openInterest: '80000', markPrice: '50000',
+      longShortRatio: null, orderBookBidPct: 50, orderBookAskPct: 50,
+    });
+
+    await loop.runOnce();
+
+    const callArg = mockLlm.analyze.mock.calls[0][0];
+    expect(callArg.indicators4h.has('BTCUSDT')).toBe(false);
+  });
+
   it('skips LONG/SHORT within cooldown after closing same pair', async () => {
     // Cycle 1: close a position
     mockLlm.analyze.mockResolvedValueOnce([

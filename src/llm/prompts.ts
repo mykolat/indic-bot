@@ -61,6 +61,7 @@ export const SYSTEM_PROMPT = buildSystemPrompt({
 export interface EnrichedPromptData {
   snapshots: MarketSnapshot[];
   indicators: Map<string, Indicators>;
+  indicators4h?: Map<string, Indicators>;
   portfolio: PortfolioState;
   signals: TradingViewSignal[];
   news: CryptoNews[];
@@ -117,6 +118,12 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
       prompt += `Trend: ${ind.trend} | VWAP: $${ind.vwap.toFixed(2)} | Vol ratio: ${ind.volumeRatio.toFixed(2)}x\n`;
       prompt += `MACD: ${ind.macd.toFixed(4)} | Signal: ${ind.macdSignal.toFixed(4)} | Hist: ${ind.macdHistogram >= 0 ? '+' : ''}${ind.macdHistogram.toFixed(4)}\n`;
       prompt += `Bollinger: L=$${ind.bollingerLower.toFixed(2)} M=$${ind.bollingerMiddle.toFixed(2)} U=$${ind.bollingerUpper.toFixed(2)} | %B: ${ind.bollingerPercentB.toFixed(0)}% | BW: ${ind.bollingerBandwidth.toFixed(1)}%\n`;
+    }
+
+    // 4h indicators
+    const ind4h = data.indicators4h?.get(snap.pair);
+    if (ind4h) {
+      prompt += `4h Trend: ${ind4h.trend} | RSI(14) 4h: ${ind4h.rsi.toFixed(1)} | EMA20 4h: $${ind4h.ema20.toFixed(2)} | ATR 4h: $${ind4h.atr.toFixed(2)}\n`;
     }
 
     // 15m RSI

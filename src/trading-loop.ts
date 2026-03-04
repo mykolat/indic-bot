@@ -87,6 +87,18 @@ export class TradingLoop {
         indicators.set(snap.pair, computeIndicators(closes, highs, lows, volumes));
       }
 
+      // Compute 4h indicators for each pair
+      const indicators4h = new Map<string, Indicators>();
+      for (const snap of snapshots) {
+        if (snap.candles4h.length >= 20) {
+          const closes4h = snap.candles4h.map(c => parseFloat(c.close));
+          const highs4h = snap.candles4h.map(c => parseFloat(c.high));
+          const lows4h = snap.candles4h.map(c => parseFloat(c.low));
+          const volumes4h = snap.candles4h.map(c => parseFloat(c.volume));
+          indicators4h.set(snap.pair, computeIndicators(closes4h, highs4h, lows4h, volumes4h));
+        }
+      }
+
       // 4. Refresh news cache if stale, then fetch sentiment
       if (this.deps.newsClient && this.deps.newsCache.shouldRefresh(this.deps.newsConfig.refreshIntervalH)) {
         console.log('[News] Cache stale — fetching fresh news...');
@@ -112,6 +124,7 @@ export class TradingLoop {
       const decisions = await llm.analyze({
         snapshots,
         indicators,
+        indicators4h,
         portfolio,
         signals,
         news: [],
