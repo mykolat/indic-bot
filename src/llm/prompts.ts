@@ -64,6 +64,7 @@ export interface EnrichedPromptData {
   fearGreed: FearGreedData;
   sessionNotes?: string;
   recentTrades?: TradeRecord[];
+  newsAnalysis?: import('../news/news-cache.js').NewsAnalysis;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -129,7 +130,24 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   prompt += `Fear & Greed: ${data.fearGreed.value} (${data.fearGreed.label})\n\n`;
 
   // News
-  if (data.news.length > 0) {
+  if (data.newsAnalysis) {
+    const na = data.newsAnalysis;
+    prompt += '## News Analysis\n';
+    prompt += `Sentiment: ${na.overall_sentiment} | Macro: fed=${na.macro_signals.fed_stance}, risk=${na.macro_signals.risk_appetite}\n`;
+    prompt += `Summary: ${na.market_summary}\n`;
+    if (na.top_signals.length > 0) {
+      prompt += 'Signals:\n';
+      for (const s of na.top_signals.sort((a, b) => b.importance - a.importance).slice(0, 8)) {
+        const coins = s.coins.join('/');
+        prompt += `  [${s.importance}/10] ${coins} ${s.direction.toUpperCase()} (${s.timeframe}) — ${s.catalyst}${s.conflicting ? ' ⚡conflicting' : ''}\n`;
+      }
+    }
+    if (na.risk_events.length > 0) {
+      prompt += `Risk events: ${na.risk_events.join(', ')}\n`;
+    }
+    prompt += '\n';
+  } else if (data.news.length > 0) {
+    // Fallback to raw headlines if no analysis yet
     prompt += '## Recent News\n';
     for (const n of data.news) {
       const sentimentStr = n.sentiment > 0 ? `+${n.sentiment}` : `${n.sentiment}`;
