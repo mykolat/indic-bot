@@ -66,6 +66,7 @@ async function main() {
     maxExposurePct: config.trading.maxExposurePct,
     maxStopLossPct: config.trading.maxStopLossPct,
     maxLossUsd: config.trading.maxLossUsd,
+    maxLossPct: config.trading.maxLossPct,
   });
 
   const signalBuffer = new SignalBuffer({ maxSize: 50, ttlMs: 30 * 60 * 1000 });
@@ -99,6 +100,7 @@ async function main() {
       refreshIntervalH: config.trading.newsRefreshIntervalH,
       maxItems: config.trading.newsMaxItems,
     },
+    churnCooldownMs: config.trading.churnCooldownMs,
     memory,
     tradingConfig: promptConfig,
   });

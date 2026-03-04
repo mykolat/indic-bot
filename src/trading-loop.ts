@@ -27,6 +27,7 @@ interface TradingLoopDeps {
     refreshIntervalH: number;
     maxItems: number;
   };
+  churnCooldownMs: number;
   tradingConfig: {
     targetReturnPct: number;
     minTakeProfitPct: number;
@@ -41,6 +42,7 @@ export class TradingLoop {
   private _shutdown = false;
   private sessionPnl = 0;
   private cycleCount = 0;
+  private lastClosedAt = new Map<string, number>();
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
@@ -153,11 +155,18 @@ export class TradingLoop {
             const result = await orders.close(decision.pair, pos.side);
             if (result.success) {
               logger.logTrade({ type: 'CLOSE', pair: decision.pair, orderId: result.orderId });
+              this.lastClosedAt.set(decision.pair, Date.now());
             } else {
               logger.logError('ORDER_FAIL', result.error || 'Unknown error');
             }
           }
         } else {
+          const lastClose = this.lastClosedAt.get(decision.pair);
+          if (lastClose && Date.now() - lastClose < this.deps.churnCooldownMs) {
+            const remainingMin = Math.round((this.deps.churnCooldownMs - (Date.now() - lastClose)) / 60000);
+            console.log(`[Churn] Skipping ${decision.pair} ${decision.action} — cooldown ${remainingMin}m remaining`);
+            continue;
+          }
           const result = await orders.execute(decision, portfolio.balanceUsd);
           if (result.success) {
             logger.logTrade({

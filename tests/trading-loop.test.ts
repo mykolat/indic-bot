@@ -72,6 +72,7 @@ describe('TradingLoop', () => {
         }),
       },
       newsConfig: { refreshIntervalH: 12, maxItems: 100 },
+      churnCooldownMs: 900000,
       tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
     });
   });
@@ -121,5 +122,27 @@ describe('TradingLoop', () => {
     await loop.runOnce();
 
     expect(mockLogger.logError).toHaveBeenCalled();
+  });
+
+  it('skips LONG/SHORT within cooldown after closing same pair', async () => {
+    // Cycle 1: close a position
+    mockLlm.analyze.mockResolvedValueOnce([
+      { pair: 'BTCUSDT', action: 'CLOSE', size_pct: 0, leverage: 1, stop_loss_pct: 0, take_profit_pct: 0, reasoning: 'exit' },
+    ]);
+    mockMarketData.getPortfolioState.mockResolvedValueOnce({
+      balanceUsd: 10,
+      positions: [{ pair: 'BTCUSDT', side: 'LONG', sizeUsd: 5, leverage: 5, entryPrice: 50000, unrealizedPnlPct: 0, heldHours: 1 }],
+      sessionPnl: 0,
+    });
+    await loop.runOnce();
+    expect(mockOrders.close).toHaveBeenCalledWith('BTCUSDT', 'LONG');
+
+    // Cycle 2: LLM wants LONG again immediately — should be blocked
+    mockOrders.execute.mockClear();
+    mockLlm.analyze.mockResolvedValueOnce([
+      { pair: 'BTCUSDT', action: 'LONG', size_pct: 20, leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 're-enter' },
+    ]);
+    await loop.runOnce();
+    expect(mockOrders.execute).not.toHaveBeenCalled();
   });
 });

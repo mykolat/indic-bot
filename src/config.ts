@@ -20,6 +20,7 @@ export interface Config {
     maxLeverage: number;
     loopIntervalMs: number;
     maxLossUsd: number;
+    maxLossPct: number;
     maxPositionPct: number;
     maxExposurePct: number;
     maxStopLossPct: number;
@@ -27,6 +28,7 @@ export interface Config {
     minTakeProfitPct: number;
     newsRefreshIntervalH: number;
     newsMaxItems: number;
+    churnCooldownMs: number;
   };
 }
 
@@ -57,6 +59,7 @@ export function loadConfig(): Config {
       maxLeverage: parseInt(process.env.MAX_LEVERAGE || '20', 10),
       loopIntervalMs: parseInt(process.env.LOOP_INTERVAL_MS || '60000', 10),
       maxLossUsd: parseFloat(process.env.MAX_LOSS_USD || '5'),
+      maxLossPct: parseFloat(process.env.MAX_LOSS_PCT || '10'),
       maxPositionPct: parseFloat(process.env.MAX_POSITION_PCT || '50'),
       maxExposurePct: parseFloat(process.env.MAX_EXPOSURE_PCT || '150'),
       maxStopLossPct: parseFloat(process.env.MAX_STOP_LOSS_PCT || '5'),
@@ -64,6 +67,7 @@ export function loadConfig(): Config {
       minTakeProfitPct: parseFloat(process.env.MIN_TAKE_PROFIT_PCT || '5'),
       newsRefreshIntervalH: parseInt(process.env.NEWS_REFRESH_INTERVAL_H || '12', 10),
       newsMaxItems: parseInt(process.env.NEWS_MAX_ITEMS || '100', 10),
+      churnCooldownMs: parseInt(process.env.CHURN_COOLDOWN_MS || '900000', 10),
     },
   };
 }
