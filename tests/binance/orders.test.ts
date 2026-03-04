@@ -38,13 +38,13 @@ describe('OrderExecutor', () => {
 
     const stopCall = mockClient.submitNewOrder.mock.calls[1][0];
     expect(stopCall.type).toBe('STOP_MARKET');
-    expect(stopCall.reduceOnly).toBe('true');
-    expect(stopCall.closePosition).toBeUndefined();
+    expect(stopCall.closePosition).toBe('true');
+    expect(stopCall.reduceOnly).toBeUndefined();
 
     const tpCall = mockClient.submitNewOrder.mock.calls[2][0];
     expect(tpCall.type).toBe('TAKE_PROFIT_MARKET');
-    expect(tpCall.reduceOnly).toBe('true');
-    expect(tpCall.closePosition).toBeUndefined();
+    expect(tpCall.closePosition).toBe('true');
+    expect(tpCall.reduceOnly).toBeUndefined();
   });
 
   it('stop price is below entry for LONG, above for SHORT', async () => {

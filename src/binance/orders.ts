@@ -43,8 +43,7 @@ export class OrderExecutor {
           side: closeSide,
           type: 'STOP_MARKET',
           stopPrice: String(this.roundPrice(stopPrice)),
-          quantity: String(quantity),
-          reduceOnly: 'true',
+          closePosition: 'true',
         });
       } catch (slErr: any) {
         console.error(`[Orders] SL placement failed for ${decision.pair}: ${slErr.message}`);
@@ -56,8 +55,7 @@ export class OrderExecutor {
           side: closeSide,
           type: 'TAKE_PROFIT_MARKET',
           stopPrice: String(this.roundPrice(tpPrice)),
-          quantity: String(quantity),
-          reduceOnly: 'true',
+          closePosition: 'true',
         });
       } catch (tpErr: any) {
         console.error(`[Orders] TP placement failed for ${decision.pair}: ${tpErr.message}`);
