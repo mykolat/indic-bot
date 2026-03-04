@@ -13,6 +13,7 @@ import type { MacroAnalysis } from './llm/prompts.js';
 import { computeIndicators, type Indicators } from './indicators/technical.js';
 import { fetchFearGreed } from './news/fear-greed.js';
 import { SessionMemory } from './memory/session.js';
+import { computeSoulStats } from './memory/soul-stats.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -37,16 +38,21 @@ interface TradingLoopDeps {
     maxLeverage: number;
     maxPositionPct: number;
     maxStopLossPct: number;
+    stalePositionHours?: number;
+    maxHoldHours?: number;
+    minConfidence?: number;
+    fearGreedLeverageCap?: number;
   };
   macroFetcher?: MacroFetcher;
   macroAnalyst?: MacroAnalystAgent;
   macroRefreshIntervalMs?: number;  // default 10_800_000 (3h)
+  soulKeeper?: import('./memory/soul-keeper.js').SoulKeeper;
+  soulReview?: import('./memory/soul-review.js').SoulReviewAgent;
 }
 
 export class TradingLoop {
   private deps: TradingLoopDeps;
   private _shutdown = false;
-  private sessionPnl = 0;
   private cycleCount = 0;
   private lastClosedAt = new Map<string, number>();
   private lastOI = new Map<string, number>();
@@ -81,9 +87,52 @@ export class TradingLoop {
         return { ...snap, openInterestDelta: oiDeltaPct };
       });
 
-      // 2. Get portfolio state
+      // 2. Get portfolio state + real sessionPnl from Binance balance
       const portfolio: PortfolioState = await marketData.getPortfolioState();
-      portfolio.sessionPnl = this.sessionPnl;
+      this.deps.memory.setStartBalance(portfolio.balanceUsd);
+      const startBalance = this.deps.memory.getStartBalance()!;
+      const sessionPnl = portfolio.balanceUsd - startBalance;
+      portfolio.sessionPnl = sessionPnl;
+
+      // Auto-exit stale positions
+      const staleHours = this.deps.tradingConfig.stalePositionHours ?? 8;
+      const maxHoldHours = this.deps.tradingConfig.maxHoldHours ?? 24;
+
+      for (const pos of portfolio.positions) {
+        let closeReason: string | null = null;
+
+        if (pos.heldHours > maxHoldHours) {
+          closeReason = `max_hold_${maxHoldHours}h`;
+        } else if (pos.heldHours > staleHours && Math.abs(pos.unrealizedPnlPct) < 1) {
+          closeReason = `stale_${staleHours}h`;
+        }
+
+        if (closeReason) {
+          console.log(`[AutoExit] Closing ${pos.pair} ${pos.side} — ${closeReason} (held ${pos.heldHours.toFixed(1)}h, P&L: ${pos.unrealizedPnlPct.toFixed(1)}%)`);
+          const result = await orders.close(pos.pair, pos.side);
+          if (result.success) {
+            logger.logTrade({ type: 'AUTO_CLOSE', pair: pos.pair, reason: closeReason });
+            this.deps.soulKeeper?.addInvisibleExit({
+              pair: pos.pair,
+              side: pos.side,
+              type: 'AUTO_CLOSE',
+              pnlPct: pos.unrealizedPnlPct,
+              timestamp: new Date().toISOString(),
+            });
+            this.lastClosedAt.set(pos.pair, Date.now());
+            this.deps.memory.addTrade({
+              pair: pos.pair,
+              action: 'AUTO_CLOSE',
+              pnlUsd: pos.unrealizedPnlPct * (pos.sizeUsd / pos.leverage) / 100,
+              pnlPct: pos.unrealizedPnlPct,
+              closedAt: new Date().toISOString(),
+            });
+            this.deps.memory.setLastOrderResult(
+              `${pos.pair} AUTO_CLOSE — ${closeReason}`
+            );
+          }
+        }
+      }
 
       // 3. Compute indicators for each pair
       const indicators = new Map<string, Indicators>();
@@ -146,6 +195,10 @@ export class TradingLoop {
       // 6. LLM analysis with enriched data
       const memState = this.deps.memory.load();
       const recentNewsWithAge = this.deps.newsCache.getRecentItems(48);
+      const sessionPnlPct = startBalance > 0 ? (sessionPnl / startBalance) * 100 : 0;
+      const lossPct = Math.abs(Math.min(sessionPnlPct, 0));
+      const riskStatus = lossPct >= 10 ? 'critical' : lossPct >= 5 ? 'reduced' : 'normal';
+      const soulContent = this.deps.soulKeeper?.read();
       const decisions = await llm.analyze({
         snapshots,
         indicators,
@@ -159,6 +212,10 @@ export class TradingLoop {
         newsAnalysis,
         recentNewsWithAge,
         macroAnalysis: this.lastMacroAnalysis,
+        sessionPnlPct,
+        lastOrderResult: this.deps.memory.getLastOrderResult(),
+        riskStatus,
+        soulContent,
       });
 
       // 5. Process each decision
@@ -166,7 +223,7 @@ export class TradingLoop {
         logger.logDecision({
           type: 'LLM_DECISION',
           ...decision,
-          portfolio: { balance: portfolio.balanceUsd, sessionPnl: this.sessionPnl },
+          portfolio: { balance: portfolio.balanceUsd, sessionPnl },
         });
 
         if (decision.action === 'FETCH_NEWS') {
@@ -189,9 +246,20 @@ export class TradingLoop {
         if (decision.action === 'HOLD') continue;
 
         // 6. Risk check
-        const validation = riskManager.validate(decision, portfolio);
+        const validationCtx = {
+          indicators4h: indicators4h.size > 0 ? indicators4h as Map<string, { trend: string }> : undefined,
+          fearGreed,
+          fearGreedLeverageCap: this.deps.tradingConfig.fearGreedLeverageCap,
+        };
+        const validation = riskManager.validate(decision, portfolio, validationCtx);
         if (!validation.approved) {
           logger.logDecision({ type: 'RISK_REJECTED', pair: decision.pair, reason: validation.reason });
+          this.deps.soulKeeper?.addRejection({
+            pair: decision.pair,
+            action: decision.action,
+            reason: validation.reason || 'unknown',
+            timestamp: new Date().toISOString(),
+          });
           if (validation.shutdown) {
             this._shutdown = true;
             logger.logError('SHUTDOWN', 'Max loss reached — stopping bot');
@@ -206,7 +274,6 @@ export class TradingLoop {
             const result = await orders.close(decision.pair, pos.side);
             if (result.success) {
               const pnlUsd = pos.unrealizedPnlPct * (pos.sizeUsd / pos.leverage) / 100;
-              this.sessionPnl += pnlUsd;
               logger.logTrade({ type: 'CLOSE', pair: decision.pair, orderId: result.orderId });
               this.lastClosedAt.set(decision.pair, Date.now());
               this.deps.memory.addTrade({
@@ -236,18 +303,54 @@ export class TradingLoop {
               leverage: decision.leverage,
               orderId: result.orderId,
             });
+            this.deps.memory.setLastOrderResult(
+              `${decision.pair} ${decision.action} filled — SL/TP set`
+            );
           } else {
             logger.logError('ORDER_FAIL', result.error || 'Unknown error');
+            this.deps.memory.setLastOrderResult(
+              `${decision.pair} ${decision.action} FAILED: ${result.error}`
+            );
           }
         }
       }
       logger.logPerformance({
         balance: portfolio.balanceUsd,
         openPositions: portfolio.positions.length,
-        sessionPnl: this.sessionPnl,
+        sessionPnl,
         cycleCount: this.cycleCount,
       });
       this.cycleCount++;
+
+      // Update soul stats
+      if (this.deps.soulKeeper) {
+        const stats = computeSoulStats(
+          this.deps.memory.load().recent_trades,
+          sessionPnlPct,
+        );
+        this.deps.soulKeeper.updateStats(stats);
+      }
+
+      // Soul review (LLM self-reflection)
+      if (this.deps.soulReview) {
+        const streak = this.deps.memory.load().recent_trades.reduce((s, t) => {
+          if (s === null) return t.pnlPct < 0 ? -1 : t.pnlPct > 0 ? 1 : 0;
+          if (s > 0 && t.pnlPct > 0) return s + 1;
+          if (s < 0 && t.pnlPct < 0) return s - 1;
+          return null;
+        }, null as number | null) ?? 0;
+        const consecutiveLosses = streak < 0 ? Math.abs(streak) : 0;
+        if (this.deps.soulReview.shouldReview(this.cycleCount, consecutiveLosses, sessionPnlPct)) {
+          try {
+            await this.deps.soulReview.review(
+              this.deps.memory.load().recent_trades,
+              [],  // decision log — future enhancement
+            );
+          } catch (err) {
+            console.error('[SoulReview] Error:', err);
+          }
+        }
+      }
     } catch (err: any) {
       logger.logError('LOOP_ERROR', err.message);
     }

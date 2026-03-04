@@ -20,6 +20,9 @@ import { NewsAnalystAgent } from './news/news-analyst.js';
 import { SessionMemory } from './memory/session.js';
 import { MacroFetcher } from './news/macro-fetcher.js';
 import { MacroAnalystAgent } from './news/macro-analyst.js';
+import { join } from 'path';
+import { SoulKeeper } from './memory/soul-keeper.js';
+import { SoulReviewAgent } from './memory/soul-review.js';
 
 async function main() {
   const config = loadConfig();
@@ -60,8 +63,15 @@ async function main() {
     maxLeverage: config.trading.maxLeverage,
     maxPositionPct: config.trading.maxPositionPct,
     maxStopLossPct: config.trading.maxStopLossPct,
+    pairs: config.trading.pairs,
+    minConfidence: config.trading.minConfidence,
+    fearGreedLeverageCap: config.trading.fearGreedLeverageCap,
   };
   const llm = new LLMClient(accessToken, config.openai.model, promptConfig);
+
+  const soulKeeper = new SoulKeeper(join(process.env.HOME || '.', '.indic-bot'));
+  const soulReview = new SoulReviewAgent({ llm, soulKeeper });
+  console.log('[Soul] SoulKeeper + SoulReview initialized');
 
   const newsCache = new NewsCache();
   const newsAnalyst = new NewsAnalystAgent(llm);
@@ -73,6 +83,7 @@ async function main() {
     maxStopLossPct: config.trading.maxStopLossPct,
     maxLossUsd: config.trading.maxLossUsd,
     maxLossPct: config.trading.maxLossPct,
+    minConfidence: config.trading.minConfidence,
   });
 
   const signalBuffer = new SignalBuffer({ maxSize: 50, ttlMs: 30 * 60 * 1000 });
@@ -113,10 +124,16 @@ async function main() {
     },
     churnCooldownMs: config.trading.churnCooldownMs,
     memory,
-    tradingConfig: promptConfig,
+    tradingConfig: {
+      ...promptConfig,
+      stalePositionHours: config.trading.stalePositionHours,
+      maxHoldHours: config.trading.maxHoldHours,
+    },
     macroFetcher,
     macroAnalyst,
     macroRefreshIntervalMs: 10_800_000,
+    soulKeeper,
+    soulReview,
   });
 
   // Run loop
