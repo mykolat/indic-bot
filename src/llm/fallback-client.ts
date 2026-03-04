@@ -1,4 +1,6 @@
 import type { TradeDecision, Position } from '../risk/manager.js';
+import { fetchWithTimeout } from '../utils/fetch-timeout.js';
+import { extractExternalInsights } from '../utils/soul-utils.js';
 
 const FALLBACK_API_URL = 'https://api.openai.com/v1/chat/completions';
 
@@ -6,11 +8,6 @@ const SYSTEM_PROMPT = `You are an emergency position manager for a crypto future
 Your ONLY job: decide HOLD or CLOSE for each open position. Never suggest LONG or SHORT.
 Be conservative — when in doubt, HOLD and let the exchange SL/TP handle it.
 Respond ONLY with valid JSON, no explanation.`;
-
-function extractExternalInsights(soulContent: string): string {
-  const match = soulContent.match(/## External Insights\n([\s\S]*?)(?=\n## |$)/);
-  return match?.[1]?.trim() ?? '';
-}
 
 export class FallbackLLMClient {
   /**
@@ -47,7 +44,7 @@ export class FallbackLLMClient {
     userPrompt += `\nRespond ONLY with JSON:\n{"decisions":[{"pair":"BTCUSDT","action":"HOLD","confidence":80,"reasoning":"brief reason"}]}`;
 
     try {
-      const response = await fetch(FALLBACK_API_URL, {
+      const response = await fetchWithTimeout(FALLBACK_API_URL, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
@@ -62,7 +59,7 @@ export class FallbackLLMClient {
           max_tokens: 400,
           temperature: 0.1,
         }),
-      });
+      }, 15_000);
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');

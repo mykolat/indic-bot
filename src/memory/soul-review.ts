@@ -61,7 +61,7 @@ export class SoulReviewAgent {
     return false;
   }
 
-  async review(recentTrades: TradeRecord[], recentDecisions: string[]): Promise<void> {
+  async review(recentTrades: TradeRecord[], recentDecisions: string[], cycleCount: number): Promise<void> {
     const currentSoul = this.soulKeeper.read();
 
     const userPrompt = `Here is your current soul document:
@@ -97,7 +97,7 @@ Update the four narrative sections.`;
       };
 
       this.soulKeeper.writeNarrativeSections(sections);
-      this.lastReviewCycle = Date.now(); // Use timestamp for simplicity
+      this.lastReviewCycle = cycleCount;
       console.log('[SoulReview] Narrative sections updated');
     } catch (err) {
       console.error('[SoulReview] Review failed:', err);

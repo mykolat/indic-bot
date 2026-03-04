@@ -15,11 +15,7 @@ import { fetchFearGreed } from './news/fear-greed.js';
 import { SessionMemory } from './memory/session.js';
 import { computeSoulStats } from './memory/soul-stats.js';
 import { CircuitBreaker } from './utils/circuit-breaker.js';
-
-function extractExternalInsights(soulContent: string): string {
-  const match = soulContent.match(/## External Insights\n([\s\S]*?)(?=\n## |$)/);
-  return match?.[1]?.trim() ?? '';
-}
+import { extractExternalInsights } from './utils/soul-utils.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -48,6 +44,7 @@ interface TradingLoopDeps {
     maxHoldHours?: number;
     minConfidence?: number;
     fearGreedLeverageCap?: number;
+    layer3EmergencyPct?: number;  // default -5 — threshold for Layer 3 emergency close
   };
   macroFetcher?: MacroFetcher;
   macroAnalyst?: MacroAnalystAgent;
@@ -114,7 +111,14 @@ export class TradingLoop {
       });
 
       // 2. Get portfolio state + real sessionPnl from Binance balance
-      const portfolio: PortfolioState = await marketData.getPortfolioState();
+      let portfolio: PortfolioState;
+      try {
+        portfolio = await marketData.getPortfolioState();
+      } catch (err: any) {
+        this.binanceCircuitBreaker.recordFailure();
+        logger.logError('PORTFOLIO_FETCH_FAILED', err.message ?? 'unknown');
+        return;
+      }
       this.deps.memory.setStartBalance(portfolio.balanceUsd);
       const startBalance = this.deps.memory.getStartBalance()!;
       const sessionPnl = portfolio.balanceUsd - startBalance;
@@ -274,7 +278,8 @@ export class TradingLoop {
       }
 
       // Layer 3: if significant loss and positions open — read Big Brother + emergency close
-      if (currentLayer === 3 && portfolio.positions.length > 0 && sessionPnlPct < -5) {
+      const layer3Threshold = this.deps.tradingConfig.layer3EmergencyPct ?? -5;
+      if (currentLayer === 3 && portfolio.positions.length > 0 && sessionPnlPct < layer3Threshold) {
         if (soulContent) {
           const insights = extractExternalInsights(soulContent);
           if (insights) {
@@ -286,6 +291,14 @@ export class TradingLoop {
           const result = await orders.close(pos.pair, pos.side);
           if (result.success) {
             logger.logTrade({ type: 'EMERGENCY_CLOSE', pair: pos.pair, layer: 3, sessionPnlPct });
+            this.lastClosedAt.set(pos.pair, Date.now());
+            this.deps.memory.addTrade({
+              pair: pos.pair,
+              action: 'EMERGENCY_CLOSE',
+              pnlUsd: pos.unrealizedPnlPct * (pos.sizeUsd / pos.leverage) / 100,
+              pnlPct: pos.unrealizedPnlPct,
+              closedAt: new Date().toISOString(),
+            });
           }
         }
         logger.logPerformance({ balance: portfolio.balanceUsd, openPositions: 0, sessionPnl, cycleCount: this.cycleCount });
@@ -425,6 +438,7 @@ export class TradingLoop {
             await this.deps.soulReview.review(
               this.deps.memory.load().recent_trades,
               [],  // decision log — future enhancement
+              this.cycleCount,
             );
           } catch (err) {
             console.error('[SoulReview] Error:', err);
