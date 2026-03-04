@@ -221,4 +221,35 @@ export class LLMClient {
     this.accessToken = token;
     this.accountId = extractAccountId(token);
   }
+
+  async call(systemPrompt: string, userPrompt: string): Promise<string> {
+    const body = {
+      model: this.model,
+      store: false,
+      stream: true,
+      instructions: systemPrompt,
+      input: [{ role: 'user', content: userPrompt }],
+      text: { verbosity: 'medium' },
+    };
+
+    const response = await fetch(CODEX_BASE_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`,
+        'chatgpt-account-id': this.accountId,
+        'OpenAI-Beta': 'responses=experimental',
+        'User-Agent': `indic-bot (${os.platform()} ${os.release()}; ${os.arch()})`,
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
+    }
+
+    return this.streamSSE(response);
+  }
 }
