@@ -18,8 +18,10 @@ describe('TradingLoop', () => {
   beforeEach(() => {
     mockMarketData = {
       getSnapshot: vi.fn().mockResolvedValue({
-        pair: 'BTCUSDT', candles1h: [], candles4h: [],
-        fundingRate: '0.0001', openInterest: '80000', markPrice: '50000',
+        pair: 'BTCUSDT', candles1h: [], candles4h: [], candles15m: [],
+        fundingRate: '0.0001', fundingHistory: [],
+        openInterest: '80000', markPrice: '50000',
+        longShortRatio: null, orderBookBidPct: 50, orderBookAskPct: 50,
       }),
       getPortfolioState: vi.fn().mockResolvedValue({
         balanceUsd: 10, positions: [], sessionPnl: 0,
@@ -122,6 +124,24 @@ describe('TradingLoop', () => {
     await loop.runOnce();
 
     expect(mockLogger.logError).toHaveBeenCalled();
+  });
+
+  it('tracks OI delta across cycles', async () => {
+    let callCount = 0;
+    mockMarketData.getSnapshot = vi.fn().mockImplementation(() => Promise.resolve({
+      pair: 'BTCUSDT', candles1h: [], candles4h: [], candles15m: [],
+      fundingRate: '0.0001', fundingHistory: [],
+      openInterest: callCount++ === 0 ? '1000' : '1200',
+      markPrice: '50000',
+      longShortRatio: null, orderBookBidPct: 50, orderBookAskPct: 50,
+    }));
+
+    await loop.runOnce(); // cycle 1 — stores OI=1000
+    await loop.runOnce(); // cycle 2 — OI=1200, delta=+20%
+
+    const calls = mockLlm.analyze.mock.calls;
+    const secondCallData = calls[1][0];
+    expect(secondCallData.snapshots[0].openInterestDelta).toBeCloseTo(20);
   });
 
   it('skips LONG/SHORT within cooldown after closing same pair', async () => {

@@ -43,6 +43,7 @@ export class TradingLoop {
   private sessionPnl = 0;
   private cycleCount = 0;
   private lastClosedAt = new Map<string, number>();
+  private lastOI = new Map<string, number>();
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
@@ -59,9 +60,18 @@ export class TradingLoop {
 
     try {
       // 1. Fetch market data
-      const snapshots: MarketSnapshot[] = await Promise.all(
+      const rawSnapshots: MarketSnapshot[] = await Promise.all(
         pairs.map((pair) => marketData.getSnapshot(pair)),
       );
+
+      // Attach OI delta (% change vs previous cycle)
+      const snapshots = rawSnapshots.map(snap => {
+        const oiNum = parseFloat(snap.openInterest);
+        const prevOI = this.lastOI.get(snap.pair);
+        const oiDeltaPct = prevOI ? ((oiNum - prevOI) / prevOI) * 100 : 0;
+        this.lastOI.set(snap.pair, oiNum);
+        return { ...snap, openInterestDelta: oiDeltaPct };
+      });
 
       // 2. Get portfolio state
       const portfolio: PortfolioState = await marketData.getPortfolioState();

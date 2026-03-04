@@ -143,7 +143,10 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     // Order book
     prompt += `Order book depth: ${snap.orderBookBidPct.toFixed(0)}% bids / ${snap.orderBookAskPct.toFixed(0)}% asks\n`;
 
-    prompt += `Funding: ${snap.fundingRate} | OI: ${snap.openInterest}\n`;
+    const oiDelta = snap.openInterestDelta;
+    const oiDeltaStr = oiDelta !== undefined && oiDelta !== 0
+      ? ` (${oiDelta >= 0 ? '+' : ''}${oiDelta.toFixed(1)}% vs prev)` : '';
+    prompt += `Funding: ${snap.fundingRate} | OI: ${snap.openInterest}${oiDeltaStr}\n`;
 
     const recentCloses = snap.candles1h.slice(-10).map(c => c.close).join(', ');
     prompt += `Recent 1h closes: ${recentCloses}\n`;
