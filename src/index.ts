@@ -1,4 +1,8 @@
 import 'dotenv/config';
+if (process.env.GLOBAL_AGENT_HTTPS_PROXY) {
+  const { bootstrap } = await import('global-agent');
+  bootstrap();
+}
 import { loadConfig } from './config.js';
 import { createBinanceClient } from './binance/client.js';
 import { MarketDataFetcher } from './binance/market-data.js';
@@ -14,6 +18,8 @@ import { CryptoPanicClient } from './news/cryptopanic.js';
 import { NewsCache } from './news/news-cache.js';
 import { NewsAnalystAgent } from './news/news-analyst.js';
 import { SessionMemory } from './memory/session.js';
+import { MacroFetcher } from './news/macro-fetcher.js';
+import { MacroAnalystAgent } from './news/macro-analyst.js';
 
 async function main() {
   const config = loadConfig();
@@ -78,6 +84,11 @@ async function main() {
   if (newsClient) console.log('[News] CryptoPanic via Apify enabled');
   else console.log('[News] No APIFY_API_TOKEN — news disabled');
 
+  const macroFetcher = config.apifyToken ? new MacroFetcher(config.apifyToken) : undefined;
+  const macroAnalyst = macroFetcher ? new MacroAnalystAgent(llm) : undefined;
+  if (macroFetcher) console.log('[Macro] MacroFetcher enabled — refreshing every 3h');
+  else console.log('[Macro] No APIFY_API_TOKEN — macro disabled');
+
   // Start webhook server
   const app = createWebhookServer(signalBuffer, logger, config.webhook.secret);
   app.listen(config.webhook.port, () => {
@@ -103,6 +114,9 @@ async function main() {
     churnCooldownMs: config.trading.churnCooldownMs,
     memory,
     tradingConfig: promptConfig,
+    macroFetcher,
+    macroAnalyst,
+    macroRefreshIntervalMs: 10_800_000,
   });
 
   // Run loop

@@ -63,6 +63,8 @@ describe('TradingLoop', () => {
         getAnalysis: vi.fn().mockReturnValue(null),
         save: vi.fn(),
         appendHistory: vi.fn(),
+        getRecentItems: vi.fn().mockReturnValue([]),
+        dbCount: vi.fn().mockReturnValue(0),
       },
       newsAnalyst: {
         analyze: vi.fn().mockResolvedValue({

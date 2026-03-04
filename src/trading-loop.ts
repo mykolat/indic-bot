@@ -7,6 +7,9 @@ import type { Logger } from './logger/index.js';
 import type { CryptoPanicClient } from './news/cryptopanic.js';
 import type { NewsCache } from './news/news-cache.js';
 import type { NewsAnalystAgent } from './news/news-analyst.js';
+import type { MacroFetcher } from './news/macro-fetcher.js';
+import type { MacroAnalystAgent } from './news/macro-analyst.js';
+import type { MacroAnalysis } from './llm/prompts.js';
 import { computeIndicators, type Indicators } from './indicators/technical.js';
 import { fetchFearGreed } from './news/fear-greed.js';
 import { SessionMemory } from './memory/session.js';
@@ -35,6 +38,9 @@ interface TradingLoopDeps {
     maxPositionPct: number;
     maxStopLossPct: number;
   };
+  macroFetcher?: MacroFetcher;
+  macroAnalyst?: MacroAnalystAgent;
+  macroRefreshIntervalMs?: number;  // default 10_800_000 (3h)
 }
 
 export class TradingLoop {
@@ -44,6 +50,8 @@ export class TradingLoop {
   private cycleCount = 0;
   private lastClosedAt = new Map<string, number>();
   private lastOI = new Map<string, number>();
+  private lastMacroRefresh = 0;
+  private lastMacroAnalysis: MacroAnalysis | undefined;
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
@@ -116,11 +124,28 @@ export class TradingLoop {
       const newsAnalysis = this.deps.newsCache.getAnalysis() ?? undefined;
       const fearGreed = await fetchFearGreed();
 
+      // Macro refresh (every 3h)
+      const macroIntervalMs = this.deps.macroRefreshIntervalMs ?? 10_800_000;
+      if (this.deps.macroFetcher && this.deps.macroAnalyst && Date.now() - this.lastMacroRefresh > macroIntervalMs) {
+        try {
+          console.log('[Macro] Refreshing macro market data...');
+          const [macroSnapshots, btcDom] = await Promise.all([
+            this.deps.macroFetcher.fetch(),
+            this.deps.macroFetcher.fetchBTCDominance(),
+          ]);
+          this.lastMacroAnalysis = await this.deps.macroAnalyst.analyze(macroSnapshots, btcDom);
+          this.lastMacroRefresh = Date.now();
+        } catch (err) {
+          console.error('[Macro] Refresh failed:', err);
+        }
+      }
+
       // 5. Drain TradingView signals
       const signals = signalBuffer.drain();
 
       // 6. LLM analysis with enriched data
       const memState = this.deps.memory.load();
+      const recentNewsWithAge = this.deps.newsCache.getRecentItems(48);
       const decisions = await llm.analyze({
         snapshots,
         indicators,
@@ -132,6 +157,8 @@ export class TradingLoop {
         sessionNotes: memState.session_notes || undefined,
         recentTrades: memState.recent_trades.slice(0, 5),
         newsAnalysis,
+        recentNewsWithAge,
+        macroAnalysis: this.lastMacroAnalysis,
       });
 
       // 5. Process each decision
