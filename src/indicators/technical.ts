@@ -28,6 +28,7 @@ export interface Indicators {
   bollingerPercentB: number;
   volumeRatio: number;
   vwap: number;
+  adx: number;
 }
 
 export function computeRSI(closes: number[], period = 14): number {
@@ -127,6 +128,73 @@ export function computeVWAP(
   return totalVol > 0 ? tpv / totalVol : closes[closes.length - 1];
 }
 
+export function computeADX(
+  highs: number[], lows: number[], closes: number[], period = 14,
+): number {
+  // Need at least period+1 bars to produce one smoothed DX, then another period to smooth ADX
+  // Minimum: 2*period + 1 data points (period for initial TR/DM sums, period for DX smoothing, +1 for first diff)
+  if (highs.length < 2 * period + 1) return 0;
+
+  // Step 1: Calculate TR, +DM, -DM for each bar (starting from index 1)
+  const trList: number[] = [];
+  const plusDMList: number[] = [];
+  const minusDMList: number[] = [];
+
+  for (let i = 1; i < highs.length; i++) {
+    const highDiff = highs[i] - highs[i - 1];
+    const lowDiff = lows[i - 1] - lows[i];
+
+    const plusDM = highDiff > lowDiff && highDiff > 0 ? highDiff : 0;
+    const minusDM = lowDiff > highDiff && lowDiff > 0 ? lowDiff : 0;
+
+    const tr = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1]),
+    );
+
+    trList.push(tr);
+    plusDMList.push(plusDM);
+    minusDMList.push(minusDM);
+  }
+
+  // Step 2: Wilder's smoothing — initial sum of first `period` values
+  let smoothTR = trList.slice(0, period).reduce((s, v) => s + v, 0);
+  let smoothPlusDM = plusDMList.slice(0, period).reduce((s, v) => s + v, 0);
+  let smoothMinusDM = minusDMList.slice(0, period).reduce((s, v) => s + v, 0);
+
+  // Step 3: Compute DX series using Wilder's smoothing from index `period` onward
+  const dxList: number[] = [];
+
+  // First DX from initial sums
+  const plusDI0 = smoothTR > 0 ? (smoothPlusDM / smoothTR) * 100 : 0;
+  const minusDI0 = smoothTR > 0 ? (smoothMinusDM / smoothTR) * 100 : 0;
+  const diSum0 = plusDI0 + minusDI0;
+  dxList.push(diSum0 > 0 ? (Math.abs(plusDI0 - minusDI0) / diSum0) * 100 : 0);
+
+  for (let i = period; i < trList.length; i++) {
+    smoothTR = smoothTR - smoothTR / period + trList[i];
+    smoothPlusDM = smoothPlusDM - smoothPlusDM / period + plusDMList[i];
+    smoothMinusDM = smoothMinusDM - smoothMinusDM / period + minusDMList[i];
+
+    const plusDI = smoothTR > 0 ? (smoothPlusDM / smoothTR) * 100 : 0;
+    const minusDI = smoothTR > 0 ? (smoothMinusDM / smoothTR) * 100 : 0;
+    const diSum = plusDI + minusDI;
+    const dx = diSum > 0 ? (Math.abs(plusDI - minusDI) / diSum) * 100 : 0;
+    dxList.push(dx);
+  }
+
+  // Step 4: Wilder-smooth the DX series to get ADX
+  if (dxList.length < period) return 0;
+
+  let adx = dxList.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < dxList.length; i++) {
+    adx = (adx * (period - 1) + dxList[i]) / period;
+  }
+
+  return adx;
+}
+
 export function computeIndicators(
   closes: number[], highs: number[], lows: number[], volumes: number[] = [],
 ): Indicators {
@@ -141,6 +209,7 @@ export function computeIndicators(
   const vwap = volumes.length > 0
     ? computeVWAP(highs, lows, closes, volumes)
     : closes[closes.length - 1];
+  const adx = computeADX(highs, lows, closes);
 
   return {
     rsi, ema20, ema50, atr, trend,
@@ -154,5 +223,6 @@ export function computeIndicators(
     bollingerPercentB: bb.percentB,
     volumeRatio,
     vwap,
+    adx,
   };
 }

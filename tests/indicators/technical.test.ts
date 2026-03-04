@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeMACD, computeBollingerBands, computeVolumeRatio, computeVWAP, computeIndicators } from '../../src/indicators/technical.js';
+import { computeMACD, computeBollingerBands, computeVolumeRatio, computeVWAP, computeIndicators, computeADX } from '../../src/indicators/technical.js';
 
 describe('computeMACD', () => {
   it('returns macd, signal, histogram', () => {
@@ -51,6 +51,33 @@ describe('computeVWAP', () => {
   });
 });
 
+describe('computeADX', () => {
+  it('returns 0 when not enough data', () => {
+    const highs = [105, 110];
+    const lows = [95, 90];
+    const closes = [100, 100];
+    expect(computeADX(highs, lows, closes)).toBe(0);
+  });
+
+  it('returns high ADX (>25) for monotonically trending data', () => {
+    const n = 35;
+    const closes = Array.from({ length: n }, (_, i) => 100 + i * 2);
+    const highs = closes.map(c => c + 1);
+    const lows = closes.map(c => c - 1);
+    const adx = computeADX(highs, lows, closes);
+    expect(adx).toBeGreaterThan(25);
+  });
+
+  it('returns low ADX (<25) for oscillating/ranging data', () => {
+    const n = 35;
+    const closes = Array.from({ length: n }, (_, i) => 100 + Math.sin(i * 0.8) * 3);
+    const highs = closes.map(c => c + 1.5);
+    const lows = closes.map(c => c - 1.5);
+    const adx = computeADX(highs, lows, closes);
+    expect(adx).toBeLessThan(25);
+  });
+});
+
 describe('computeIndicators with volumes', () => {
   it('includes macd, bollinger, volumeRatio, vwap in output', () => {
     const n = 60;
@@ -64,5 +91,7 @@ describe('computeIndicators with volumes', () => {
     expect(result).toHaveProperty('bollingerLower');
     expect(result).toHaveProperty('volumeRatio');
     expect(result).toHaveProperty('vwap');
+    expect(result).toHaveProperty('adx');
+    expect(typeof result.adx).toBe('number');
   });
 });
