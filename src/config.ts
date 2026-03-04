@@ -1,3 +1,6 @@
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import yaml from 'js-yaml';
 import 'dotenv/config';
 
 export interface Config {
@@ -44,42 +47,55 @@ function requiredEnv(key: string): string {
   return val;
 }
 
+function loadYamlConfig(): Record<string, any> {
+  const configPath = join(process.cwd(), 'config.yaml');
+  if (!existsSync(configPath)) return {};
+  const raw = readFileSync(configPath, 'utf-8');
+  return (yaml.load(raw) as Record<string, any>) || {};
+}
+
 export function loadConfig(): Config {
+  const y = loadYamlConfig();
+  const t = y.trading ?? {};
+  const o = y.openai ?? {};
+  const b = y.binance ?? {};
+  const w = y.webhook ?? {};
+
   return {
     binance: {
       apiKey: requiredEnv('BINANCE_API_KEY'),
       apiSecret: requiredEnv('BINANCE_API_SECRET'),
-      testnet: process.env.BINANCE_TESTNET === 'true',
+      testnet: b.testnet ?? false,
     },
     openai: {
       apiKey: process.env.OPENAI_API_KEY || 'oauth',
       apiKeyFallback: process.env.OPENAI_API_KEY_FALLBACK,
-      model: process.env.OPENAI_MODEL || 'gpt-4o',
-      fallbackModel: process.env.FALLBACK_MODEL || 'gpt-4o-mini',
+      model: o.model ?? 'gpt-4o',
+      fallbackModel: o.fallbackModel ?? 'gpt-4o-mini',
     },
     webhook: {
-      port: parseInt(process.env.WEBHOOK_PORT || '3000', 10),
+      port: w.port ?? 3000,
       secret: process.env.WEBHOOK_SECRET,
     },
     apifyToken: process.env.APIFY_API_TOKEN,
     trading: {
-      pairs: (process.env.TRADING_PAIRS || 'BTCUSDT').split(','),
-      maxLeverage: parseInt(process.env.MAX_LEVERAGE || '20', 10),
-      loopIntervalMs: parseInt(process.env.LOOP_INTERVAL_MS || '60000', 10),
-      maxLossUsd: parseFloat(process.env.MAX_LOSS_USD || '5'),
-      maxLossPct: parseFloat(process.env.MAX_LOSS_PCT || '10'),
-      maxPositionPct: parseFloat(process.env.MAX_POSITION_PCT || '50'),
-      maxExposurePct: parseFloat(process.env.MAX_EXPOSURE_PCT || '150'),
-      maxStopLossPct: parseFloat(process.env.MAX_STOP_LOSS_PCT || '5'),
-      targetReturnPct: parseFloat(process.env.TARGET_RETURN_PCT || '100'),
-      minTakeProfitPct: parseFloat(process.env.MIN_TAKE_PROFIT_PCT || '5'),
-      newsRefreshIntervalH: parseFloat(process.env.NEWS_REFRESH_INTERVAL_H || '0.33'),
-      newsMaxItems: parseInt(process.env.NEWS_MAX_ITEMS || '100', 10),
-      churnCooldownMs: parseInt(process.env.CHURN_COOLDOWN_MS || '900000', 10),
-      minConfidence: parseInt(process.env.MIN_CONFIDENCE || '55', 10),
-      stalePositionHours: parseFloat(process.env.STALE_POSITION_HOURS || '8'),
-      maxHoldHours: parseFloat(process.env.MAX_HOLD_HOURS || '24'),
-      fearGreedLeverageCap: parseInt(process.env.FEAR_GREED_LEVERAGE_CAP || '10', 10),
+      pairs: t.pairs ?? ['BTCUSDT'],
+      maxLeverage: t.maxLeverage ?? 20,
+      loopIntervalMs: t.loopIntervalMs ?? 60000,
+      maxLossUsd: t.maxLossUsd ?? 5,
+      maxLossPct: t.maxLossPct ?? 10,
+      maxPositionPct: t.maxPositionPct ?? 50,
+      maxExposurePct: t.maxExposurePct ?? 150,
+      maxStopLossPct: t.maxStopLossPct ?? 5,
+      targetReturnPct: t.targetReturnPct ?? 100,
+      minTakeProfitPct: t.minTakeProfitPct ?? 5,
+      newsRefreshIntervalH: t.newsRefreshIntervalH ?? 0.33,
+      newsMaxItems: t.newsMaxItems ?? 100,
+      churnCooldownMs: t.churnCooldownMs ?? 900000,
+      minConfidence: t.minConfidence ?? 55,
+      stalePositionHours: t.stalePositionHours ?? 8,
+      maxHoldHours: t.maxHoldHours ?? 24,
+      fearGreedLeverageCap: t.fearGreedLeverageCap ?? 10,
     },
   };
 }
