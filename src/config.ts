@@ -8,7 +8,9 @@ export interface Config {
   };
   openai: {
     apiKey: string;
+    apiKeyFallback: string | undefined;
     model: string;
+    fallbackModel: string;
   };
   webhook: {
     port: number;
@@ -29,6 +31,10 @@ export interface Config {
     newsRefreshIntervalH: number;
     newsMaxItems: number;
     churnCooldownMs: number;
+    minConfidence: number;
+    stalePositionHours: number;
+    maxHoldHours: number;
+    fearGreedLeverageCap: number;
   };
 }
 
@@ -47,7 +53,9 @@ export function loadConfig(): Config {
     },
     openai: {
       apiKey: process.env.OPENAI_API_KEY || 'oauth',
+      apiKeyFallback: process.env.OPENAI_API_KEY_FALLBACK,
       model: process.env.OPENAI_MODEL || 'gpt-4o',
+      fallbackModel: process.env.FALLBACK_MODEL || 'gpt-4o-mini',
     },
     webhook: {
       port: parseInt(process.env.WEBHOOK_PORT || '3000', 10),
@@ -68,6 +76,10 @@ export function loadConfig(): Config {
       newsRefreshIntervalH: parseFloat(process.env.NEWS_REFRESH_INTERVAL_H || '0.33'),
       newsMaxItems: parseInt(process.env.NEWS_MAX_ITEMS || '100', 10),
       churnCooldownMs: parseInt(process.env.CHURN_COOLDOWN_MS || '900000', 10),
+      minConfidence: parseInt(process.env.MIN_CONFIDENCE || '55', 10),
+      stalePositionHours: parseFloat(process.env.STALE_POSITION_HOURS || '8'),
+      maxHoldHours: parseFloat(process.env.MAX_HOLD_HOURS || '24'),
+      fearGreedLeverageCap: parseInt(process.env.FEAR_GREED_LEVERAGE_CAP || '10', 10),
     },
   };
 }
