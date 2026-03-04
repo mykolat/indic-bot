@@ -47,6 +47,12 @@ pm2 flush indic-bot
 - `oauth.ts` — OpenAI OAuth token refresh (default auth); fallback to `OPENAI_API_KEY` if set
 - `prompts.ts` — `buildSystemPrompt()` with comprehensive strategy (multi-timeframe, confluence checklist, confidence guide, regime scaling). `buildEnrichedPrompt()` assembles all data + interpreted narratives (volume alerts, VWAP bias, Bollinger alerts, funding trends, trade performance/streaks, session P&L/risk status).
 
+**LLM resilience — 3 layers** (`src/llm/`):
+- Layer 1: Codex API (OAuth/JWT, `chatgpt.com/backend-api/codex/responses`) — full prompt
+- Layer 2: `fallback-client.ts` — standard OpenAI `/v1/chat/completions` via `OPENAI_API_KEY_FALLBACK`; minimal prompt (positions + PnL + soul.md External Insights); HOLD/CLOSE only; `gpt-4o-mini`
+- Layer 3: Rule-based — no LLM; SL/TP on Binance; if `sessionPnlPct < -5%` → close all positions + log Big Brother (soul.md External Insights)
+- `CircuitBreaker` (`src/utils/circuit-breaker.ts`) — 3 consecutive all-fail Binance cycles → skip cycle
+
 **Order execution** (`src/binance/orders.ts`):
 - Every LONG/SHORT places 3 orders: MARKET (entry) → STOP_MARKET → TAKE_PROFIT_MARKET
 - SL/TP use `closePosition: 'true'` (not `quantity + reduceOnly`) — this is required by Binance Futures API
@@ -107,6 +113,9 @@ pm2 flush indic-bot
 - **Churn cooldown** — stored in `TradingLoop.lastClosedAt` (in-memory Map). Resets on bot restart.
 - **Testnet URL** — `demo-fapi.binance.com` (not `testnet.binancefuture.com`). Set via `BINANCE_TESTNET=true` in `.env`.
 - **`scripts/audit.ts`** uses `loadConfig()` and connects to live Binance — runs correctly against live account.
+- **LLM layer switching** — `LLMClient.analyze()` throws on API errors (not parse errors). TradingLoop catches this and falls to Layer 2 or 3. Parse errors (bad JSON) still return `[]` (HOLD all positions).
+- **`Promise.allSettled`** for market snapshots — one pair failing won't kill the whole cycle. All-fail triggers circuit breaker.
+- **Big Brother** — `soul.md` External Insights section is the "Big Brother" message. Injected into Layer 2 prompt and logged in Layer 3 emergency close.
 
 **Fetch timeouts** (`src/utils/fetch-timeout.ts`): AbortController-based timeouts for all external API calls (15s Apify, 10s CoinGecko, 5s Fear&Greed).
 
@@ -114,5 +123,3 @@ pm2 flush indic-bot
 
 - `config.yaml` migration — trading params from `process.env` defaults → `config.yaml` (AI-writable). See `docs/plans/2026-03-04-audit-plan.md`.
 - `npm run audit:debug` — JSON mode for AI-driven self-healing audit. See `docs/plans/2026-03-04-audit-design.md`.
-- **Soul system** (`src/memory/soul-keeper.ts`, `soul-review.ts`, `soul-stats.ts`) — persistent `~/.indic-bot/soul.md` injected into every LLM prompt; LLM self-reflection every ~20 cycles via `SoulReviewAgent`; `npm run soul:insight "text"` for external insight injection. See `docs/plans/2026-03-04-soul-md-plan.md`.
-- **max-info-fetch** (branch `feat/max-info-fetch`) — 15m candles, funding rate history (8 periods), long/short ratio, order book imbalance, OI delta tracking, system prompt update from testnet → live mode. See `docs/plans/2026-03-04-max-info-fetch.md`.
