@@ -64,19 +64,21 @@ Implementation: `buildUserPrompt()` in `src/llm/prompts.ts` receives `recentNews
 
 ## 3. Macro Markets
 
-**Refresh:** Once per hour (separate from news refresh)
+**Refresh:** Once per 3 hours (separate from news refresh)
 **Storage:** `~/.indic-bot/macro-cache.json`
 
 **Assets tracked:**
-| Asset | Symbol |
-|-------|--------|
-| WTI Crude Oil | CL=F |
-| DXY Dollar Index | DX-Y.NYB |
-| S&P 500 | ^GSPC |
-| VIX Fear Index | ^VIX |
-| EUR/USD | EURUSD=X |
-| Gold | GC=F |
-| BTC Dominance | CoinGecko API (free) |
+| Asset | Symbol | Data |
+|-------|--------|------|
+| WTI Crude Oil | CL=F | price, change24h, day high/low, trend narrative |
+| DXY Dollar Index | DX-Y.NYB | price, change24h, day high/low, trend narrative |
+| S&P 500 | ^GSPC | price, change24h, day high/low, trend narrative |
+| VIX Fear Index | ^VIX | price, change24h, level interpretation |
+| EUR/USD | EURUSD=X | price, change24h |
+| Gold | GC=F | price, change24h, day high/low |
+| BTC Dominance | CoinGecko API (free) | % dominance, change24h |
+
+Each asset includes intraday narrative: e.g. "Oil opened at $78.2, dropped to $76.8 low on inventory data, recovered to $77.5 — net bearish day with sellers in control"
 
 **`src/news/macro-fetcher.ts`** — `MacroFetcher`:
 - Uses Apify Yahoo Finance scraper actor
@@ -95,7 +97,7 @@ interface MacroAnalysis {
 }
 ```
 
-**`src/trading-loop.ts`** — `macroRefreshIntervalMs = 3_600_000` (1h), parallel refresh alongside news.
+**`src/trading-loop.ts`** — `macroRefreshIntervalMs = 10_800_000` (3h), parallel refresh alongside news.
 
 ---
 
