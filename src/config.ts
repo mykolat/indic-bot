@@ -25,6 +25,8 @@ export interface Config {
     maxStopLossPct: number;
     targetReturnPct: number;
     minTakeProfitPct: number;
+    newsRefreshIntervalH: number;
+    newsMaxItems: number;
   };
 }
 
@@ -60,6 +62,8 @@ export function loadConfig(): Config {
       maxStopLossPct: parseFloat(process.env.MAX_STOP_LOSS_PCT || '5'),
       targetReturnPct: parseFloat(process.env.TARGET_RETURN_PCT || '100'),
       minTakeProfitPct: parseFloat(process.env.MIN_TAKE_PROFIT_PCT || '5'),
+      newsRefreshIntervalH: parseInt(process.env.NEWS_REFRESH_INTERVAL_H || '12', 10),
+      newsMaxItems: parseInt(process.env.NEWS_MAX_ITEMS || '100', 10),
     },
   };
 }
