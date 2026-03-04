@@ -181,7 +181,33 @@ if (existsSync(newsCachePath)) {
   console.log('  No news cache found (~/.indic-bot/news-cache.json)');
 }
 
-// ── 6. CONFIG ─────────────────────────────────────────────────
+// ── 6. TOKEN USAGE ────────────────────────────────────────────
+section('TOKEN USAGE (logs/tokens.jsonl)');
+const tokenLogs = readJsonl('logs/tokens.jsonl');
+if (tokenLogs.length === 0) {
+  console.log('  No token logs yet.');
+} else {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayTokens = tokenLogs.filter(t => t.ts?.startsWith(todayStr));
+  const totalIn = todayTokens.reduce((s: number, t: any) => s + (t.tokens_in ?? 0), 0);
+  const totalOut = todayTokens.reduce((s: number, t: any) => s + (t.tokens_out ?? 0), 0);
+  const avgIn = todayTokens.length > 0 ? Math.round(totalIn / todayTokens.length) : 0;
+
+  row('Today calls',       todayTokens.length);
+  row('Today tokens in',  `${totalIn.toLocaleString()}`);
+  row('Today tokens out', `${totalOut.toLocaleString()}`);
+  row('Avg per call',     `${avgIn.toLocaleString()} in`);
+
+  if (todayTokens.length > 0) {
+    const biggest = todayTokens.reduce((max: any, t: any) => (t.tokens_in ?? 0) > (max.tokens_in ?? 0) ? t : max, todayTokens[0]);
+    const method = biggest.label ? `${biggest.method}:${biggest.label}` : biggest.method;
+    row('Biggest call',    `${method} — ${(biggest.tokens_in ?? 0).toLocaleString()} in @ ${biggest.ts?.slice(11,16)}`);
+  }
+
+  row('All-time calls',   tokenLogs.length);
+}
+
+// ── 7. CONFIG ─────────────────────────────────────────────────
 section('BOT CONFIG');
 row('Pairs',            config.trading.pairs.join(', '));
 row('Max leverage',     `${config.trading.maxLeverage}x`);
