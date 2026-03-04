@@ -32,13 +32,26 @@ export class OrderExecutor {
         ? price * (1 - decision.stop_loss_pct / 100)
         : price * (1 + decision.stop_loss_pct / 100);
 
-      // closePosition:true is valid for STOP_MARKET (not for MARKET)
+      const tpPrice = decision.action === 'LONG'
+        ? price * (1 + decision.take_profit_pct / 100)
+        : price * (1 - decision.take_profit_pct / 100);
+
       await this.client.submitNewOrder({
         symbol: decision.pair,
         side: closeSide,
         type: 'STOP_MARKET',
         stopPrice: String(this.roundPrice(stopPrice)),
-        closePosition: 'true',
+        quantity: String(quantity),
+        reduceOnly: 'true',
+      });
+
+      await this.client.submitNewOrder({
+        symbol: decision.pair,
+        side: closeSide,
+        type: 'TAKE_PROFIT_MARKET',
+        stopPrice: String(this.roundPrice(tpPrice)),
+        quantity: String(quantity),
+        reduceOnly: 'true',
       });
 
       return { success: true, orderId: order.orderId };

@@ -24,7 +24,7 @@ describe('OrderExecutor', () => {
     executor = new OrderExecutor(mockClient);
   });
 
-  it('opens a LONG position with market order + stop-loss', async () => {
+  it('opens a LONG position with market order + stop-loss + take-profit', async () => {
     const decision: TradeDecision = {
       pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
       leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
@@ -33,8 +33,48 @@ describe('OrderExecutor', () => {
     const result = await executor.execute(decision, 10);
 
     expect(mockClient.setLeverage).toHaveBeenCalledWith({ symbol: 'BTCUSDT', leverage: 10 });
-    expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(2);
+    expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(3);
     expect(result.success).toBe(true);
+
+    const stopCall = mockClient.submitNewOrder.mock.calls[1][0];
+    expect(stopCall.type).toBe('STOP_MARKET');
+    expect(stopCall.reduceOnly).toBe('true');
+    expect(stopCall.closePosition).toBeUndefined();
+
+    const tpCall = mockClient.submitNewOrder.mock.calls[2][0];
+    expect(tpCall.type).toBe('TAKE_PROFIT_MARKET');
+    expect(tpCall.reduceOnly).toBe('true');
+    expect(tpCall.closePosition).toBeUndefined();
+  });
+
+  it('stop price is below entry for LONG, above for SHORT', async () => {
+    const longDecision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
+      leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
+    };
+    await executor.execute(longDecision, 10);
+    const stopCall = mockClient.submitNewOrder.mock.calls[1][0];
+    expect(parseFloat(stopCall.stopPrice)).toBeLessThan(50000);
+
+    mockClient.submitNewOrder.mockClear();
+
+    const shortDecision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'SHORT', size_pct: 20,
+      leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
+    };
+    await executor.execute(shortDecision, 10);
+    const shortStopCall = mockClient.submitNewOrder.mock.calls[1][0];
+    expect(parseFloat(shortStopCall.stopPrice)).toBeGreaterThan(50000);
+  });
+
+  it('take-profit price is above entry for LONG', async () => {
+    const decision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
+      leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
+    };
+    await executor.execute(decision, 10);
+    const tpCall = mockClient.submitNewOrder.mock.calls[2][0];
+    expect(parseFloat(tpCall.stopPrice)).toBeGreaterThan(50000);
   });
 
   it('opens a SHORT position', async () => {
