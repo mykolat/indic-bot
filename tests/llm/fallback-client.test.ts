@@ -70,7 +70,7 @@ describe('FallbackLLMClient', () => {
   it('returns [] on API error (does not throw)', async () => {
     mockFetchFail(429);
 
-    const client = new FallbackLLMClient('sk-test', 'gpt-4o-mini');
+    const client = new FallbackLLMClient('sk-test', 'gpt-4o-mini', false);
     const decisions = await client.analyze(POSITIONS, -2);
 
     expect(decisions).toHaveLength(0);

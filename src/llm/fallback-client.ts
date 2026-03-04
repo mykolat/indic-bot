@@ -16,13 +16,13 @@ export class FallbackLLMClient {
   /**
    * @param throwOnError - if true, throws on API error instead of returning [].
    *   Used so TradingLoop can detect that Layer 2 is also down and enter Layer 3.
-   *   Defaults to false (safe behavior — log and return []).
-   *   Pass true explicitly in production so TradingLoop can switch to Layer 3.
+   *   Defaults to true (production behavior — caller detects fallback exhaustion).
+   *   Pass false explicitly in tests / callers that want silent failure.
    */
   constructor(
     private readonly apiKey: string,
     private readonly model: string = 'gpt-4o-mini',
-    private readonly throwOnError: boolean = false,
+    private readonly throwOnError: boolean = true,
   ) {}
 
   async analyze(
@@ -75,7 +75,13 @@ export class FallbackLLMClient {
       const match = content.match(/\{[\s\S]*"decisions"[\s\S]*\}/);
       if (!match) return [];
 
-      const parsed = JSON.parse(match[0]);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(match[0]);
+      } catch {
+        console.error('[FallbackLLM] Parse error — returning []');
+        return [];
+      }
       if (!Array.isArray(parsed.decisions)) return [];
 
       // Hard guard: ONLY HOLD and CLOSE allowed
