@@ -47,6 +47,7 @@ export const SECTION_MARKERS: Record<string, string> = {
   stats:          '## Performance Stats',
   rejections:     '## Recent Rejections',
   invisibleExits: '## Invisible Exits',
+  verifiedIntel:  '## Verified Intelligence',
 };
 
 // ── Default template ────────────────────────────────────────────────────
@@ -72,6 +73,10 @@ _No regime assessment yet._
 ## External Insights
 
 _No external insights yet._
+
+## Verified Intelligence
+
+_No verified claims yet._
 
 ## Performance Stats
 
@@ -212,6 +217,23 @@ export class SoulKeeper {
     const existing = this.readListEntries('insights');
     const updated = [entry, ...existing].slice(0, 5);
     this.replaceSection('insights', updated.join('\n'));
+  }
+
+  /** Write grounding results to Verified Intelligence section. Keep last 5. */
+  writeVerifiedIntel(entries: Array<{
+    claim: string;
+    verified: boolean | null | undefined;
+    confidence: number | undefined;
+    summary: string | undefined;
+    timestamp: string;
+  }>): void {
+    const last5 = entries.slice(-5);
+    const lines = last5.map((e) => {
+      const status = e.verified === true ? 'VERIFIED' : e.verified === false ? 'DEBUNKED' : 'UNCONFIRMED';
+      const conf = e.confidence != null ? ` (${Math.round(e.confidence * 100)}%)` : '';
+      return `- [${status}${conf}] ${e.claim} — ${e.summary ?? 'no details'} _(${e.timestamp})_`;
+    });
+    this.replaceSection('verifiedIntel', lines.join('\n'));
   }
 
   /** Replace one or more narrative sections (identity, learned, failures, regime). */
