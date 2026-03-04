@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Mock child_process so emergencyAlert's say/afplay calls don't block tests
+vi.mock('child_process', () => ({ execSync: vi.fn() }));
+
 import { LLMClient } from '../../src/llm/client.js';
 import type { EnrichedPromptData } from '../../src/llm/prompts.js';
 
