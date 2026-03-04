@@ -136,7 +136,47 @@ if (errors.length > 0) {
   }
 }
 
-// ── 5. CONFIG ─────────────────────────────────────────────────
+// ── 5. NEWS CACHE ─────────────────────────────────────────────
+section('NEWS CACHE');
+const homedir = process.env.HOME || '.';
+const newsCachePath = `${homedir}/.indic-bot/news-cache.json`;
+if (existsSync(newsCachePath)) {
+  try {
+    const cache = JSON.parse(readFileSync(newsCachePath, 'utf-8'));
+    const ageMs = Date.now() - new Date(cache.fetchedAt).getTime();
+    const ageMin = Math.round(ageMs / 60000);
+    const analysis = cache.analysis;
+    row('Fetched',         `${new Date(cache.fetchedAt).toISOString()} (${ageMin} min ago)`);
+    row('Headlines',       `${cache.items?.length ?? 0} items`);
+    row('Refresh interval',`${config.trading.newsRefreshIntervalH * 60} min`);
+    if (analysis) {
+      row('Sentiment',       analysis.overall_sentiment ?? 'n/a');
+      row('Fed stance',      analysis.macro_signals?.fed_stance ?? 'n/a');
+      row('Risk appetite',   analysis.macro_signals?.risk_appetite ?? 'n/a');
+      row('BTC dominance',   analysis.macro_signals?.dominance_trend ?? 'n/a');
+      const signals = analysis.top_signals ?? [];
+      row('Signals',         `${signals.length} total`);
+      if (signals.length > 0) {
+        console.log('');
+        for (const s of signals) {
+          const coins = (s.coins ?? []).join(',') || 'GENERAL';
+          const dir = s.direction?.toUpperCase().padEnd(8) ?? 'UNKNOWN ';
+          console.log(`    [${s.importance}/10] ${dir} ${coins.padEnd(12)} ${s.catalyst}`);
+        }
+      }
+      if (analysis.risk_events?.length) {
+        console.log('\n  Risk events:');
+        for (const e of analysis.risk_events) console.log(`    ⚠  ${e}`);
+      }
+    }
+  } catch (e: any) {
+    console.log(`  Error reading cache: ${e.message}`);
+  }
+} else {
+  console.log('  No news cache found (~/.indic-bot/news-cache.json)');
+}
+
+// ── 6. CONFIG ─────────────────────────────────────────────────
 section('BOT CONFIG');
 row('Pairs',            config.trading.pairs.join(', '));
 row('Max leverage',     `${config.trading.maxLeverage}x`);

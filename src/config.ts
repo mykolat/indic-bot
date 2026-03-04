@@ -65,7 +65,7 @@ export function loadConfig(): Config {
       maxStopLossPct: parseFloat(process.env.MAX_STOP_LOSS_PCT || '5'),
       targetReturnPct: parseFloat(process.env.TARGET_RETURN_PCT || '100'),
       minTakeProfitPct: parseFloat(process.env.MIN_TAKE_PROFIT_PCT || '5'),
-      newsRefreshIntervalH: parseInt(process.env.NEWS_REFRESH_INTERVAL_H || '12', 10),
+      newsRefreshIntervalH: parseFloat(process.env.NEWS_REFRESH_INTERVAL_H || '0.33'),
       newsMaxItems: parseInt(process.env.NEWS_MAX_ITEMS || '100', 10),
       churnCooldownMs: parseInt(process.env.CHURN_COOLDOWN_MS || '900000', 10),
     },
