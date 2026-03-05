@@ -232,9 +232,10 @@ try {
   const highs = klines.map((k: any) => parseFloat(k[2]));
   const lows = klines.map((k: any) => parseFloat(k[3]));
   const volumes = klines.map((k: any) => parseFloat(k[5]));
+  const openTimes = klines.map((k: any) => k[0] as number); // Binance kline format
   const markPrice = closes[closes.length - 1]; // Approximate
 
-  const btcInd = computeIndicators(closes, highs, lows, volumes);
+  const btcInd = computeIndicators(closes, highs, lows, volumes, openTimes);
   const fearGreed = await fetchFearGreed();
   const { regime, confidence } = classifyRegime(btcInd, markPrice, fearGreed);
   const profile = getFilterProfile(regime);

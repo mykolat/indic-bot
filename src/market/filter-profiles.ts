@@ -31,7 +31,7 @@ const PROFILES: Record<MarketRegime, FilterProfile> = {
     },
     [MarketRegime.Range]: {
         rsiRange: [30, 70],
-        volumeMin: 0.5,
+        volumeMin: 0.4,
         confluenceMin: 2,
         leverageMultiplier: 0.5,
         minConfidence: 50,

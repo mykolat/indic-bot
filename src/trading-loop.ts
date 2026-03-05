@@ -242,7 +242,8 @@ export class TradingLoop {
         const highs = snap.candles1h.map(c => parseFloat(c.high));
         const lows = snap.candles1h.map(c => parseFloat(c.low));
         const volumes = snap.candles1h.map(c => parseFloat(c.volume));
-        indicators.set(snap.pair, computeIndicators(closes, highs, lows, volumes));
+        const openTimes = snap.candles1h.map(c => c.openTime);
+        indicators.set(snap.pair, computeIndicators(closes, highs, lows, volumes, openTimes));
       }
 
       // Compute 4h indicators for each pair
@@ -253,7 +254,8 @@ export class TradingLoop {
           const highs4h = snap.candles4h.map(c => parseFloat(c.high));
           const lows4h = snap.candles4h.map(c => parseFloat(c.low));
           const volumes4h = snap.candles4h.map(c => parseFloat(c.volume));
-          indicators4h.set(snap.pair, computeIndicators(closes4h, highs4h, lows4h, volumes4h));
+          const openTimes4h = snap.candles4h.map(c => c.openTime);
+          indicators4h.set(snap.pair, computeIndicators(closes4h, highs4h, lows4h, volumes4h, openTimes4h));
         }
       }
 
