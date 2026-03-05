@@ -25,6 +25,7 @@ import { getFilterProfile, type FilterProfile } from './market/filter-profiles.j
 import type { DecisionJournal, JournalEntry } from './logging/decision-journal.js';
 import type { TradeStoryLogger } from './logging/trade-story.js';
 import type { CryptoNews } from './news/types.js';
+import type { SwarmAgent } from './llm/swarm-agent.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -59,6 +60,7 @@ interface TradingLoopDeps {
   macroAnalyst?: MacroAnalystAgent;
   macroRefreshIntervalMs?: number;  // default 10_800_000 (3h)
   fallbackLlm?: import('./llm/fallback-client.js').FallbackLLMClient;
+  swarmAgent?: SwarmAgent;
   getSoulContent?: () => string | undefined;
   memoryKeeper?: import('./memory/memory-keeper.js').MemoryKeeper;
   memoryReview?: import('./memory/memory-review.js').MemoryReviewAgent;
@@ -430,7 +432,25 @@ export class TradingLoop {
           console.log(`[Loop] Pre-flight warning: ${filterWarning} (Passing to LLM as Soft Filter)`);
           logger.logError('LLM_PREFLIGHT_WARNING', filterWarning);
         }
-        decisions = await llm.analyze(promptData);
+
+        let useSwarm = false;
+        if (this.deps.swarmAgent && btcInd) {
+          const btcSnapTemp = snapshots.find(s => s.pair === 'BTCUSDT');
+          if (btcSnapTemp) {
+            const btcIndTemp = indicators.get(btcSnapTemp.pair);
+            if (btcIndTemp && btcIndTemp.volumeRatio > 1.5) {
+              useSwarm = true;
+            }
+          }
+        }
+
+        if (useSwarm && this.deps.swarmAgent) {
+          console.log(`[Loop] High Volatility (Vol=${btcInd?.volumeRatio.toFixed(1)}x) -> Engaging SWARM CONSENSUS`);
+          decisions = await this.deps.swarmAgent.getConsensus(promptData);
+          llm.lastNextCheckMinutes = (promptData as any).next_check_minutes || 5;
+        } else {
+          decisions = await llm.analyze(promptData);
+        }
       } catch (llmErr: any) {
         console.error('[Loop] Layer 1 (Codex API) failed:', llmErr?.message);
         logger.logError('LLM_LAYER1_FAILED', llmErr?.message ?? 'unknown');

@@ -23,6 +23,7 @@ import { MacroFetcher } from './news/macro-fetcher.js';
 import { MacroAnalystAgent } from './news/macro-analyst.js';
 import { join } from 'path';
 import { MemoryKeeper } from './memory/memory-keeper.js';
+import { SwarmAgent } from './llm/swarm-agent.js';
 import { MemoryReviewAgent } from './memory/memory-review.js';
 import { RssNewsFetcher } from './news/rss-fetcher.js';
 import { GrokGrounder } from './news/grok-grounder.js';
@@ -130,11 +131,14 @@ async function main() {
     console.log(`Webhook server listening on :${config.webhook.port}`);
   });
 
+  const swarmAgent = new SwarmAgent(llm);
+
   // Create trading loop
   const loop = new TradingLoop({
     pairs: config.trading.pairs,
     marketData,
     llm,
+    swarmAgent,
     orders,
     riskManager,
     signalBuffer,

@@ -554,4 +554,35 @@ describe('TradingLoop', () => {
     expect(callArg.snapshots).toHaveLength(1);
     expect(callArg.snapshots[0].pair).toBe('ETHUSDT');
   });
+  it('uses swarm agent when volume ratio > 1.5 in layer 1', async () => {
+    const mockSwarmConsensus = vi.fn().mockResolvedValue([{ pair: 'BTCUSDT', action: 'HOLD' }]);
+
+    const loopWithSwarm = new TradingLoop({
+      pairs: ['BTCUSDT'],
+      marketData: mockMarketData,
+      llm: mockLlm,
+      orders: mockOrders,
+      riskManager: mockRisk,
+      signalBuffer: mockSignalBuffer,
+      logger: mockLogger,
+      memory: loop['deps'].memory,
+      newsCache: loop['deps'].newsCache,
+      newsAnalyst: loop['deps'].newsAnalyst,
+      newsConfig: { refreshIntervalH: 12, maxItems: 100 },
+      churnCooldownMs: 900000,
+      tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
+      swarmAgent: { getConsensus: mockSwarmConsensus } as any,
+    });
+
+    const mockTech = await import('../../src/indicators/technical.js');
+    vi.spyOn(mockTech, 'computeIndicators').mockReturnValueOnce({
+      rsi: 50, ema20: 50, ema50: 50, atr: 10, vwap: 50, volumeRatio: 2.0, trend: 'neutral',
+      macd: 0, macdSignal: 0, macdHistogram: 0, bollingerUpper: 100, bollingerMiddle: 50, bollingerLower: 0, bollingerPercentB: 50, bollingerBandwidth: 10, adx: 20
+    });
+
+    await loopWithSwarm.runOnce();
+
+    expect(mockSwarmConsensus).toHaveBeenCalled();
+    expect(mockLlm.analyze).not.toHaveBeenCalled();
+  });
 });
