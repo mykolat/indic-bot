@@ -139,7 +139,9 @@ pm2 flush indic-bot
 - `decisions.jsonl` — all LLM decisions + RISK_REJECTED entries
 - `trades.jsonl` — executed LONG/SHORT/CLOSE
 - `errors.jsonl` — order failures, loop errors
-- `performance.jsonl` — balance + open positions per cycle; `cycleCount` resets on restart
+- `performance.jsonl` — balance + open positions per cycle; `cycleCount` resets on restart; includes `volumeRatio`, `confluence` (0–5), `confluenceFactors`, `regime`
+- `decisions-journal.jsonl` — detailed per-decision journal (regime, filters applied, indicators snapshot)
+- `trade-stories.jsonl` — narrative per trade (entry/exit regime, story, lesson)
 - `parse-errors.jsonl` — LLM response parse failures
 - `tokens.jsonl` — LLM token usage per call
 
