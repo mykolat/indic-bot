@@ -202,7 +202,7 @@ row('Risk rejections', riskRejected.length);
 if (errors.length > 0) {
   log('\n  Recent errors:');
   for (const e of errors.slice(-5)) {
-    log(`    [${e.timestamp}] ${e.type}: ${e.message}`);
+    log(`    [${e.timestamp}] ${e.code || e.type || '(Audit Error)'}: ${e.message}`);
   }
 }
 
