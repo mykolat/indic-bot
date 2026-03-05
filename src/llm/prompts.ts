@@ -480,3 +480,46 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   prompt += '\nProvide your trading decisions as JSON:';
   return prompt;
 }
+
+export type SwarmPersona = 'permabull' | 'permabear' | 'paranoid_risk_manager';
+
+export function buildSwarmPersonaPrompt(persona: SwarmPersona, config?: Parameters<typeof buildSystemPrompt>[0]): string {
+  const basePrompt = buildSystemPrompt(config || {
+    targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5
+  });
+
+  let personaPrefix = '';
+  switch (persona) {
+    case 'permabull':
+      personaPrefix = `>>> SWARM PERSONA: You are an ultra-aggressive PERMABULL. You look for any excuse to go LONG. You ignore bearish signals unless absolutely catastrophic. <<<\n\n`;
+      break;
+    case 'permabear':
+      personaPrefix = `>>> SWARM PERSONA: You are an ultra-aggressive PERMABEAR. You look for any excuse to go SHORT. You ignore bullish signals unless absolutely undeniable. <<<\n\n`;
+      break;
+    case 'paranoid_risk_manager':
+      personaPrefix = `>>> SWARM PERSONA: You are a PARANOID RISK MANAGER. Your only goal is capital preservation. You look for any excuse to HOLD or CLOSE. You only approve entries if the setup is mathematically flawless. <<<\n\n`;
+      break;
+  }
+
+  return personaPrefix + basePrompt;
+}
+
+export function buildConsensusPrompt(expertDecisions: string[], config?: Parameters<typeof buildSystemPrompt>[0]): string {
+  const basePrompt = buildSystemPrompt(config || {
+    targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5
+  });
+
+  // We replace the persona intro with the judge persona
+  const judgePrompt = basePrompt.replace(
+    /You are an aggressive crypto futures trader managing a LIVE account with real money\./,
+    `You are the SWARM CONSENSUS JUDGE managing a LIVE account with real money. You must objectively weigh the conflicting opinions of your sub-agents and make the final, most rational decision.`
+  );
+
+  let prompt = `${judgePrompt}\n\n## Sub-Agent Opinions for Current Cycle\n\n`;
+  expertDecisions.forEach((dec, i) => {
+    prompt += `### Expert ${i + 1}\n${dec}\n\n`;
+  });
+
+  prompt += `Analyze the expert opinions. If they strongly disagree, lean towards HOLD. If two agree, lean towards their consensus if rationally justified.\n`;
+  return prompt;
+}
