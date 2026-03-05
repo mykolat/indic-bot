@@ -38,23 +38,36 @@ export class SwarmAgent {
         console.log(`[Swarm] Aggregating ${expertDecisions.length} opinions. Synthesizing consensus...`);
         const consensusPrompt = buildConsensusPrompt(expertDecisions);
 
-        // Use the LLMClient's analyze method for the final call to get valid parsed JSON
-        // but we need to override the system prompt for that specific call.
-        // Since LLMClient.analyze doesn't accept a system prompt override easily, we'll use .call 
-        // and parse it manually exactly like LLMClient does.
+        let rawConsensus: string;
+        try {
+            rawConsensus = await this.llm.call(consensusPrompt, userPrompt);
+        } catch (e) {
+            console.error('[Swarm] Consensus LLM call failed:', e);
+            return [];
+        }
 
-        const rawConsensus = await this.llm.call(consensusPrompt, userPrompt);
+        // Find outermost JSON block containing "decisions" using balanced-brace matching
+        let jsonStr: string | undefined;
+        const startIdx = rawConsensus.indexOf('{');
+        if (startIdx >= 0) {
+            let depth = 0;
+            for (let i = startIdx; i < rawConsensus.length; i++) {
+                if (rawConsensus[i] === '{') depth++;
+                if (rawConsensus[i] === '}') depth--;
+                if (depth === 0) {
+                    jsonStr = rawConsensus.slice(startIdx, i + 1);
+                    break;
+                }
+            }
+        }
 
-        let jsonMatch = rawConsensus.match(/\{[^{}]*"decisions"\s*:\s*\[[\s\S]*?\]\s*[^{}]*\}/);
-        if (!jsonMatch) jsonMatch = rawConsensus.match(/\{[\s\S]*"decisions"[\s\S]*\}/);
-
-        if (!jsonMatch) {
+        if (!jsonStr || !jsonStr.includes('"decisions"')) {
             console.error('[Swarm] Consensus parser failed to find JSON');
             return [];
         }
 
         try {
-            const parsed = JSON.parse(jsonMatch[0]);
+            const parsed = JSON.parse(jsonStr);
             this.llm.lastNextCheckMinutes = parsed.next_check_minutes;
             return parsed.decisions || [];
         } catch (e) {

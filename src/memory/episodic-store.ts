@@ -13,7 +13,7 @@ export interface Episode {
 export class EpisodicStore {
     private episodes: Episode[] = [];
 
-    constructor(private filePath: string) {
+    constructor(private filePath: string, private maxEpisodes: number = 500) {
         this.load();
     }
 
@@ -34,6 +34,9 @@ export class EpisodicStore {
 
     addEpisode(episode: Episode) {
         this.episodes.push(episode);
+        if (this.episodes.length > this.maxEpisodes) {
+            this.episodes = this.episodes.slice(-this.maxEpisodes);
+        }
         this.save();
     }
 

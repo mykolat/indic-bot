@@ -1,8 +1,10 @@
+import { fetchWithTimeout } from '../utils/fetch-timeout.js';
+
 export class EmbeddingClient {
     constructor(private apiKey: string) { }
 
     async getEmbedding(text: string): Promise<number[]> {
-        const response = await fetch('https://api.openai.com/v1/embeddings', {
+        const response = await fetchWithTimeout('https://api.openai.com/v1/embeddings', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -12,7 +14,7 @@ export class EmbeddingClient {
                 input: text,
                 model: 'text-embedding-3-small'
             })
-        });
+        }, 15_000);
 
         if (!response.ok) {
             throw new Error(`OpenAI API error: ${response.statusText}`);

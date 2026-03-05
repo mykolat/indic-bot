@@ -31,6 +31,11 @@ import { SourceHealthMonitor } from './news/source-health.js';
 import { EmbeddingClient } from './llm/embedding-client.js';
 import { EpisodicStore } from './memory/episodic-store.js';
 import { EpisodicAgent } from './llm/episodic-agent.js';
+import { DecisionJournal } from './logging/decision-journal.js';
+import { TradeStoryLogger } from './logging/trade-story.js';
+import { FlashCrashScanner } from './news/flash-crash.js';
+import { DevilsAdvocate } from './risk/devils-advocate.js';
+import { GrokClient } from './llm/grok-client.js';
 
 async function main() {
   const config = loadConfig();
@@ -134,7 +139,14 @@ async function main() {
     console.log(`Webhook server listening on :${config.webhook.port}`);
   });
 
-  const swarmAgent = new SwarmAgent(llm);
+  const grokClient = process.env.XAI_API_KEY ? new GrokClient(process.env.XAI_API_KEY) : undefined;
+  const swarmAgent = new SwarmAgent(llm, grokClient);
+
+  const flashCrashScanner = grokClient ? new FlashCrashScanner(grokClient) : undefined;
+  if (flashCrashScanner) console.log('[FlashCrash] Scanner enabled (Grok)');
+
+  const decisionJournal = new DecisionJournal('logs/decisions-journal.jsonl');
+  const tradeStoryLogger = new TradeStoryLogger('logs/trade-stories.jsonl');
 
   let episodicAgent: EpisodicAgent | undefined;
   if (process.env.OPENAI_API_KEY_FALLBACK) {
@@ -184,6 +196,9 @@ async function main() {
       minImportance: parseInt(process.env.GROK_MIN_IMPORTANCE || '7', 10),
       maxPerCycle: parseInt(process.env.GROK_MAX_PER_CYCLE || '2', 10),
     },
+    flashCrashScanner,
+    decisionJournal,
+    tradeStoryLogger,
   });
 
   // Run loop
