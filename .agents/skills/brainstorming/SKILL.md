@@ -1,9 +1,9 @@
 ---
-name: brainstorm-indic
-description: "You MUST use this before any creative work regarding the Indic Bot - creating features, modifying trading logic, or adding functionality. Explores user intent, AI context architectures, and design before implementation."
+name: brainstorming
+description: "You MUST use this before any creative work - creating features, modifying systems, or adding functionality. Explores user intent, architectures, and design before implementation."
 ---
 
-# Brainstorming Indic 
+# Brainstorming 
 
 ## Overview
 
@@ -24,11 +24,11 @@ You MUST create a task for each of these items and complete them in order:
 3. **Propose 2-3 approaches** — with trade-offs and your recommendation
 4. **Present design** — in sections scaled to their complexity, get user approval after each section
 5. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit
-6. **Transition to implementation** — invoke `writing-indic-plans` skill to create the implementation plan
+6. **Transition to implementation** — invoke `writing-plans` skill to create the implementation plan
 
 ## Process Flow
 
-**The terminal state is invoking writing-indic-plans.** Do NOT invoke any execution skill. The ONLY skill you invoke after brainstorming is `writing-indic-plans`.
+**The terminal state is invoking writing-plans.** Do NOT invoke any execution skill. The ONLY skill you invoke after brainstorming is `writing-plans`.
 
 ## The Process
 
@@ -57,8 +57,8 @@ You MUST create a task for each of these items and complete them in order:
 - Commit the design document to git
 
 **Implementation:**
-- Invoke the `writing-indic-plans` skill to create a detailed implementation plan
-- Do NOT invoke any other skill. `writing-indic-plans` is the next step.
+- Invoke the `writing-plans` skill to create a detailed implementation plan
+- Do NOT invoke any other skill. `writing-plans` is the next step.
 
 ## Key Principles
 

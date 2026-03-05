@@ -1,9 +1,9 @@
 ---
-name: executing-indic-plans
+name: executing-plans
 description: Use when you have a written implementation plan in `docs/plans/` and need to execute it step-by-step.
 ---
 
-# Executing Indic Plans
+# Executing Plans
 
 ## Overview
 Load an implementation plan, review it critically, and execute tasks exactly as written. This ensures disciplined, test-driven execution without hallucinating extra features. 

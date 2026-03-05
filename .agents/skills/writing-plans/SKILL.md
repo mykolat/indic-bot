@@ -1,9 +1,9 @@
 ---
-name: writing-indic-plans
+name: writing-plans
 description: Use when you have a design or architectural spec and need to create a step-by-step implementation plan before touching code.
 ---
 
-# Writing Indic Implementation Plans
+# Writing Implementation Plans
 
 ## Overview
 Write comprehensive implementation plans assuming the engineer has zero context for the Indic Bot codebase. Document exactly which TS files to touch, which tests to write (Vitest), and how to verify. Break the whole plan into bite-sized, deterministic tasks. Adhere to DRY, YAGNI, and strict Test-Driven Development (TDD).
@@ -24,7 +24,7 @@ Every plan MUST start with exactly this header:
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use writing-indic-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use writing-plans to implement this plan task-by-task.
 
 **Goal:** [One sentence describing what this achieves]
 
