@@ -24,6 +24,7 @@ import { MarketRegime, classifyRegime } from './market/regime-classifier.js';
 import { getFilterProfile, type FilterProfile } from './market/filter-profiles.js';
 import type { DecisionJournal, JournalEntry } from './logging/decision-journal.js';
 import type { TradeStoryLogger } from './logging/trade-story.js';
+import type { CryptoNews } from './news/types.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -245,18 +246,41 @@ export class TradingLoop {
 
       // 4. Refresh news cache if stale, then fetch sentiment
       if (this.deps.newsCache.shouldRefresh(this.deps.newsConfig.refreshIntervalH)) {
-        const newsSource = this.deps.rssFetcher || this.deps.newsClient;
-        if (newsSource) {
-          console.log('[News] Cache stale — fetching fresh news...');
-          const items = await newsSource.fetchNews(this.deps.newsConfig.maxItems);
+        const fetchers = [];
+        if (this.deps.rssFetcher) fetchers.push(this.deps.rssFetcher.fetchNews(this.deps.newsConfig.maxItems));
+        if (this.deps.newsClient) fetchers.push(this.deps.newsClient.fetchNews(this.deps.newsConfig.maxItems));
 
-          // Track source health for RSS feeds
-          if (this.deps.sourceHealth && this.deps.rssFetcher) {
-            const sources = [...new Set(items.map(i => i.source))];
+        if (fetchers.length > 0) {
+          console.log(`[News] Cache stale — fetching from ${fetchers.length} sources...`);
+          const results = await Promise.allSettled(fetchers);
+          const allItems: CryptoNews[] = [];
+
+          for (const res of results) {
+            if (res.status === 'fulfilled') {
+              allItems.push(...res.value);
+            }
+          }
+
+          // Deduplicate by title, preferring CryptoPanic/non-RSS
+          const seen = new Map<string, CryptoNews>();
+          for (const item of allItems) {
+            const key = item.title.toLowerCase().trim().replace(/\s+/g, ' ');
+            const existing = seen.get(key);
+
+            // Priority: keep if new OR if existing is RSS and new is not
+            if (!existing || (existing.source.toLowerCase().includes('rss') && !item.source.toLowerCase().includes('rss'))) {
+              seen.set(key, item);
+            }
+          }
+          const uniqueItems = Array.from(seen.values());
+
+          // Track source health
+          if (this.deps.sourceHealth) {
+            const sources = [...new Set(uniqueItems.map(i => i.source))];
             for (const s of sources) this.deps.sourceHealth.recordSuccess(s);
           }
 
-          const analysis = await this.deps.newsAnalyst.analyze(items);
+          const analysis = await this.deps.newsAnalyst.analyze(uniqueItems);
 
           // Grounding: verify high-importance claims via Grok
           if (this.deps.grokGrounder && analysis.top_signals?.length) {
@@ -289,7 +313,7 @@ export class TradingLoop {
           }
 
           const cacheState = {
-            items,
+            items: uniqueItems,
             fetchedAt: new Date().toISOString(),
             analysis,
             analyzedAt: new Date().toISOString(),
