@@ -34,7 +34,6 @@ import { EpisodicAgent } from './llm/episodic-agent.js';
 import { DecisionJournal } from './logging/decision-journal.js';
 import { TradeStoryLogger } from './logging/trade-story.js';
 import { FlashCrashScanner } from './news/flash-crash.js';
-import { DevilsAdvocate } from './risk/devils-advocate.js';
 import { GrokClient } from './llm/grok-client.js';
 
 async function main() {

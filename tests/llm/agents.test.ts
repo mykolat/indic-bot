@@ -16,4 +16,35 @@ describe('runLayer1Experts', () => {
         expect(results).toHaveProperty('memoryReport');
         expect(mockLlmClient.call).toHaveBeenCalledTimes(3);
     });
+
+    it('returns partial results when one expert fails', async () => {
+        const mockLlmClient = {
+            call: vi.fn()
+                .mockResolvedValueOnce('news ok')
+                .mockRejectedValueOnce(new Error('macro timeout'))
+                .mockResolvedValueOnce('memory ok')
+        };
+
+        const results = await runLayer1Experts(mockLlmClient as any, {
+            newsData: '...', macroData: '...', memoryData: '...'
+        });
+
+        expect(results.newsReport).toBe('news ok');
+        expect(results.macroReport).toBe('');
+        expect(results.memoryReport).toBe('memory ok');
+    });
+
+    it('returns all empty when all experts fail', async () => {
+        const mockLlmClient = {
+            call: vi.fn().mockRejectedValue(new Error('API down'))
+        };
+
+        const results = await runLayer1Experts(mockLlmClient as any, {
+            newsData: '...', macroData: '...', memoryData: '...'
+        });
+
+        expect(results.newsReport).toBe('');
+        expect(results.macroReport).toBe('');
+        expect(results.memoryReport).toBe('');
+    });
 });

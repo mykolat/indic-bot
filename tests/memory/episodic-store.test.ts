@@ -33,6 +33,18 @@ describe('EpisodicStore', () => {
         expect(store2.getAll()[0].id).toBe('1');
     });
 
+    it('evicts oldest episodes when exceeding maxEpisodes', () => {
+        const store = new EpisodicStore(dbPath, 3);
+        for (let i = 1; i <= 5; i++) {
+            store.addEpisode({ id: `${i}`, timestamp: i, textSummary: `ep${i}`, embedding: [i], resultPnl: 0 });
+        }
+
+        const all = store.getAll();
+        expect(all).toHaveLength(3);
+        expect(all[0].id).toBe('3');
+        expect(all[2].id).toBe('5');
+    });
+
     it('retrieves top K similar episodes', () => {
         const store = new EpisodicStore(dbPath);
         store.addEpisode({ id: '1', timestamp: 1, textSummary: 'A', embedding: [1, 0], resultPnl: 0 }); // Sim: 1.0 (exact match)

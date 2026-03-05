@@ -384,11 +384,16 @@ export class TradingLoop {
       const memoryKeeper = this.deps.memoryKeeper ?? new MemoryKeeper(process.env.DATA_DIR || './tmp');
       const latestMemoryData = memoryKeeper.read();
 
-      const layer1Reports = await runLayer1Experts(this.deps.llm, {
-        newsData: JSON.stringify(newsAnalysis),
-        macroData: JSON.stringify(this.lastMacroAnalysis),
-        memoryData: latestMemoryData
-      });
+      let layer1Reports = { newsReport: '', macroReport: '', memoryReport: '' };
+      try {
+        layer1Reports = await runLayer1Experts(this.deps.llm, {
+          newsData: JSON.stringify(newsAnalysis),
+          macroData: JSON.stringify(this.lastMacroAnalysis),
+          memoryData: latestMemoryData
+        });
+      } catch (e: any) {
+        console.error('[Loop] Layer1 experts failed entirely:', e.message);
+      }
 
       // 7. CPU Prep: Bundle the distills for the Chief Architect
       const memState = this.deps.memory.load();

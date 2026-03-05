@@ -35,4 +35,34 @@ describe('SwarmAgent', () => {
         expect(mockCodex.call).toHaveBeenCalledTimes(4); // 3 personas + 1 judge
         expect(mockGrok.call).toHaveBeenCalledTimes(1);  // 1 narrative expert
     });
+
+    it('returns empty array when consensus LLM call throws', async () => {
+        const mockLlm = {
+            call: vi.fn()
+                .mockResolvedValueOnce('bull view')
+                .mockResolvedValueOnce('bear view')
+                .mockResolvedValueOnce('risk view')
+                .mockRejectedValueOnce(new Error('API timeout')),
+            lastNextCheckMinutes: undefined
+        } as any;
+
+        const agent = new SwarmAgent(mockLlm);
+        const decisions = await agent.getConsensus({ snapshots: [], indicators: new Map(), portfolio: { balanceUsd: 100, availableUsd: 100, sessionPnl: 0, positions: [] }, signals: [], news: [], fearGreed: { value: 50, label: 'Neutral' } });
+
+        expect(decisions).toEqual([]);
+    });
+
+    it('parses JSON with nested objects in decisions', async () => {
+        const nestedJson = '{"decisions": [{"pair": "ETHUSDT", "action": "LONG", "meta": {"reason": "breakout"}}], "next_check_minutes": 5}';
+        const mockLlm = {
+            call: vi.fn().mockResolvedValue(nestedJson),
+            lastNextCheckMinutes: undefined
+        } as any;
+
+        const agent = new SwarmAgent(mockLlm);
+        const decisions = await agent.getConsensus({ snapshots: [], indicators: new Map(), portfolio: { balanceUsd: 100, availableUsd: 100, sessionPnl: 0, positions: [] }, signals: [], news: [], fearGreed: { value: 50, label: 'Neutral' } });
+
+        expect(decisions).toHaveLength(1);
+        expect(decisions[0].pair).toBe('ETHUSDT');
+    });
 });
