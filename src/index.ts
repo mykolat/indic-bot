@@ -28,6 +28,9 @@ import { MemoryReviewAgent } from './memory/memory-review.js';
 import { RssNewsFetcher } from './news/rss-fetcher.js';
 import { GrokGrounder } from './news/grok-grounder.js';
 import { SourceHealthMonitor } from './news/source-health.js';
+import { EmbeddingClient } from './llm/embedding-client.js';
+import { EpisodicStore } from './memory/episodic-store.js';
+import { EpisodicAgent } from './llm/episodic-agent.js';
 
 async function main() {
   const config = loadConfig();
@@ -133,12 +136,23 @@ async function main() {
 
   const swarmAgent = new SwarmAgent(llm);
 
+  let episodicAgent: EpisodicAgent | undefined;
+  if (process.env.OPENAI_API_KEY_FALLBACK) {
+    const embeddingClient = new EmbeddingClient(process.env.OPENAI_API_KEY_FALLBACK);
+    const episodicStore = new EpisodicStore(join(process.env.DATA_DIR || './tmp', 'memory-graph.json'));
+    episodicAgent = new EpisodicAgent(embeddingClient, episodicStore);
+    console.log('[Memory] Episodic RAG enabled (Graph DB)');
+  } else {
+    console.warn('[Memory] Episodic RAG disabled — missing OPENAI_API_KEY_FALLBACK');
+  }
+
   // Create trading loop
   const loop = new TradingLoop({
     pairs: config.trading.pairs,
     marketData,
     llm,
     swarmAgent,
+    episodicAgent,
     orders,
     riskManager,
     signalBuffer,

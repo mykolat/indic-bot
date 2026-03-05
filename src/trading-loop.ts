@@ -64,6 +64,7 @@ interface TradingLoopDeps {
   getSoulContent?: () => string | undefined;
   memoryKeeper?: import('./memory/memory-keeper.js').MemoryKeeper;
   memoryReview?: import('./memory/memory-review.js').MemoryReviewAgent;
+  episodicAgent?: import('./llm/episodic-agent.js').EpisodicAgent;
   rssFetcher?: NewsFetcher;
   grokGrounder?: import('./news/grok-grounder.js').GrokGrounder;
   sourceHealth?: import('./news/source-health.js').SourceHealthMonitor;
@@ -383,6 +384,16 @@ export class TradingLoop {
       const lossPct = Math.abs(Math.min(sessionPnlPct, 0));
       const riskStatus = lossPct >= 10 ? 'critical' : lossPct >= 5 ? 'reduced' : 'normal';
       const memoryContent = this.deps.memoryKeeper?.read() ?? this.deps.getSoulContent?.();
+
+      let ragContext: string | undefined;
+      if (this.deps.episodicAgent) {
+        const btcIndForRag = indicators.get('BTCUSDT') || indicators.values().next().value;
+        const trendForRag = btcIndForRag ? btcIndForRag.trend : 'neutral';
+        const volForRag = btcIndForRag ? btcIndForRag.volumeRatio.toFixed(1) : '1.0';
+        const currentStateStr = `Market Regime: ${marketRegime}. Trend: ${trendForRag}. Volatility: ${volForRag}. Risk Environment: ${this.lastMacroAnalysis?.risk_environment || 'neutral'}. Fear & Greed: ${fearGreed.label}`;
+        ragContext = await this.deps.episodicAgent.getRelevantContext(currentStateStr);
+      }
+
       // Pre-flight check: calculate soft filter warnings instead of skipping
       let filterWarning: string | undefined = undefined;
       const btcInd = indicators.get(btcSnap?.pair ?? '');
@@ -421,6 +432,7 @@ export class TradingLoop {
         memoryContent,
         regime: marketRegime,
         layer1Reports, // NEW INJECTION
+        ragContext,
         filterWarning,
       };
 

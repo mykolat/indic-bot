@@ -135,6 +135,7 @@ export interface EnrichedPromptData {
   regime?: string;
   layer1Reports?: import('./agents.js').Layer1Outputs;
   filterWarning?: string;
+  ragContext?: string;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -218,6 +219,10 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   // Memory — dynamic reflections
   if (data.memoryContent) {
     prompt += `## Dynamic Memory (Current Reflections)\n${data.memoryContent}\n\n`;
+  }
+
+  if (data.ragContext) {
+    prompt += `${data.ragContext}\n`;
   }
 
   // Layer 1 Experts Distillation
