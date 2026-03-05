@@ -37,6 +37,7 @@ interface AuditData {
     botCycles: number;
     executedTrades: number;
     errors: number;
+    lastCycles: string[];
   };
   regime: {
     name: string;
@@ -56,7 +57,7 @@ const auditData: AuditData = {
   timestamp: new Date().toISOString(),
   account: { walletBalance: 0, marginBalance: 0, availableBalance: 0, unrealizedPnl: 0 },
   session: { pnlUsd: 0, roiPct: 0 },
-  metrics: { botCycles: 0, executedTrades: 0, errors: 0 },
+  metrics: { botCycles: 0, executedTrades: 0, errors: 0, lastCycles: [] },
   regime: { name: 'n/a', confidence: 0 },
   news: { sentiment: 'n/a', fedStance: 'n/a', riskAppetite: 'n/a', signalsCount: 0 },
   rawOutput: '',
@@ -180,6 +181,16 @@ if (perf.length > 0) {
 }
 
 auditData.metrics.botCycles = perf.length;
+if (perf.length > 0) {
+  auditData.metrics.lastCycles = perf.slice(-5).map((p: any) => p.timestamp).reverse();
+  log('\n  Recent cycles:');
+  for (const ts of auditData.metrics.lastCycles) {
+    const d = new Date(ts);
+    const ageMin = Math.round((Date.now() - d.getTime()) / 60000);
+    log(`    - ${d.toISOString().slice(11, 19)} UTC (${ageMin} min ago)`);
+  }
+}
+
 const executedTrades = trades.filter((t: any) => ['LONG', 'SHORT', 'CLOSE'].includes(t.type));
 auditData.metrics.executedTrades = executedTrades.length;
 auditData.metrics.errors = errors.length;
@@ -405,6 +416,16 @@ ${conclusion}
 - **Поточних угод:** ${open.length}
 - **Всього угод за сесію:** ${auditData.metrics.executedTrades}
 - **Помилок:** ${auditData.metrics.errors}
+
+## ⏱ Останні запуски (Частота аналізу)
+${auditData.metrics.lastCycles.length > 0
+    ? auditData.metrics.lastCycles.map((ts) => {
+      const d = new Date(ts);
+      const tzOffset = d.getTimezoneOffset() * 60000;
+      const local = new Date(d.getTime() - tzOffset);
+      return `- ${local.toISOString().slice(11, 19)} (локально)`;
+    }).join('\n')
+    : '- Немає даних'}
 
 ## 🦈 Ринковий Режим (Shark Mode)
 - **Визначений:** ${auditData.regime.name} (Впевненість: ${auditData.regime.confidence}/2)

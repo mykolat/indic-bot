@@ -10,23 +10,34 @@ export class CryptoPanicClient implements NewsFetcher {
 
   async fetchNews(limit = 100): Promise<CryptoNews[]> {
     try {
-      // Run the actor and wait for it to finish
-      const runResponse = await fetchWithTimeout(
-        `https://api.apify.com/v2/acts/${ACTOR_ID}/run-sync-get-dataset-items?token=${this.apifyToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ category: 'top-news', filter: 'show-all' }),
-        },
-        30_000,
-      );
+      let datasetId: string | undefined;
 
-      if (!runResponse.ok) {
-        const errText = await runResponse.text().catch(() => '');
-        throw new Error(`Apify API ${runResponse.status}: ${errText.slice(0, 200)}`);
+      // Fetch the latest successful run (Actors are scheduled externally)
+      const runsUrl = `https://api.apify.com/v2/acts/${ACTOR_ID}/runs?token=${this.apifyToken}&desc=true&limit=5`;
+      const runsRes = await fetchWithTimeout(runsUrl, {}, 10_000).catch(() => null);
+
+      if (runsRes && runsRes.ok) {
+        const runsData = (await runsRes.json()) as any;
+        const recentRuns = runsData.data?.items || [];
+        const lastSuccess = recentRuns.find((r: any) => r.status === 'SUCCEEDED');
+
+        if (lastSuccess) {
+          console.log(`[CryptoPanic] Using dataset from scheduled run: ${lastSuccess.id}`);
+          datasetId = lastSuccess.defaultDatasetId;
+        }
       }
 
-      const items = (await runResponse.json()) as any[];
+      if (!datasetId) {
+        throw new Error(`No successful runs found for actor ${ACTOR_ID}`);
+      }
+
+      // Fetch its items directly
+      const datasetUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${this.apifyToken}`;
+      const datasetRes = await fetchWithTimeout(datasetUrl, {}, 15_000);
+      if (!datasetRes.ok) {
+        throw new Error(`Failed to fetch dataset ${datasetId}`);
+      }
+      const items = (await datasetRes.json()) as any[];
 
       return items.slice(0, limit).map((item) => ({
         title: item.title || '',
@@ -48,3 +59,4 @@ export class CryptoPanicClient implements NewsFetcher {
     return positive - negative;
   }
 }
+

@@ -585,4 +585,32 @@ describe('TradingLoop', () => {
     expect(mockSwarmConsensus).toHaveBeenCalled();
     expect(mockLlm.analyze).not.toHaveBeenCalled();
   });
+  it('calls EpisodicAgent to fetch RAG context', async () => {
+    const mockEpisodicAgent = {
+      getRelevantContext: vi.fn().mockResolvedValue('Past Episode: Chop. PNL -2%')
+    };
+
+    const loopRAG = new TradingLoop({
+      pairs: ['BTCUSDT'],
+      marketData: mockMarketData,
+      llm: mockLlm,
+      orders: mockOrders,
+      riskManager: mockRisk,
+      signalBuffer: mockSignalBuffer,
+      logger: mockLogger,
+      memory: loop['deps'].memory,
+      newsCache: loop['deps'].newsCache,
+      newsAnalyst: loop['deps'].newsAnalyst,
+      newsConfig: { refreshIntervalH: 12, maxItems: 100 },
+      churnCooldownMs: 900000,
+      tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
+      episodicAgent: mockEpisodicAgent as any,
+    });
+
+    await loopRAG.runOnce();
+
+    expect(mockEpisodicAgent.getRelevantContext).toHaveBeenCalled();
+    const callArg = mockLlm.analyze.mock.calls[0][0];
+    expect(callArg.ragContext).toBe('Past Episode: Chop. PNL -2%');
+  });
 });

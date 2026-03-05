@@ -11,35 +11,47 @@ export interface MacroSnapshot {
 }
 
 const SYMBOLS = [
-  { symbol: 'CL=F',      name: 'WTI Crude Oil' },
-  { symbol: 'DX-Y.NYB',  name: 'DXY Dollar Index' },
-  { symbol: '^GSPC',     name: 'S&P 500' },
-  { symbol: '^VIX',      name: 'VIX Fear Index' },
-  { symbol: 'EURUSD=X',  name: 'EUR/USD' },
-  { symbol: 'GC=F',      name: 'Gold' },
+  { symbol: 'CL=F', name: 'WTI Crude Oil' },
+  { symbol: 'DX-Y.NYB', name: 'DXY Dollar Index' },
+  { symbol: '^GSPC', name: 'S&P 500' },
+  { symbol: '^VIX', name: 'VIX Fear Index' },
+  { symbol: 'EURUSD=X', name: 'EUR/USD' },
+  { symbol: 'GC=F', name: 'Gold' },
 ];
 
 const ACTOR_ID = 'vaclavrut~stock-price-yahoo-finance';
 
 export class MacroFetcher {
-  constructor(private apifyToken: string) {}
+  constructor(private apifyToken: string) { }
 
   async fetch(): Promise<MacroSnapshot[]> {
     try {
       const tickers = SYMBOLS.map(s => s.symbol);
-      const response = await fetchWithTimeout(
-        `https://api.apify.com/v2/acts/${ACTOR_ID}/run-sync-get-dataset-items?token=${this.apifyToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tickers }),
-        },
-        15_000,
-      );
+      let datasetId: string | undefined;
 
-      if (!response.ok) throw new Error(`Apify macro ${response.status}`);
+      // Fetch the latest successful run (Actors are scheduled externally)
+      const runsUrl = `https://api.apify.com/v2/acts/${ACTOR_ID}/runs?token=${this.apifyToken}&desc=true&limit=5`;
+      const runsRes = await fetchWithTimeout(runsUrl, {}, 10_000).catch(() => null);
 
-      const items = await response.json() as any[];
+      if (runsRes && runsRes.ok) {
+        const runsData = (await runsRes.json()) as any;
+        const recentRuns = runsData.data?.items || [];
+        const lastSuccess = recentRuns.find((r: any) => r.status === 'SUCCEEDED');
+
+        if (lastSuccess) {
+          console.log(`[MacroFetcher] Using dataset from scheduled run: ${lastSuccess.id}`);
+          datasetId = lastSuccess.defaultDatasetId;
+        }
+      }
+
+      if (!datasetId) {
+        throw new Error(`No successful runs found for actor ${ACTOR_ID}`);
+      }
+
+      const datasetUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${this.apifyToken}`;
+      const datasetRes = await fetchWithTimeout(datasetUrl, {}, 15_000);
+      if (!datasetRes.ok) throw new Error(`Failed to fetch macro dataset ${datasetId}`);
+      const items = await datasetRes.json() as any[];
 
       return items.map((item: any) => {
         const sym = SYMBOLS.find(s => s.symbol === item.ticker || s.symbol === item.symbol);

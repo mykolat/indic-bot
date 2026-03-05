@@ -400,7 +400,7 @@ Modify `src/trading-loop.ts`:
 4. Inject `ragContext` into `promptData`.
 
 Modify `src/index.ts`:
-1. Instantiate `EmbeddingClient`. (Provide API key from `process.env.OPENAI_API_KEY`).
+1. Instantiate `EmbeddingClient`. (Provide API key from `process.env.OPENAI_API_KEY_FALLBACK`).
 2. Instantiate `EpisodicStore('data/memory-graph.json')`.
 3. Instantiate `EpisodicAgent(embeddingClient, episodicStore)`.
 4. Pass `episodicAgent` into `TradingLoop` deps.
