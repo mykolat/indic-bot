@@ -9,7 +9,10 @@ npm run dev           # run bot (tsx, no compile step)
 npm run test          # run all tests
 npm run build         # compile TypeScript → dist/
 npm run audit:bot     # live account snapshot (Binance + logs + news)
-npm run soul:insight "text" # inject external insight into soul.md
+npm run audit:md      # markdown audit report → docs/deepresult/audit_history/
+npm run audit:remote  # run audit on GCP VM via SSH
+npm run deploy        # rsync + deploy to GCP VM
+npm run soul:insight "text" # inject external insight into memory.md
 
 # Run a single test file:
 npx vitest run tests/risk/manager.test.ts
@@ -29,73 +32,125 @@ pm2 flush indic-bot
 **Entry point**: `src/index.ts` wires all components and starts the trading loop + Express webhook server.
 
 **Main loop** (`src/trading-loop.ts` → `TradingLoop.runOnce()`):
-1. Fetch market snapshots for all pairs in parallel
-2. Get portfolio state + compute real sessionPnl from Binance balance delta
-3. Compute 1h and 4h technical indicators
-4. Auto-exit stale positions (>8h <1% P&L) and max-hold (>24h)
-5. Refresh news cache if stale + macro data (every 3h)
-6. Call `LLMClient.analyze()` with enriched context (data narratives, session state, risk status)
-7. For each decision: check churn cooldown → `RiskManager.validate(decision, portfolio, validationCtx)` → `OrderExecutor.execute()`
-8. Log performance snapshot
+1. **Flash Crash Guard** — `FlashCrashScanner` (Grok) checks for market panic; if PANIC → abort cycle
+2. Fetch market snapshots for all pairs in parallel (`Promise.allSettled`)
+3. Get portfolio state + compute real sessionPnl from Binance balance delta
+4. Compute 1h and 4h technical indicators
+5. Auto-exit stale positions (>8h <1% P&L) and max-hold (>24h)
+6. Refresh news cache if stale (CryptoPanic + RSS) + macro data (every 3h)
+7. **Graph RAG** — `EpisodicAgent` retrieves similar past episodes from `EpisodicStore`
+8. **Swarm or Single LLM** — if BTC volumeRatio > 1.5, `SwarmAgent` runs multi-persona consensus; otherwise single `LLMClient.analyze()`
+9. For each decision: churn cooldown → `DevilsAdvocate` veto check → `RiskManager.validate()` → `OrderExecutor.execute()`
+10. Log performance snapshot; every ~20 cycles trigger `MemoryReviewAgent`
 
 **Config split** — two files, two purposes:
 - `.env` — secrets only (API keys). Never read directly; always via `loadConfig()`. Never modify or log.
 - `config.yaml` — all trading parameters, LLM model config, webhook port. Git-versioned. Parsed by `js-yaml` in `loadConfig()`.
 - `loadConfig()` reads `config.yaml` for trading params (pairs, leverage, intervals, limits). `.env` keeps only API keys/secrets. Fallback to hardcoded defaults if `config.yaml` missing.
 
-**LLM flow** (`src/llm/`):
+### Intelligence Layer (`src/llm/`)
+
+**Core LLM**:
 - `client.ts` — ChatGPT Codex API via SSE streaming; `call()` for analyst agent, `analyze()` for trading decisions. Smart JSON extraction with targeted regex + retry on parse failure. Parse errors logged to `logs/parse-errors.jsonl`.
 - `oauth.ts` — OpenAI OAuth token refresh (default auth); fallback to `OPENAI_API_KEY` if set
-- `prompts.ts` — `buildSystemPrompt()` with comprehensive strategy (multi-timeframe, confluence checklist, confidence guide, regime scaling). `buildEnrichedPrompt()` assembles all data + interpreted narratives (volume alerts, VWAP bias, Bollinger alerts, funding trends, trade performance/streaks, session P&L/risk status).
+- `prompts.ts` — `buildSystemPrompt()` with comprehensive strategy. `buildEnrichedPrompt()` assembles all data + interpreted narratives.
+- `cot-schema.ts` — `MandatoryCoTChecklist` interface + `validateCoTChecklist()` enforcing structured reasoning fields (macro_risk_score, liquidation_sweep, order_book_imbalance, etc.)
 
-**LLM resilience — 3 layers** (`src/llm/`):
-- Layer 1: Codex API (OAuth/JWT, `chatgpt.com/backend-api/codex/responses`) — full prompt
-- Layer 2: `fallback-client.ts` — standard OpenAI `/v1/chat/completions` via `OPENAI_API_KEY_FALLBACK`; minimal prompt (positions + PnL + soul.md External Insights); HOLD/CLOSE only; `gpt-4o-mini`
-- Layer 3: Rule-based — no LLM; SL/TP on Binance; if `sessionPnlPct < -5%` → close all positions + log Big Brother (soul.md External Insights)
+**Swarm Consensus** (`swarm-agent.ts`):
+- `SwarmAgent.getConsensus()` — parallel calls to 3 personas (permabull, permabear, paranoid_risk_manager) + optional 4th `narrative_expert` via Grok
+- Computes weighted consensus from all persona votes
+- Triggered when BTC volumeRatio > 1.5
+
+**Layer 1 Experts** (`agents.ts`):
+- `runLayer1Experts()` — 3 parallel LLM calls each cycle (NewsExpert, MacroExpert, MemoryExpert)
+- Results injected into main prompt as `layer1Reports`
+
+**Graph RAG** (`episodic-agent.ts` + `embedding-client.ts`):
+- `EpisodicAgent` embeds current market state, searches `EpisodicStore` for similar past episodes (cosine > 0.7)
+- `EmbeddingClient` uses `text-embedding-3-small` via OpenAI
+
+**Grok Integration** (`grok-client.ts`):
+- `GrokClient` — generic xAI API wrapper (`api.x.ai`), default model `grok-4-1-fast-reasoning`
+- Used by: SwarmAgent (narrative_expert), DevilsAdvocate, FlashCrashScanner, GrokGrounder
+- Requires `XAI_API_KEY` env var
+
+**LLM resilience — 3 layers**:
+- Layer 1: Codex API (OAuth/JWT) — full prompt, swarm if needed
+- Layer 2: `fallback-client.ts` — standard OpenAI `/v1/chat/completions` via `OPENAI_API_KEY_FALLBACK`; minimal prompt; HOLD/CLOSE only; `gpt-4o-mini`
+- Layer 3: Rule-based — no LLM; SL/TP on Binance; if `sessionPnlPct < -5%` → close all positions
 - `CircuitBreaker` (`src/utils/circuit-breaker.ts`) — 3 consecutive all-fail Binance cycles → skip cycle
 
-**Order execution** (`src/binance/orders.ts`):
-- Every LONG/SHORT places 3 orders: MARKET (entry) → STOP_MARKET → TAKE_PROFIT_MARKET
-- SL/TP use `closePosition: 'true'` (not `quantity + reduceOnly`) — this is required by Binance Futures API
-- **SL failure = cancel trade**: if SL placement fails, entry position is immediately closed (no unprotected positions)
-- TP failure is non-fatal (position still protected by SL)
-- CLOSE uses MARKET reduceOnly with exact position size fetched from Binance
+### Risk Layer (`src/risk/`)
 
-**Risk manager** (`src/risk/manager.ts`):
+**Risk Manager** (`manager.ts`):
 - Validates every LONG/SHORT before execution with `ValidationContext` (indicators4h, fearGreed)
 - Checks: confidence (min 55), leverage, position size %, stop-loss presence/range, total margin exposure %
 - Hard guardrails: 4h trend confirmation, F&G leverage cap, session loss scaling, duplicate position check
 - Shutdown trigger: `sessionPnl <= -(maxLossPct% × balance)` or `-(maxLossUsd)` if pct=0
 - HOLD, CLOSE, FETCH_NEWS bypass all checks
 
-**News system** (`src/news/`):
-- `news-fetcher.ts` — `NewsFetcher` interface for pluggable news sources (CryptoPanicClient implements it)
-- `cryptopanic.ts` — fetches headlines via Apify (requires `APIFY_API_TOKEN`)
-- `news-analyst.ts` — separate LLM call (`llm.call()`) that classifies headlines into structured signals (importance 1–10, direction, catalyst, timeframe)
-- `news-cache.ts` — file cache at `~/.indic-bot/news-cache.json`; `shouldRefresh(intervalHours)` uses `parseFloat` so fractional hours (e.g. 0.33) work
-- `news-db.ts` — SQLite (`better-sqlite3`) persistent news store at `~/.indic-bot/news.db`; deduplicates by `(title, date)`, exposes `getRecent(hours)` returning rows with computed `age_hours` column
-- LLM receives `NewsAnalysis` (structured signals), not raw headlines
-- `fear-greed.ts` — fetches Fear & Greed index from alternative.me API
+**DevilsAdvocate** (`devils-advocate.ts`):
+- Grok-powered pre-trade veto agent; searches X/Twitter for reasons NOT to enter trade
+- Returns `{ veto: boolean, reason?: string }`
 
-**Soul system** (`src/memory/`):
-- `soul-keeper.ts` — manages `~/.indic-bot/soul.md` with section-level read/write
-- `soul-review.ts` — LLM self-reflection agent, updates narrative sections every ~20 cycles
-- `soul-stats.ts` — computes SoulStats (win rate, streaks, pair performance) from TradeRecord[]
+### News & Macro System (`src/news/`)
+
+- `news-fetcher.ts` — `NewsFetcher` interface for pluggable sources
+- `cryptopanic.ts` — CryptoPanic headlines via Apify (`APIFY_API_TOKEN`)
+- `rss-fetcher.ts` — `RssNewsFetcher`: CoinDesk, CoinTelegraph, Decrypt RSS feeds (`fast-xml-parser`)
+- `source-health.ts` — `SourceHealthMonitor`: tracks success/failure rates per source
+- `news-analyst.ts` — LLM classifies headlines into structured signals (importance 1–10, direction, catalyst)
+- `news-cache.ts` — file cache at `~/.indic-bot/news-cache.json`; fractional hours work (e.g. 0.33)
+- `news-db.ts` — SQLite persistent store at `~/.indic-bot/news.db`; deduplicates by `(title, date)`
+- `flash-crash.ts` — `FlashCrashScanner`: Grok-powered PANIC/IGNORE guard at cycle start
+- `grok-grounder.ts` — `GrokGrounder`: fact-checks high-importance news against X/Twitter
+- `macro-fetcher.ts` — `MacroFetcher`: Yahoo Finance data (WTI, DXY, S&P500, VIX, EUR/USD, Gold) via Apify + BTC dominance via CoinGecko
+- `macro-analyst.ts` — `MacroAnalystAgent`: LLM macro summary → `MacroAnalysis`
+- `fear-greed.ts` — Fear & Greed index from alternative.me API
+
+### Market Regime — Shark Mode (`src/market/`)
+
+- `regime-classifier.ts` — `classifyRegime()`: 5 regimes (BullTrend, BearTrend, Range, Breakout, Capitulation) with confidence scoring based on F&G, ADX, EMA, VWAP, volume
+- `filter-profiles.ts` — `FilterProfile` per regime: RSI range, volumeMin, confluenceMin, leverageMultiplier, minConfidence, slStyle, tpStyle
+
+### Order Execution (`src/binance/orders.ts`)
+
+- Every LONG/SHORT places 3 orders: MARKET (entry) → STOP_MARKET → TAKE_PROFIT_MARKET
+- SL/TP use `closePosition: 'true'` (not `quantity + reduceOnly`) — required by Binance Futures API
+- **SL failure = cancel trade**: if SL placement fails, entry position is immediately closed
+- CLOSE uses MARKET reduceOnly with exact position size fetched from Binance
+
+### Memory System (`src/memory/`)
+
+- `memory-keeper.ts` — manages `~/.indic-bot/memory.md` with section-level read/write (learned, failures, regime, insights, stats, rejections, invisibleExits, verifiedIntel). Includes `backupHistory()` to `docs/deepresult/memory_history/`
+- `memory-review.ts` — LLM self-reflection agent, triggers every ~20 cycles, after 3+ consecutive losses, or on 3%+ balance change
+- `memory-stats.ts` — computes MemoryStats (win rate, streaks, pair performance) from TradeRecord[]
+- `episodic-store.ts` — `EpisodicStore`: JSON file DB at `DATA_DIR/memory-graph.json`; cosine similarity search
+- `session.ts` — session state management
 - `scripts/soul-insight.ts` — CLI for injecting external insights (`npm run soul:insight "text"`)
 
-**Persistent state** (all in `~/.indic-bot/`):
-- `memory.json` — session notes + last 20 closed trades + `start_balance` + `last_order_result`, read at loop start each cycle
-- `news-cache.json` — current news analysis
-- `news-history.jsonl` — append-only history of every news fetch
-- `soul.md` — persistent LLM identity document (auto-updated stats, rejections, exits + LLM-written narrative)
+### Logging (`src/logging/` + `logs/`)
 
-**Logs** (`logs/` directory, JSONL):
+- `decision-journal.ts` — `DecisionJournal`: logs decisions with regime, confidence, filters, indicators to `decisions-journal.jsonl`
+- `trade-story.ts` — `TradeStoryLogger`: narrative per trade (entry/exit regime, story, lesson)
+- `token-logger.ts` — logs LLM token usage to `logs/tokens.jsonl`
+
+**Log files** (`logs/` directory, JSONL):
 - `decisions.jsonl` — all LLM decisions + RISK_REJECTED entries
 - `trades.jsonl` — executed LONG/SHORT/CLOSE
 - `errors.jsonl` — order failures, loop errors
-- `performance.jsonl` — balance + open positions per cycle; `cycleCount` resets to 0 on bot restart (used for session detection)
-- `parse-errors.jsonl` — LLM response parse failures (for debugging)
+- `performance.jsonl` — balance + open positions per cycle; `cycleCount` resets on restart
+- `parse-errors.jsonl` — LLM response parse failures
 - `tokens.jsonl` — LLM token usage per call
+
+### Persistent State (all in `~/.indic-bot/`)
+
+- `memory.json` — session notes + last 20 closed trades + `start_balance` + `last_order_result`
+- `memory.md` — persistent bot identity document (auto-updated stats, rejections, exits + LLM-written narrative)
+- `memory-graph.json` — episodic graph RAG store (embeddings + episodes)
+- `news-cache.json` — current news analysis
+- `news.db` — SQLite persistent news store
+- `news-history.jsonl` — append-only history of every news fetch
 
 **TradingView webhook** (`src/webhook/`): Express server on `WEBHOOK_PORT` (default 3000); signals buffered in-memory and drained each cycle into LLM context.
 
@@ -105,27 +160,31 @@ pm2 flush indic-bot
 - SSH: `ssh -i ~/.ssh/google_compute_engine mykolat@34.179.171.213`
 - Bot runs via pm2, logs at `~/indic-bot/logs/pm2.log`
 - This IP is whitelisted in Binance API key
-- Session files: `~/.indic-bot/` (oauth-credentials.json, memory.json, news-cache.json)
-- To deploy updates: `rsync -az -e "ssh -i ~/.ssh/google_compute_engine" --exclude node_modules --exclude .git /path/to/04_Indic/ mykolat@34.179.171.213:~/indic-bot/`
+- Session files: `~/.indic-bot/` (oauth-credentials.json, memory.json, news-cache.json, memory.md, memory-graph.json)
+- Deploy: `npm run deploy` or manual `rsync -az -e "ssh -i ~/.ssh/google_compute_engine" --exclude node_modules --exclude .git /path/to/04_Indic/ mykolat@34.179.171.213:~/indic-bot/`
 
 ## Key Gotchas
 
 - **TypeScript ESM** — all local imports require `.js` extension (e.g. `import ... from './config.js'`), even though files are `.ts`. This is required by `"module": "NodeNext"`.
-- **`sessionPnl`** — now computed from real Binance balance delta (`currentBalance - startBalance`). `start_balance` persisted in `memory.json`.
+- **`sessionPnl`** — computed from real Binance balance delta (`currentBalance - startBalance`). `start_balance` persisted in `memory.json`.
 - **Churn cooldown** — stored in `TradingLoop.lastClosedAt` (in-memory Map). Resets on bot restart.
 - **Testnet URL** — `demo-fapi.binance.com` (not `testnet.binancefuture.com`). Set via `BINANCE_TESTNET=true` in `.env`.
-- **`scripts/audit.ts`** uses `loadConfig()` and connects to live Binance — runs correctly against live account.
 - **LLM layer switching** — `LLMClient.analyze()` throws on API errors (not parse errors). TradingLoop catches this and falls to Layer 2 or 3. Parse errors (bad JSON) still return `[]` (HOLD all positions).
 - **`Promise.allSettled`** for market snapshots — one pair failing won't kill the whole cycle. All-fail triggers circuit breaker.
-- **Big Brother** — `soul.md` External Insights section is the "Big Brother" message. Injected into Layer 2 prompt and logged in Layer 3 emergency close.
+- **Big Brother** — `memory.md` External Insights section is the "Big Brother" message. Injected into Layer 2 prompt and logged in Layer 3 emergency close.
 - **`config.yaml`** is read at startup. Changes require `pm2 restart indic-bot`.
 - **`NewsFetcher` interface** (`src/news/news-fetcher.ts`) — swap news sources without touching TradingLoop.
+- **Grok features** require `XAI_API_KEY` env var for FlashCrashScanner, DevilsAdvocate, SwarmAgent narrative_expert, GrokGrounder.
+- **Apify caching** — news fetchers check latest Apify dataset age before triggering new actor runs to avoid unnecessary costs.
 
 **Fetch timeouts** (`src/utils/fetch-timeout.ts`): AbortController-based timeouts for all external API calls (15s Apify, 10s CoinGecko, 5s Fear&Greed).
 
 ## Planned (not yet implemented)
 
 - ~~`config.yaml` migration~~ — **DONE**. `loadConfig()` reads `config.yaml` with `js-yaml`. See `src/config.ts`.
+- ~~Shark Mode~~ — **DONE**. 5 regimes, filter profiles, regime classifier. See `src/market/`.
+- ~~Swarm Consensus~~ — **DONE**. Multi-persona parallel analysis. See `src/llm/swarm-agent.ts`.
+- ~~Graph RAG~~ — **DONE**. Episodic memory with embeddings. See `src/llm/episodic-agent.ts`.
+- ~~Grok Integration~~ — **DONE**. FlashCrashScanner, DevilsAdvocate, GrokGrounder, SwarmAgent narrative_expert.
 - `npm run audit:debug` — JSON mode for AI-driven self-healing audit. See `docs/plans/2026-03-04-audit-design.md`.
-- Shark Mode — regime-adaptive trading with 5 market regimes, adaptive filter profiles, LLM override. IN PROGRESS. See `docs/plans/2026-03-05-shark-mode-design.md`.
-- Command Center Phase 1 — RSS multi-source news + Grok xAI grounding. PLANNED. See `docs/plans/2026-03-05-command-center-phase1-plan.md`.
+- Command Center Phase 1 — RSS multi-source news + Grok xAI grounding. PARTIALLY DONE (RSS + Grok implemented, full command center pending). See `docs/plans/2026-03-05-command-center-phase1-plan.md`.
