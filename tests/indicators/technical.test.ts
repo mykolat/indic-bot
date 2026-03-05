@@ -50,6 +50,25 @@ describe('computeVolumeRatio', () => {
   it('returns 1 when only one candle', () => {
     expect(computeVolumeRatio([500])).toBe(1);
   });
+
+  it('extrapolates volume when openTimes are provided', () => {
+    const volumes = [...Array(20).fill(1000), 100]; // last volume is 100
+    const now = Date.now();
+    // 15 mins into the candle
+    const openTimes = [...Array(20).fill(0), now - 15 * 60000];
+    const ratio = computeVolumeRatio(volumes, openTimes);
+    // 100 * (60/15) = 400. 400/1000 = 0.4
+    expect(ratio).toBeCloseTo(0.4, 1);
+  });
+
+  it('uses previous volume if candle is younger than 10 mins', () => {
+    const volumes = [...Array(20).fill(1000), 10]; // last volume is 10
+    const now = Date.now();
+    // 5 mins into the candle
+    const openTimes = [...Array(20).fill(0), now - 5 * 60000];
+    const ratio = computeVolumeRatio(volumes, openTimes);
+    expect(ratio).toBeCloseTo(1.0, 1); // Uses previous volume (1000)
+  });
 });
 
 describe('computeVWAP', () => {

@@ -121,12 +121,26 @@ export function computeBollingerBands(closes: number[], period = 20, stdDev = 2)
   return { upper, middle, lower, bandwidth, percentB };
 }
 
-export function computeVolumeRatio(volumes: number[], period = 20): number {
+export function computeVolumeRatio(volumes: number[], openTimes?: number[], period = 20): number {
   if (volumes.length < 2) return 1;
   const avgSlice = volumes.slice(-period - 1, -1);
   const avg = avgSlice.reduce((s, v) => s + v, 0) / avgSlice.length;
   if (avg === 0) return 1;
-  return volumes[volumes.length - 1] / avg;
+
+  let currentVol = volumes[volumes.length - 1];
+
+  if (openTimes && openTimes.length > 0) {
+    const lastOpenTime = openTimes[openTimes.length - 1];
+    const ageMins = (Date.now() - lastOpenTime) / 60000;
+
+    if (ageMins >= 10 && ageMins < 60) {
+      currentVol = Math.min(currentVol * (60 / Math.max(ageMins, 1)), avg * 5);
+    } else if (ageMins < 10) {
+      currentVol = volumes[volumes.length - 2] ?? currentVol;
+    }
+  }
+
+  return currentVol / avg;
 }
 
 export function computeVWAP(
@@ -211,7 +225,7 @@ export function computeADX(
 }
 
 export function computeIndicators(
-  closes: number[], highs: number[], lows: number[], volumes: number[] = [],
+  closes: number[], highs: number[], lows: number[], volumes: number[] = [], openTimes?: number[]
 ): Indicators {
   const rsi = computeRSI(closes);
   const ema20 = computeEMA(closes, 20);
@@ -220,7 +234,7 @@ export function computeIndicators(
   const trend = ema20 > ema50 * 1.001 ? 'bullish' : ema20 < ema50 * 0.999 ? 'bearish' : 'neutral';
   const macdResult = computeMACD(closes);
   const bb = computeBollingerBands(closes);
-  const volumeRatio = volumes.length > 0 ? computeVolumeRatio(volumes) : 1;
+  const volumeRatio = volumes.length > 0 ? computeVolumeRatio(volumes, openTimes) : 1;
   const vwap = volumes.length > 0
     ? computeVWAP(highs, lows, closes, volumes)
     : closes[closes.length - 1];
