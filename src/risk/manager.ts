@@ -23,6 +23,7 @@ export interface PortfolioState {
   balanceUsd: number;
   positions: Position[];
   sessionPnl: number;
+  drawdownPct: number;
 }
 
 export interface ValidationResult {
@@ -36,6 +37,7 @@ interface RiskConfig {
   maxPositionPct: number;
   maxExposurePct: number;
   maxStopLossPct: number;
+  maxDrawdownPct: number;
   maxLossUsd: number;
   maxLossPct: number;  // % of balance; overrides maxLossUsd if > 0
   minConfidence?: number;  // reject decisions below this confidence (default 55)
@@ -48,7 +50,7 @@ export interface ValidationContext {
 }
 
 export class RiskManager {
-  constructor(private config: RiskConfig) {}
+  constructor(private config: RiskConfig) { }
 
   validate(decision: TradeDecision, portfolio: PortfolioState, ctx?: ValidationContext): ValidationResult {
     if (decision.action === 'HOLD' || decision.action === 'CLOSE' || decision.action === 'FETCH_NEWS') {
@@ -70,6 +72,10 @@ export class RiskManager {
 
     if (portfolio.sessionPnl <= -effectiveMaxLoss) {
       return { approved: false, reason: `Session loss exceeded max $${effectiveMaxLoss.toFixed(2)} — shutdown triggered`, shutdown: true };
+    }
+
+    if (portfolio.drawdownPct >= this.config.maxDrawdownPct) {
+      return { approved: false, reason: `Drawdown ${portfolio.drawdownPct.toFixed(1)}% exceeded max ${this.config.maxDrawdownPct}% — shutdown triggered`, shutdown: true };
     }
 
     if (decision.leverage > this.config.maxLeverage) {

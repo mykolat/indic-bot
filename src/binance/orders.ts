@@ -7,7 +7,7 @@ export interface OrderResult {
 }
 
 export class OrderExecutor {
-  constructor(private client: any) {}
+  constructor(private client: any) { }
 
   async execute(decision: TradeDecision, balanceUsd: number): Promise<OrderResult> {
     try {
@@ -28,13 +28,28 @@ export class OrderExecutor {
         quantity: String(quantity),
       });
 
+      let fillPrice = price; // fallback
+      if (order.fills && order.fills.length > 0) {
+        let totalQty = 0;
+        let totalCost = 0;
+        for (const fill of order.fills) {
+          totalQty += parseFloat(fill.qty);
+          totalCost += parseFloat(fill.price) * parseFloat(fill.qty);
+        }
+        if (totalQty > 0) fillPrice = totalCost / totalQty;
+      } else if (order.price && parseFloat(order.price) > 0) {
+        fillPrice = parseFloat(order.price);
+      }
+
+      console.log(`[Orders] Executed ${decision.action} on ${decision.pair}. Trigger: ${price}, Fill: ${fillPrice.toFixed(4)}`);
+
       const stopPrice = decision.action === 'LONG'
-        ? price * (1 - decision.stop_loss_pct / 100)
-        : price * (1 + decision.stop_loss_pct / 100);
+        ? fillPrice * (1 - decision.stop_loss_pct / 100)
+        : fillPrice * (1 + decision.stop_loss_pct / 100);
 
       const tpPrice = decision.action === 'LONG'
-        ? price * (1 + decision.take_profit_pct / 100)
-        : price * (1 - decision.take_profit_pct / 100);
+        ? fillPrice * (1 + decision.take_profit_pct / 100)
+        : fillPrice * (1 - decision.take_profit_pct / 100);
 
       // Stop-Loss (MANDATORY — fail = cancel trade)
       try {

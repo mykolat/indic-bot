@@ -33,15 +33,30 @@ export interface Indicators {
 
 export function computeRSI(closes: number[], period = 14): number {
   if (closes.length < period + 1) return 50;
+
   let gains = 0;
   let losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
+
+  // Step 1: simple average of first 'period' diffs
+  for (let i = 1; i <= period; i++) {
     const diff = closes[i] - closes[i - 1];
     if (diff > 0) gains += diff;
     else losses -= diff;
   }
-  if (losses === 0) return 100;
-  return 100 - 100 / (1 + gains / losses);
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+
+  // Step 2: RMA for the rest
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+
+  if (avgLoss === 0) return 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
 }
 
 export function computeEMA(closes: number[], period: number): number {

@@ -15,6 +15,7 @@ export interface MemoryState {
   last_updated: string;
   start_balance?: number;
   last_order_result?: string;
+  high_water_mark_usd?: number;
 }
 
 export class SessionMemory {
@@ -53,6 +54,17 @@ export class SessionMemory {
       state.last_updated = new Date().toISOString();
       this.save(state);
     }
+  }
+
+  getHighWaterMark(): number | undefined {
+    return this.load().high_water_mark_usd;
+  }
+
+  setHighWaterMark(hwm: number): void {
+    const state = this.load();
+    state.high_water_mark_usd = hwm;
+    state.last_updated = new Date().toISOString();
+    this.save(state);
   }
 
   setLastOrderResult(result: string): void {

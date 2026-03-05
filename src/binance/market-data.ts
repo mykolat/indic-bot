@@ -14,6 +14,14 @@ export interface FundingRatePoint {
   time: number;  // unix ms
 }
 
+export interface LiquidityProfile {
+  buyVolume: number;
+  sellVolume: number;
+  imbalancePct: number;
+  supportLevel?: number;
+  resistanceLevel?: number;
+}
+
 export interface MarketSnapshot {
   pair: string;
   candles1h: CandleData[];
@@ -27,10 +35,11 @@ export interface MarketSnapshot {
   orderBookBidPct: number;
   orderBookAskPct: number;
   openInterestDelta?: number;
+  liquidityProfile?: LiquidityProfile;
 }
 
 export class MarketDataFetcher {
-  constructor(private client: any) {}
+  constructor(private client: any) { }
 
   async getSnapshot(pair: string): Promise<MarketSnapshot> {
     const [candles1h, candles4h, candles15m, markPrice, oi, fundingHist, lsRatio, orderBook] =
@@ -42,12 +51,48 @@ export class MarketDataFetcher {
         this.client.getOpenInterest({ symbol: pair }),
         this.client.getFundingRateHistory({ symbol: pair, limit: 8 }).catch(() => []),
         this.client.getTopTradersLongShortPositionRatio({ symbol: pair, period: '1h', limit: 1 }).catch(() => null),
-        this.client.getOrderBook({ symbol: pair, limit: 5 }),
+        this.client.getOrderBook({ symbol: pair, limit: 500 }),
       ]);
 
+    // Fast total depth for legacy compatibility
     const bids = (orderBook.bids as [string, string][]).reduce((s, [, qty]) => s + parseFloat(qty), 0);
     const asks = (orderBook.asks as [string, string][]).reduce((s, [, qty]) => s + parseFloat(qty), 0);
     const totalDepth = bids + asks;
+
+    // Advanced Liquidity Profile (+/- 2% range depth)
+    let buyVolume = 0;
+    let sellVolume = 0;
+    let maxBidQty = 0;
+    let maxAskQty = 0;
+    let supportLevel: number | undefined;
+    let resistanceLevel: number | undefined;
+
+    const currentPrice = parseFloat(markPrice.markPrice);
+    const rangePct = 2.0;
+    const minPrice = currentPrice * (1 - rangePct / 100);
+    const maxPrice = currentPrice * (1 + rangePct / 100);
+
+    for (const [pStr, qStr] of orderBook.bids as [string, string][]) {
+      const p = parseFloat(pStr);
+      const q = parseFloat(qStr);
+      if (p >= minPrice) {
+        buyVolume += q;
+        if (q > maxBidQty) { maxBidQty = q; supportLevel = p; }
+      } else break; // bids are sorted descending
+    }
+    for (const [pStr, qStr] of orderBook.asks as [string, string][]) {
+      const p = parseFloat(pStr);
+      const q = parseFloat(qStr);
+      if (p <= maxPrice) {
+        sellVolume += q;
+        if (q > maxAskQty) { maxAskQty = q; resistanceLevel = p; }
+      } else break; // asks are sorted ascending
+    }
+
+    const totVol = buyVolume + sellVolume;
+    const imbalancePct = totVol > 0 ? ((buyVolume - sellVolume) / totVol) * 100 : 0;
+
+    const liquidityProfile: LiquidityProfile = { buyVolume, sellVolume, imbalancePct, supportLevel, resistanceLevel };
 
     const lsData = Array.isArray(lsRatio) && lsRatio.length > 0 ? lsRatio[0] : null;
 
@@ -66,6 +111,7 @@ export class MarketDataFetcher {
       longShortRatio: lsData ? parseFloat(lsData.longShortRatio) : null,
       orderBookBidPct: totalDepth > 0 ? (bids / totalDepth) * 100 : 50,
       orderBookAskPct: totalDepth > 0 ? (asks / totalDepth) * 100 : 50,
+      liquidityProfile,
     };
   }
 
@@ -106,6 +152,7 @@ export class MarketDataFetcher {
       balanceUsd,
       positions: openPositions,
       sessionPnl: 0,
+      drawdownPct: 0,
     };
   }
 

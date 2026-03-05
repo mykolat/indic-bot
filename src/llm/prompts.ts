@@ -43,13 +43,9 @@ ENTRY RULES:
 - VWAP: LONG only if price above VWAP. SHORT only if price below VWAP.
 - Bollinger: Avoid LONG if %B > 90% (overbought). Avoid SHORT if %B < 10% (oversold).
 
-CONFLUENCE CHECKLIST (need 3+ of 5 for entry):
-1. EMA trend alignment (1h + 4h same direction)
-2. RSI in entry zone
-3. Price above/below VWAP (matching direction)
-4. Volume > 1x average
-5. News/macro catalyst (importance >= 5 or macro signal aligns)
-If <3 factors: HOLD or minimal leverage (3-5x).
+CONFLUENCE CHECKLIST:
+- Entry requirements are now determined dynamically by the current Market Regime.
+- We operate in "Shark Mode": aggressive in trends, highly protective in capitulation, scalping in ranges.
 
 FUNDING & OI SIGNALS:
 - Funding rate < -0.05%: Crowded shorts, lean LONG if technicals confirm
@@ -57,10 +53,9 @@ FUNDING & OI SIGNALS:
 - Funding trend rising 3+ periods: Follow momentum
 - OI up >10% with flat price: Leverage buildup, risk of liquidation wick — reduce size
 
-MARKET REGIME (Fear & Greed):
-- Extreme Fear (<25): Only highest-confluence setups. Expect capitulation wicks. Max leverage reduced.
-- Extreme Greed (>85): Expect mean reversion. Prefer shorts. Max leverage reduced.
-- Normal (25-85): Standard rules.
+MARKET SENTIMENT (Fear & Greed):
+- The Fear & Greed index is pre-processed by the Regime Classifier.
+- In capitulation (<15), entry thresholds are stripped down but leverage is heavily capped.
 
 POSITION MANAGEMENT:
 - Exit rule 1: P&L < -${config.maxStopLossPct / 2}% and held > 4h with no recovery → CLOSE
@@ -93,6 +88,7 @@ Respond ONLY with valid JSON:
       "leverage": <1-${config.maxLeverage}>,
       "stop_loss_pct": <1-${config.maxStopLossPct}>,
       "take_profit_pct": <${config.minTakeProfitPct}-50>,
+      "regime_override": "<optional: string if you disagree with the detected regime, e.g. 'capitulation'>",
       "reasoning": "<2-3 sentences: what signals aligned, what's the thesis>",
       "confidence": <1-100>
     }
@@ -135,6 +131,7 @@ export interface EnrichedPromptData {
   lastOrderResult?: string;
   riskStatus?: string;  // 'normal' | 'reduced' | 'critical'
   soulContent?: string;
+  regime?: string;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -175,12 +172,12 @@ function getTradingSession(utcHour: number): string {
 
 function formatCurrentTime(): string {
   const now = new Date();
-  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const day = days[now.getUTCDay()];
   const h = now.getUTCHours().toString().padStart(2, '0');
   const m = now.getUTCMinutes().toString().padStart(2, '0');
   const session = getTradingSession(now.getUTCHours());
-  return `${now.toISOString().slice(0,10)} ${h}:${m} UTC (${day}) — ${session}`;
+  return `${now.toISOString().slice(0, 10)} ${h}:${m} UTC (${day}) — ${session}`;
 }
 
 function buildEnrichedPrompt(data: EnrichedPromptData): string {
@@ -198,6 +195,17 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += `Last order: ${data.lastOrderResult}\n`;
   }
   prompt += '\n';
+
+  if (data.regime) {
+    prompt += `## Market Regime Persona & Override\n`;
+    if (data.regime === 'bull_trend') prompt += '>>> REGIME: Bull Trend. You are an aggressive trend-follower. Hold winners longer. Ignore minor bearish divergences.\n\n';
+    else if (data.regime === 'bear_trend') prompt += '>>> REGIME: Bear Trend. You are an aggressive trend-follower in a bear market. Press shorts. Ignore minor bullish divergences.\n\n';
+    else if (data.regime === 'range') prompt += '>>> REGIME: Range. You are a cautious market-maker. Buy support, sell resistance. Take quick scalps. Tighten TP.\n\n';
+    else if (data.regime === 'capitulation') prompt += '>>> REGIME: Capitulation. You are in extreme caution mode. Look for high-volume climax bottoms. Prioritize capital preservation.\n\n';
+    else if (data.regime === 'breakout') prompt += '>>> REGIME: Breakout. Price is expanding rapidly. Trade momentum in direction of the break. Wider stops.\n\n';
+    else prompt += '>>> REGIME: Unknown. Standard aggressive crypto futures trader.\n\n';
+    prompt += `NOTE: If your narrative reading strongly contradicts this regime, use the 'regime_override' field to change it.\n\n`;
+  }
 
   // Soul — persistent identity & memory
   if (data.soulContent) {
@@ -283,12 +291,22 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     // L/S ratio
     if (snap.longShortRatio !== null && snap.longShortRatio !== undefined) {
       const lsLabel = snap.longShortRatio > 1.5 ? ' (crowded longs ⚠)' :
-                      snap.longShortRatio < 0.7 ? ' (crowded shorts ⚠)' : '';
+        snap.longShortRatio < 0.7 ? ' (crowded shorts ⚠)' : '';
       prompt += `L/S ratio: ${snap.longShortRatio.toFixed(2)}${lsLabel}\n`;
     }
 
-    // Order book
-    prompt += `Order book depth: ${snap.orderBookBidPct.toFixed(0)}% bids / ${snap.orderBookAskPct.toFixed(0)}% asks\n`;
+    // Order book / Liquidity Profile
+    const liq = snap.liquidityProfile;
+    if (liq) {
+      const imbVal = `${liq.imbalancePct >= 0 ? '+' : ''}${liq.imbalancePct.toFixed(1)}%`;
+      prompt += `Order book (+/- 2% depth): Bids ${liq.buyVolume.toFixed(2)} | Asks ${liq.sellVolume.toFixed(2)} | Imbalance: ${imbVal}\n`;
+      if (liq.supportLevel) prompt += `Strongest Support Wall: $${liq.supportLevel}\n`;
+      if (liq.resistanceLevel) prompt += `Strongest Resistance Wall: $${liq.resistanceLevel}\n`;
+      if (liq.imbalancePct > 20) prompt += `!! HEAVY BID SUPPORT — ${imbVal} imbalance\n`;
+      if (liq.imbalancePct < -20) prompt += `!! HEAVY ASK RESISTANCE — ${imbVal} imbalance\n`;
+    } else {
+      prompt += `Order book depth: ${snap.orderBookBidPct.toFixed(0)}% bids / ${snap.orderBookAskPct.toFixed(0)}% asks\n`;
+    }
 
     const oiDelta = snap.openInterestDelta;
     const oiDeltaStr = oiDelta !== undefined && oiDelta !== 0

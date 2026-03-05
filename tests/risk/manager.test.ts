@@ -9,6 +9,7 @@ describe('RiskManager', () => {
     maxStopLossPct: 3,
     maxLossUsd: 5,
     maxLossPct: 0,
+    maxDrawdownPct: 15,
   };
 
   let rm: RiskManager;
@@ -30,7 +31,7 @@ describe('RiskManager', () => {
     const portfolio: PortfolioState = {
       balanceUsd: 10,
       positions: [],
-      sessionPnl: 0,
+      sessionPnl: 0, drawdownPct: 0,
     };
 
     const result = rm.validate(decision, portfolio);
@@ -42,7 +43,7 @@ describe('RiskManager', () => {
       pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
       leverage: 15, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
     };
-    const portfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0 };
+    const portfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0, drawdownPct: 0 };
 
     const result = rm.validate(decision, portfolio);
     expect(result.approved).toBe(false);
@@ -54,7 +55,7 @@ describe('RiskManager', () => {
       pair: 'BTCUSDT', action: 'LONG', size_pct: 50,
       leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
     };
-    const portfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0 };
+    const portfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0, drawdownPct: 0 };
 
     const result = rm.validate(decision, portfolio);
     expect(result.approved).toBe(false);
@@ -72,7 +73,7 @@ describe('RiskManager', () => {
     const portfolio: PortfolioState = {
       balanceUsd: 100,
       positions: [{ pair: 'BTCUSDT', sizeUsd: 300, leverage: 5, side: 'LONG', entryPrice: 50000, unrealizedPnlPct: 1.5, heldHours: 2 }],
-      sessionPnl: 0,
+      sessionPnl: 0, drawdownPct: 0,
     };
 
     const result = rm.validate(decision, portfolio);
@@ -85,7 +86,7 @@ describe('RiskManager', () => {
       pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
       leverage: 5, stop_loss_pct: 0, take_profit_pct: 4, reasoning: 'test',
     };
-    const portfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0 };
+    const portfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0, drawdownPct: 0 };
 
     const result = rm.validate(decision, portfolio);
     expect(result.approved).toBe(false);
@@ -97,7 +98,7 @@ describe('RiskManager', () => {
       pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
       leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
     };
-    const portfolio: PortfolioState = { balanceUsd: 4, positions: [], sessionPnl: -6 };
+    const portfolio: PortfolioState = { balanceUsd: 4, positions: [], sessionPnl: -6, drawdownPct: 0 };
 
     const result = rm.validate(decision, portfolio);
     expect(result.approved).toBe(false);
@@ -110,7 +111,7 @@ describe('RiskManager', () => {
       pair: 'BTCUSDT', action: 'HOLD', size_pct: 0,
       leverage: 0, stop_loss_pct: 0, take_profit_pct: 0, reasoning: 'wait',
     };
-    const portfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0 };
+    const portfolio: PortfolioState = { balanceUsd: 10, positions: [], sessionPnl: 0, drawdownPct: 0 };
 
     expect(rm.validate(hold, portfolio).approved).toBe(true);
   });
@@ -118,15 +119,15 @@ describe('RiskManager', () => {
   it('uses maxLossPct % of balance when set', () => {
     const rm = new RiskManager({
       maxLeverage: 20, maxPositionPct: 50, maxExposurePct: 150,
-      maxStopLossPct: 5, maxLossUsd: 5, maxLossPct: 10,
+      maxStopLossPct: 5, maxLossUsd: 5, maxLossPct: 10, maxDrawdownPct: 15,
     });
     const decision = { pair: 'BTCUSDT', action: 'LONG' as const, size_pct: 10, leverage: 2, stop_loss_pct: 2, take_profit_pct: 5, reasoning: '' };
 
     // $4.9 loss on $50 = 9.8% — below 10% threshold → approved
-    expect(rm.validate(decision, { balanceUsd: 50, positions: [], sessionPnl: -4.9 }).approved).toBe(true);
+    expect(rm.validate(decision, { balanceUsd: 50, positions: [], sessionPnl: -4.9, drawdownPct: 0 }).approved).toBe(true);
 
     // $5.1 loss on $50 = 10.2% — exceeds 10% → shutdown
-    expect(rm.validate(decision, { balanceUsd: 50, positions: [], sessionPnl: -5.1 }).shutdown).toBe(true);
+    expect(rm.validate(decision, { balanceUsd: 50, positions: [], sessionPnl: -5.1, drawdownPct: 0 }).shutdown).toBe(true);
   });
 
   it('rejects low-confidence decisions', () => {
@@ -136,7 +137,7 @@ describe('RiskManager', () => {
       stop_loss_pct: 2, take_profit_pct: 10, reasoning: 'weak signal',
       confidence: 45,
     };
-    const portfolio: PortfolioState = { balanceUsd: 100, positions: [], sessionPnl: 0 };
+    const portfolio: PortfolioState = { balanceUsd: 100, positions: [], sessionPnl: 0, drawdownPct: 0 };
     const result = rm.validate(decision, portfolio);
     expect(result.approved).toBe(false);
     expect(result.reason).toContain('confidence');
@@ -149,7 +150,7 @@ describe('RiskManager', () => {
       stop_loss_pct: 2, take_profit_pct: 10, reasoning: 'strong setup',
       confidence: 85,
     };
-    const portfolio: PortfolioState = { balanceUsd: 100, positions: [], sessionPnl: 0 };
+    const portfolio: PortfolioState = { balanceUsd: 100, positions: [], sessionPnl: 0, drawdownPct: 0 };
     const result = rm.validate(decision, portfolio);
     expect(result.approved).toBe(true);
   });
@@ -157,16 +158,16 @@ describe('RiskManager', () => {
   it('falls back to maxLossUsd when maxLossPct is 0', () => {
     const rm = new RiskManager({
       maxLeverage: 20, maxPositionPct: 50, maxExposurePct: 150,
-      maxStopLossPct: 5, maxLossUsd: 5, maxLossPct: 0,
+      maxStopLossPct: 5, maxLossUsd: 5, maxLossPct: 0, maxDrawdownPct: 15,
     });
     const decision = { pair: 'BTCUSDT', action: 'LONG' as const, size_pct: 10, leverage: 2, stop_loss_pct: 2, take_profit_pct: 5, reasoning: '' };
 
-    expect(rm.validate(decision, { balanceUsd: 1000, positions: [], sessionPnl: -4.9 }).approved).toBe(true);
-    expect(rm.validate(decision, { balanceUsd: 1000, positions: [], sessionPnl: -5.1 }).shutdown).toBe(true);
+    expect(rm.validate(decision, { balanceUsd: 1000, positions: [], sessionPnl: -4.9, drawdownPct: 0 }).approved).toBe(true);
+    expect(rm.validate(decision, { balanceUsd: 1000, positions: [], sessionPnl: -5.1, drawdownPct: 0 }).shutdown).toBe(true);
   });
 
   describe('Hard guardrails', () => {
-    const basePortfolio: PortfolioState = { balanceUsd: 1000, positions: [], sessionPnl: 0 };
+    const basePortfolio: PortfolioState = { balanceUsd: 1000, positions: [], sessionPnl: 0, drawdownPct: 0 };
 
     it('rejects LONG when 4h bearish and confidence < 80', () => {
       const decision: TradeDecision = {
@@ -202,7 +203,7 @@ describe('RiskManager', () => {
     });
 
     it('reduces leverage on session loss > 5%', () => {
-      const portfolio = { ...basePortfolio, balanceUsd: 100, sessionPnl: -6 };
+      const portfolio = { ...basePortfolio, balanceUsd: 100, sessionPnl: -6, drawdownPct: 0 };
       const decision: TradeDecision = {
         pair: 'BTCUSDT', action: 'LONG', size_pct: 10, leverage: 8,
         stop_loss_pct: 2, take_profit_pct: 10, reasoning: 'test', confidence: 70,

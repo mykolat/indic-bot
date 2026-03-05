@@ -30,6 +30,8 @@ export interface Config {
     maxPositionPct: number;
     maxExposurePct: number;
     maxStopLossPct: number;
+    maxDrawdownPct: number;
+    targetRiskPct: number;
     targetReturnPct: number;
     minTakeProfitPct: number;
     newsRefreshIntervalH: number;
@@ -89,6 +91,8 @@ export function loadConfig(): Config {
       maxPositionPct: t.maxPositionPct ?? 50,
       maxExposurePct: t.maxExposurePct ?? 150,
       maxStopLossPct: t.maxStopLossPct ?? 5,
+      maxDrawdownPct: t.maxDrawdownPct ?? 15,
+      targetRiskPct: t.targetRiskPct ?? 2,
       targetReturnPct: t.targetReturnPct ?? 100,
       minTakeProfitPct: t.minTakeProfitPct ?? 5,
       newsRefreshIntervalH: t.newsRefreshIntervalH ?? 0.33,

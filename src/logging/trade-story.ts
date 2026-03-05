@@ -16,7 +16,7 @@ export interface TradeStory {
 }
 
 export class TradeStoryLogger {
-  constructor(private logFile: string) {}
+  constructor(private logFile: string) { }
 
   log(story: TradeStory): void {
     try {
@@ -41,13 +41,11 @@ export class TradeStoryLogger {
       return lines.slice(-count).map(line => {
         const p = JSON.parse(line);
         return {
-          pair: p.pair, direction: p.direction,
-          entryTime: p.entry_time, exitTime: p.exit_time,
           entryPrice: p.entry_price, exitPrice: p.exit_price,
           pnlPct: p.pnl_pct,
           regimeAtEntry: p.regime_at_entry, regimeAtExit: p.regime_at_exit,
           story: p.story, lesson: p.lesson,
-        };
+        } as TradeStory;
       });
     } catch { return []; }
   }

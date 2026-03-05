@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { computeMACD, computeBollingerBands, computeVolumeRatio, computeVWAP, computeIndicators, computeADX } from '../../src/indicators/technical.js';
+import { computeMACD, computeBollingerBands, computeVolumeRatio, computeVWAP, computeIndicators, computeADX, computeRSI } from '../../src/indicators/technical.js';
+
+describe('computeRSI', () => {
+  it('returns 50 when not enough data', () => {
+    expect(computeRSI([100, 101])).toBe(50);
+  });
+
+  it('computes Wilder smoothing RSI correctly', () => {
+    // A known monotonic increasing series
+    const closes = Array.from({ length: 20 }, (_, i) => 100 + i);
+    const rsi = computeRSI(closes, 14);
+    expect(rsi).toBe(100); // 100% gains
+  });
+});
 
 describe('computeMACD', () => {
   it('returns macd, signal, histogram', () => {
@@ -41,9 +54,9 @@ describe('computeVolumeRatio', () => {
 
 describe('computeVWAP', () => {
   it('returns volume-weighted average price', () => {
-    const highs =   [105, 110, 108];
-    const lows =    [95,  90,  92];
-    const closes =  [100, 100, 100];
+    const highs = [105, 110, 108];
+    const lows = [95, 90, 92];
+    const closes = [100, 100, 100];
     const volumes = [1000, 2000, 1000];
     const vwap = computeVWAP(highs, lows, closes, volumes);
     expect(vwap).toBeGreaterThan(95);

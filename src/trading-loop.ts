@@ -16,6 +16,10 @@ import { SessionMemory } from './memory/session.js';
 import { computeSoulStats } from './memory/soul-stats.js';
 import { CircuitBreaker } from './utils/circuit-breaker.js';
 import { extractExternalInsights } from './utils/soul-utils.js';
+import { MarketRegime, classifyRegime } from './market/regime-classifier.js';
+import { getFilterProfile, type FilterProfile } from './market/filter-profiles.js';
+import type { DecisionJournal, JournalEntry } from './logging/decision-journal.js';
+import type { TradeStoryLogger } from './logging/trade-story.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -60,6 +64,8 @@ interface TradingLoopDeps {
     minImportance: number;
     maxPerCycle: number;
   };
+  decisionJournal?: DecisionJournal;
+  tradeStoryLogger?: TradeStoryLogger;
 }
 
 export class TradingLoop {
@@ -128,8 +134,14 @@ export class TradingLoop {
       }
       this.deps.memory.setStartBalance(portfolio.balanceUsd);
       const startBalance = this.deps.memory.getStartBalance()!;
+      let hwm = this.deps.memory.getHighWaterMark();
+      if (hwm === undefined || portfolio.balanceUsd > hwm) {
+        hwm = portfolio.balanceUsd;
+        this.deps.memory.setHighWaterMark(hwm);
+      }
       const sessionPnl = portfolio.balanceUsd - startBalance;
       portfolio.sessionPnl = sessionPnl;
+      portfolio.drawdownPct = hwm > 0 ? ((hwm - portfolio.balanceUsd) / hwm) * 100 : 0;
 
       // Auto-exit stale positions
       const staleHours = this.deps.tradingConfig.stalePositionHours ?? 8;
@@ -167,6 +179,23 @@ export class TradingLoop {
             this.deps.memory.setLastOrderResult(
               `${pos.pair} AUTO_CLOSE — ${closeReason}`
             );
+
+            // Log trade story
+            if (this.deps.tradeStoryLogger) {
+              this.deps.tradeStoryLogger.log({
+                pair: pos.pair,
+                direction: pos.side,
+                entryTime: new Date(Date.now() - pos.heldHours * 3600000).toISOString(),
+                exitTime: new Date().toISOString(),
+                entryPrice: pos.entryPrice,
+                exitPrice: typeof result.fillPrice === 'number' ? result.fillPrice : pos.entryPrice,
+                pnlPct: pos.unrealizedPnlPct,
+                regimeAtEntry: 'unknown', // History tracking can be improved later
+                regimeAtExit: 'unknown',
+                story: `Automatically closed positions after ${pos.heldHours.toFixed(1)}h due to ${closeReason}.`,
+                lesson: 'Auto-exit triggered to limit time risk.'
+              });
+            }
           }
         }
       }
@@ -271,6 +300,22 @@ export class TradingLoop {
         }
       }
 
+      // Calculate regime for BTCUSDT (as proxy for market)
+      let btcSnap = snapshots.find(s => s.pair === 'BTCUSDT') || snapshots[0];
+      let marketRegime: MarketRegime = MarketRegime.Range;
+      let regimeConfidence = 0;
+      let activeProfile: FilterProfile | undefined;
+
+      if (btcSnap) {
+        const btcInd = indicators.get(btcSnap.pair);
+        if (btcInd) {
+          const res = classifyRegime(btcInd, parseFloat(btcSnap.markPrice), fearGreed);
+          marketRegime = res.regime;
+          regimeConfidence = res.confidence;
+          activeProfile = getFilterProfile(marketRegime);
+        }
+      }
+
       // 5. Drain TradingView signals
       const signals = signalBuffer.drain();
 
@@ -298,34 +343,62 @@ export class TradingLoop {
         lastOrderResult: this.deps.memory.getLastOrderResult(),
         riskStatus,
         soulContent,
+        regime: marketRegime,
       };
+
+      // Pre-flight check: if we miss the active profile volume/confluence, skip LLM to save tokens
+      let skipLlm = false;
+      let skippedReason = '';
+      const btcInd = indicators.get(btcSnap?.pair ?? '');
+
+      if (activeProfile && btcInd && portfolio.positions.length === 0) {
+        // Calculate confluence roughly
+        let confluence = 0;
+        if (btcInd.trend === 'bullish' || btcInd.trend === 'bearish') confluence++;
+        if (btcInd.volumeRatio > 1) confluence++;
+        if (btcInd.vwap && (parseFloat(btcSnap.markPrice) > btcInd.vwap === (btcInd.trend === 'bullish'))) confluence++;
+
+        if (btcInd.volumeRatio < activeProfile.volumeMin) {
+          skipLlm = true;
+          skippedReason = `Volume ${btcInd.volumeRatio.toFixed(2)}x < ${activeProfile.volumeMin}x required for ${marketRegime}`;
+        } else if (confluence < activeProfile.confluenceMin) {
+          skipLlm = true;
+          skippedReason = `Confluence ${confluence} < ${activeProfile.confluenceMin} required for ${marketRegime}`;
+        }
+      }
 
       let decisions: TradeDecision[] = [];
       let currentLayer: 1 | 2 | 3 = 1;
 
-      try {
-        decisions = await llm.analyze(promptData);
-      } catch (llmErr: any) {
-        console.error('[Loop] Layer 1 (Codex API) failed:', llmErr?.message);
-        logger.logError('LLM_LAYER1_FAILED', llmErr?.message ?? 'unknown');
+      if (skipLlm) {
+        console.log(`[Loop] Pre-flight filter: Skipping LLM analysis — ${skippedReason}`);
+        logger.logError('LLM_SKIPPED_PREFLIGHT', skippedReason);
+        decisions = [];
+      } else {
+        try {
+          decisions = await llm.analyze(promptData);
+        } catch (llmErr: any) {
+          console.error('[Loop] Layer 1 (Codex API) failed:', llmErr?.message);
+          logger.logError('LLM_LAYER1_FAILED', llmErr?.message ?? 'unknown');
 
-        if (this.deps.fallbackLlm) {
-          try {
-            decisions = await this.deps.fallbackLlm.analyze(
-              portfolio.positions,
-              sessionPnlPct,
-              soulContent,
-            );
-            currentLayer = 2;
-            console.log('[Loop] Layer 2 (Fallback LLM) active — HOLD/CLOSE only');
-          } catch (fallbackErr: any) {
-            console.error('[Loop] Layer 2 (Fallback LLM) failed:', fallbackErr?.message);
-            logger.logError('LLM_LAYER2_FAILED', fallbackErr?.message ?? 'unknown');
+          if (this.deps.fallbackLlm) {
+            try {
+              decisions = await this.deps.fallbackLlm.analyze(
+                portfolio.positions,
+                sessionPnlPct,
+                soulContent,
+              );
+              currentLayer = 2;
+              console.log('[Loop] Layer 2 (Fallback LLM) active — HOLD/CLOSE only');
+            } catch (fallbackErr: any) {
+              console.error('[Loop] Layer 2 (Fallback LLM) failed:', fallbackErr?.message);
+              logger.logError('LLM_LAYER2_FAILED', fallbackErr?.message ?? 'unknown');
+              currentLayer = 3;
+            }
+          } else {
             currentLayer = 3;
+            console.log('[Loop] Layer 3 (rule-based) — no fallback LLM configured');
           }
-        } else {
-          currentLayer = 3;
-          console.log('[Loop] Layer 3 (rule-based) — no fallback LLM configured');
         }
       }
 
@@ -380,12 +453,38 @@ export class TradingLoop {
           portfolio: { balance: portfolio.balanceUsd, sessionPnl },
         });
 
+        // Write to Decision Journal
+        if (this.deps.decisionJournal) {
+          const entry: JournalEntry = {
+            pair: decision.pair,
+            regime: marketRegime,
+            regimeConfidence: regimeConfidence,
+            regimeOverride: decision.regime_override || null,
+            filtersApplied: {
+              volume: {
+                value: indicators.get(decision.pair)?.volumeRatio,
+                min: activeProfile?.volumeMin,
+                passed: true,
+              }
+            },
+            action: decision.action,
+            reasoning: decision.reasoning,
+            confidence: decision.confidence,
+            riskValidation: 'PENDING',
+            indicatorsSnapshot: {
+              rsi: indicators.get(decision.pair)?.rsi ?? 0,
+              adx: indicators.get(decision.pair)?.adx ?? 0,
+            }
+          };
+          this.deps.decisionJournal.log(entry);
+        }
+
         if (decision.action === 'FETCH_NEWS') {
           console.log(`[News] LLM requested refresh: ${decision.reasoning}`);
           const newsSource = this.deps.rssFetcher || this.deps.newsClient;
           if (newsSource) {
             const items = await newsSource.fetchNews(this.deps.newsConfig.maxItems);
-            
+
             // Track source health for RSS feeds
             if (this.deps.sourceHealth && this.deps.rssFetcher) {
               const sources = [...new Set(items.map(i => i.source))];
@@ -438,6 +537,20 @@ export class TradingLoop {
 
         if (decision.action === 'HOLD') continue;
 
+        // Volatility Targeting (VT) Size Cap
+        if (decision.action === 'LONG' || decision.action === 'SHORT') {
+          const targetRiskPct = (this.deps.tradingConfig as any).targetRiskPct ?? 2;
+          const slDistancePct = decision.stop_loss_pct;
+          if (slDistancePct && slDistancePct > 0) {
+            const maxVtSize = (portfolio.balanceUsd * (targetRiskPct / 100)) / (slDistancePct / 100);
+            const maxVtSizePct = (maxVtSize / portfolio.balanceUsd) * 100;
+            if (decision.size_pct > maxVtSizePct) {
+              console.log(`[VT Sizing] Capping ${decision.pair} from ${decision.size_pct}% to ${maxVtSizePct.toFixed(1)}% due to Volatility Targeting (Risk: ${targetRiskPct}%, SL: ${slDistancePct}%)`);
+              decision.size_pct = Math.round(maxVtSizePct);
+            }
+          }
+        }
+
         // 6. Risk check
         const validationCtx = {
           indicators4h: indicators4h.size > 0 ? indicators4h as Map<string, { trend: string }> : undefined,
@@ -476,6 +589,22 @@ export class TradingLoop {
                 pnlPct: pos.unrealizedPnlPct,
                 closedAt: new Date().toISOString(),
               });
+
+              if (this.deps.tradeStoryLogger) {
+                this.deps.tradeStoryLogger.log({
+                  pair: decision.pair,
+                  direction: pos.side,
+                  entryTime: new Date(Date.now() - pos.heldHours * 3600000).toISOString(),
+                  exitTime: new Date().toISOString(),
+                  entryPrice: pos.entryPrice,
+                  exitPrice: typeof result.fillPrice === 'number' ? result.fillPrice : pos.entryPrice,
+                  pnlPct: pos.unrealizedPnlPct,
+                  regimeAtEntry: 'unknown',
+                  regimeAtExit: marketRegime,
+                  story: `Closed position by LLM decision: ${decision.reasoning}`,
+                  lesson: 'LLM managed exit'
+                });
+              }
             } else {
               logger.logError('ORDER_FAIL', result.error || 'Unknown error');
             }
@@ -488,6 +617,13 @@ export class TradingLoop {
             continue;
           }
           const result = await orders.execute(decision, portfolio.balanceUsd);
+
+          // Apply Leverage Multiplier per Filter Profile
+          if (activeProfile && (decision.action === 'LONG' || decision.action === 'SHORT')) {
+            decision.leverage = Math.max(1, Math.round(decision.leverage * activeProfile.leverageMultiplier));
+            console.log(`[Regime] Adjusted leverage for ${decision.pair} to ${decision.leverage}x based on ${marketRegime} profile`);
+          }
+
           if (result.success) {
             logger.logTrade({
               type: decision.action,

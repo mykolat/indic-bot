@@ -94,6 +94,7 @@ async function main() {
     maxPositionPct: config.trading.maxPositionPct,
     maxExposurePct: config.trading.maxExposurePct,
     maxStopLossPct: config.trading.maxStopLossPct,
+    maxDrawdownPct: config.trading.maxDrawdownPct,
     maxLossUsd: config.trading.maxLossUsd,
     maxLossPct: config.trading.maxLossPct,
     minConfidence: config.trading.minConfidence,
