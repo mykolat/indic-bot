@@ -40,7 +40,8 @@ pm2 flush indic-bot
 
 **Config split** — two files, two purposes:
 - `.env` — secrets only (API keys). Never read directly; always via `loadConfig()`. Never modify or log.
-- `config.yaml` (planned, not yet implemented) — all trading parameters. Currently all params read from `process.env` with hardcoded defaults in `src/config.ts`.
+- `config.yaml` — all trading parameters, LLM model config, webhook port. Git-versioned. Parsed by `js-yaml` in `loadConfig()`.
+- `loadConfig()` reads `config.yaml` for trading params (pairs, leverage, intervals, limits). `.env` keeps only API keys/secrets. Fallback to hardcoded defaults if `config.yaml` missing.
 
 **LLM flow** (`src/llm/`):
 - `client.ts` — ChatGPT Codex API via SSE streaming; `call()` for analyst agent, `analyze()` for trading decisions. Smart JSON extraction with targeted regex + retry on parse failure. Parse errors logged to `logs/parse-errors.jsonl`.
@@ -68,6 +69,7 @@ pm2 flush indic-bot
 - HOLD, CLOSE, FETCH_NEWS bypass all checks
 
 **News system** (`src/news/`):
+- `news-fetcher.ts` — `NewsFetcher` interface for pluggable news sources (CryptoPanicClient implements it)
 - `cryptopanic.ts` — fetches headlines via Apify (requires `APIFY_API_TOKEN`)
 - `news-analyst.ts` — separate LLM call (`llm.call()`) that classifies headlines into structured signals (importance 1–10, direction, catalyst, timeframe)
 - `news-cache.ts` — file cache at `~/.indic-bot/news-cache.json`; `shouldRefresh(intervalHours)` uses `parseFloat` so fractional hours (e.g. 0.33) work
@@ -116,10 +118,14 @@ pm2 flush indic-bot
 - **LLM layer switching** — `LLMClient.analyze()` throws on API errors (not parse errors). TradingLoop catches this and falls to Layer 2 or 3. Parse errors (bad JSON) still return `[]` (HOLD all positions).
 - **`Promise.allSettled`** for market snapshots — one pair failing won't kill the whole cycle. All-fail triggers circuit breaker.
 - **Big Brother** — `soul.md` External Insights section is the "Big Brother" message. Injected into Layer 2 prompt and logged in Layer 3 emergency close.
+- **`config.yaml`** is read at startup. Changes require `pm2 restart indic-bot`.
+- **`NewsFetcher` interface** (`src/news/news-fetcher.ts`) — swap news sources without touching TradingLoop.
 
 **Fetch timeouts** (`src/utils/fetch-timeout.ts`): AbortController-based timeouts for all external API calls (15s Apify, 10s CoinGecko, 5s Fear&Greed).
 
 ## Planned (not yet implemented)
 
-- `config.yaml` migration — trading params from `process.env` defaults → `config.yaml` (AI-writable). See `docs/plans/2026-03-04-audit-plan.md`.
+- ~~`config.yaml` migration~~ — **DONE**. `loadConfig()` reads `config.yaml` with `js-yaml`. See `src/config.ts`.
 - `npm run audit:debug` — JSON mode for AI-driven self-healing audit. See `docs/plans/2026-03-04-audit-design.md`.
+- Shark Mode — regime-adaptive trading with 5 market regimes, adaptive filter profiles, LLM override. IN PROGRESS. See `docs/plans/2026-03-05-shark-mode-design.md`.
+- Command Center Phase 1 — RSS multi-source news + Grok xAI grounding. PLANNED. See `docs/plans/2026-03-05-command-center-phase1-plan.md`.

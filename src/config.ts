@@ -20,6 +20,7 @@ export interface Config {
     secret: string | undefined;
   };
   apifyToken: string | undefined;
+  xaiApiKey: string | undefined;
   trading: {
     pairs: string[];
     maxLeverage: number;
@@ -78,6 +79,7 @@ export function loadConfig(): Config {
       secret: process.env.WEBHOOK_SECRET,
     },
     apifyToken: process.env.APIFY_API_TOKEN,
+    xaiApiKey: process.env.XAI_API_KEY,
     trading: {
       pairs: t.pairs ?? ['BTCUSDT'],
       maxLeverage: t.maxLeverage ?? 20,

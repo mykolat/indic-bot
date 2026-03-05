@@ -53,6 +53,13 @@ interface TradingLoopDeps {
   getSoulContent?: () => string | undefined;
   soulKeeper?: import('./memory/soul-keeper.js').SoulKeeper;
   soulReview?: import('./memory/soul-review.js').SoulReviewAgent;
+  rssFetcher?: NewsFetcher;
+  grokGrounder?: import('./news/grok-grounder.js').GrokGrounder;
+  sourceHealth?: import('./news/source-health.js').SourceHealthMonitor;
+  groundingConfig?: {
+    minImportance: number;
+    maxPerCycle: number;
+  };
 }
 
 export class TradingLoop {
@@ -187,18 +194,63 @@ export class TradingLoop {
       }
 
       // 4. Refresh news cache if stale, then fetch sentiment
-      if (this.deps.newsClient && this.deps.newsCache.shouldRefresh(this.deps.newsConfig.refreshIntervalH)) {
-        console.log('[News] Cache stale — fetching fresh news...');
-        const items = await this.deps.newsClient.fetchNews(this.deps.newsConfig.maxItems);
-        const analysis = await this.deps.newsAnalyst.analyze(items);
-        const cacheState = {
-          items,
-          fetchedAt: new Date().toISOString(),
-          analysis,
-          analyzedAt: new Date().toISOString(),
-        };
-        this.deps.newsCache.save(cacheState);
-        this.deps.newsCache.appendHistory(cacheState);
+      if (this.deps.newsCache.shouldRefresh(this.deps.newsConfig.refreshIntervalH)) {
+        const newsSource = this.deps.rssFetcher || this.deps.newsClient;
+        if (newsSource) {
+          console.log('[News] Cache stale — fetching fresh news...');
+          const items = await newsSource.fetchNews(this.deps.newsConfig.maxItems);
+
+          // Track source health for RSS feeds
+          if (this.deps.sourceHealth && this.deps.rssFetcher) {
+            const sources = [...new Set(items.map(i => i.source))];
+            for (const s of sources) this.deps.sourceHealth.recordSuccess(s);
+          }
+
+          const analysis = await this.deps.newsAnalyst.analyze(items);
+
+          // Grounding: verify high-importance claims via Grok
+          if (this.deps.grokGrounder && analysis.top_signals?.length) {
+            const cfg = this.deps.groundingConfig ?? { minImportance: 7, maxPerCycle: 2 };
+            const toGround = analysis.top_signals
+              .filter(s => s.needs_grounding && s.importance >= cfg.minImportance)
+              .slice(0, cfg.maxPerCycle);
+
+            const verifiedEntries: Array<{ claim: string; verified: boolean | null | undefined; confidence: number | undefined; summary: string | undefined; timestamp: string }> = [];
+            for (const signal of toGround) {
+              const gResult = await this.deps.grokGrounder.verify(signal.catalyst);
+              if (gResult.summary) {
+                signal.reasoning += ` [Grok: ${gResult.summary.slice(0, 150)}]`;
+              }
+              if (this.deps.sourceHealth) {
+                this.deps.sourceHealth.recordGrokUsage(gResult.tokensUsed);
+              }
+              verifiedEntries.push({
+                claim: gResult.claim,
+                verified: gResult.verified,
+                confidence: gResult.confidence,
+                summary: gResult.summary,
+                timestamp: new Date().toISOString(),
+              });
+            }
+
+            if (verifiedEntries.length > 0 && this.deps.soulKeeper) {
+              this.deps.soulKeeper.writeVerifiedIntel(verifiedEntries);
+            }
+          }
+
+          const cacheState = {
+            items,
+            fetchedAt: new Date().toISOString(),
+            analysis,
+            analyzedAt: new Date().toISOString(),
+          };
+          this.deps.newsCache.save(cacheState);
+          this.deps.newsCache.appendHistory(cacheState);
+        }
+      }
+      // Log source health summary every 10 cycles
+      if (this.deps.sourceHealth && this.cycleCount % 10 === 0) {
+        console.log('[SourceHealth]\n' + this.deps.sourceHealth.getSummary());
       }
       const newsAnalysis = this.deps.newsCache.getAnalysis() ?? undefined;
       const fearGreed = await fetchFearGreed();

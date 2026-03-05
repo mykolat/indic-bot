@@ -15,6 +15,11 @@ Indic Bot is an automated crypto futures trading system that combines LLM-based 
 ## Component Diagram
 
 ```
+Config Sources
+  ├─ config.yaml ── trading params (git-versioned, AI-writable)
+  └─ .env ───────── secrets only (API keys, tokens)
+       │
+       ▼
 MarketData (Binance API)
   ├─ Candles (1h, 4h, 15m)
   ├─ Funding rate + history
@@ -29,7 +34,10 @@ Indicators (technical.ts)
   ├─ VWAP, Volume ratio
   └─ 4h indicators (same set)
        │
-       ├─ News (CryptoPanic → NewsAnalyst → signals)
+       ├─ NewsFetcher interface
+       │    ├─ CryptoPanicClient (Apify)
+       │    └─ (future: RssNewsFetcher, paid sources)
+       │         └─ NewsAnalyst → structured signals
        ├─ Fear & Greed (alternative.me)
        ├─ Macro (Yahoo Finance → MacroAnalyst)
        │
@@ -40,10 +48,10 @@ Prompts (prompts.ts)
   └─ Session context (P&L, risk status, last order)
        │
        ▼
-LLM (client.ts — OpenAI Codex SSE)
-  ├─ JSON decisions with confidence
-  ├─ Smart regex parsing + retry
-  └─ Parse error logging
+LLM (3-layer fallback)
+  ├─ Layer 1: Codex API (OAuth/JWT, full prompt)
+  ├─ Layer 2: FallbackLLMClient (OpenAI API, HOLD/CLOSE only)
+  └─ Layer 3: Rule-based (no LLM, emergency close)
        │
        ▼
 Risk Manager (manager.ts)
@@ -85,6 +93,7 @@ Logger (JSONL files)
 7. **Validate** each decision through Risk Manager (confidence, leverage, exposure, guardrails)
 8. **Execute** approved trades with mandatory SL/TP
 9. **Log** everything + update session memory
+10. **Dynamic interval**: LLM suggests `next_check_minutes` (1-30). Capped to 1-2 min when positions open.
 
 ## Risk Management
 
@@ -99,7 +108,7 @@ Logger (JSONL files)
 | Session loss 10%+ | Drawdown >= 10% | Cap leverage 5x, size 25% |
 | Duplicate position | Same pair + same direction already open | Reject trade |
 | SL failure | Stop-loss placement fails after entry | Close position immediately |
-| Max loss shutdown | Session P&L <= -(maxLossPct% × balance) | Stop bot |
+| Max loss shutdown | Session P&L <= -(maxLossPct% x balance) | Stop bot |
 
 ### Soft Rules (in LLM prompt, overridable with high confidence)
 
@@ -109,6 +118,38 @@ Logger (JSONL files)
 - VWAP positioning
 - Bollinger Band overbought/oversold avoidance
 - Consecutive loss pair skipping
+
+## LLM Resilience (3-Layer Fallback)
+
+The bot never trades blind. If the primary LLM fails, it degrades gracefully through three layers.
+
+### Layer 1: Codex API (primary)
+
+- **Endpoint**: `chatgpt.com/backend-api/codex/responses` via SSE streaming
+- **Auth**: OAuth/JWT token refresh (`oauth.ts`); fallback to `OPENAI_API_KEY` if set
+- **Prompt**: Full enriched prompt with all market data, indicators, news, soul.md, session context
+- **Output**: Full JSON decisions (LONG/SHORT/HOLD/CLOSE) with confidence, SL/TP, reasoning, `next_check_minutes`
+- **Parse errors**: Smart regex extraction + retry on failure; bad JSON returns `[]` (HOLD all)
+
+### Layer 2: FallbackLLMClient
+
+- **Endpoint**: Standard OpenAI `/v1/chat/completions` via `OPENAI_API_KEY_FALLBACK`
+- **Model**: `gpt-4o-mini`
+- **Prompt**: Minimal — current positions + P&L + soul.md External Insights (Big Brother)
+- **Output**: HOLD or CLOSE only (no new entries)
+- **Trigger**: Layer 1 API error (not parse error)
+
+### Layer 3: Rule-based (emergency)
+
+- **No LLM call** — pure code logic
+- **SL/TP enforcement**: Relies on existing stop-loss/take-profit orders on Binance
+- **Emergency close**: If `sessionPnlPct < -5%`, closes all positions immediately
+- **Big Brother**: Logs External Insights section from soul.md
+- **Trigger**: Both Layer 1 and Layer 2 fail
+
+### Circuit Breaker
+
+`CircuitBreaker` (`src/utils/circuit-breaker.ts`) — 3 consecutive all-fail Binance cycles (all pairs fail in `Promise.allSettled`) triggers cycle skip to avoid hammering failing APIs.
 
 ## Soul System
 
@@ -147,16 +188,37 @@ The bot maintains a persistent identity document (`~/.indic-bot/soul.md`) that g
 
 ## Configuration
 
-| Param | Env Var | Default | Purpose |
-|-------|---------|---------|---------|
-| `minConfidence` | `MIN_CONFIDENCE` | 55 | Min LLM confidence to execute |
-| `stalePositionHours` | `STALE_POSITION_HOURS` | 8 | Auto-close stale positions |
-| `maxHoldHours` | `MAX_HOLD_HOURS` | 24 | Force close after N hours |
-| `fearGreedLeverageCap` | `FEAR_GREED_LEVERAGE_CAP` | 10 | Max leverage in extreme F&G |
-| `maxLeverage` | `MAX_LEVERAGE` | 20 | Absolute max leverage |
-| `maxPositionPct` | `MAX_POSITION_PCT` | 50 | Max position size % of balance |
-| `maxStopLossPct` | `MAX_STOP_LOSS_PCT` | 5 | Max stop-loss percentage |
-| `maxLossPct` | `MAX_LOSS_PCT` | 10 | Session loss shutdown threshold |
+Config split implemented: secrets in `.env`, trading params in `config.yaml` (git-versioned). `loadConfig()` merges both sources — secrets from environment variables, everything else from `config.yaml` with hardcoded defaults as final fallback.
+
+### Secrets (`.env` only — never committed, never logged)
+
+| Secret | Env Var |
+|--------|---------|
+| Binance API key | `BINANCE_API_KEY` |
+| Binance API secret | `BINANCE_API_SECRET` |
+| OpenAI API key | `OPENAI_API_KEY` |
+| OpenAI fallback key | `OPENAI_API_KEY_FALLBACK` |
+| Webhook secret | `WEBHOOK_SECRET` |
+| Apify token | `APIFY_API_TOKEN` |
+| xAI API key | `XAI_API_KEY` |
+
+### Trading Params (`config.yaml`)
+
+| Param | YAML Key | Default | Purpose |
+|-------|----------|---------|---------|
+| `minConfidence` | `trading.minConfidence` | 55 | Min LLM confidence to execute |
+| `stalePositionHours` | `trading.stalePositionHours` | 8 | Auto-close stale positions |
+| `maxHoldHours` | `trading.maxHoldHours` | 24 | Force close after N hours |
+| `fearGreedLeverageCap` | `trading.fearGreedLeverageCap` | 10 | Max leverage in extreme F&G |
+| `maxLeverage` | `trading.maxLeverage` | 20 | Absolute max leverage |
+| `maxPositionPct` | `trading.maxPositionPct` | 50 | Max position size % of balance |
+| `maxStopLossPct` | `trading.maxStopLossPct` | 5 | Max stop-loss percentage |
+| `maxLossPct` | `trading.maxLossPct` | 10 | Session loss shutdown threshold |
+| `maxExposurePct` | `trading.maxExposurePct` | 150 | Total margin exposure cap |
+| `loopIntervalMs` | `trading.loopIntervalMs` | 60000 | Base loop interval (overridden by dynamic interval) |
+| `pairs` | `trading.pairs` | `['BTCUSDT']` | Trading pairs |
+| `newsRefreshIntervalH` | `trading.newsRefreshIntervalH` | 0.33 | News cache refresh interval (hours) |
+| `churnCooldownMs` | `trading.churnCooldownMs` | 900000 | Cooldown after closing a pair (ms) |
 
 ## Deployment
 
@@ -164,3 +226,30 @@ The bot maintains a persistent identity document (`~/.indic-bot/soul.md`) that g
 - **Process**: pm2 (`pm2 restart indic-bot`)
 - **Logs**: `~/indic-bot/logs/`
 - **State**: `~/.indic-bot/` (memory.json, news-cache.json, soul.md, oauth-credentials.json)
+
+## In Development
+
+### Shark Mode
+
+Adaptive market regime detection with 5 regimes:
+
+| Regime | Characteristics | Filter Profile |
+|--------|----------------|----------------|
+| Bull Trend | Strong uptrend, high momentum | Relaxed LONG filters, tight SHORT filters |
+| Bear Trend | Strong downtrend, high momentum | Relaxed SHORT filters, tight LONG filters |
+| Range | Low volatility, mean-reverting | Tight filters both directions, favor reversals |
+| Breakout | Expanding volatility, volume surge | Relaxed filters for breakout direction |
+| Capitulation | Extreme fear, liquidation cascades | Ultra-tight filters, reduce size, widen SL |
+
+Key features:
+- Regime detected from indicators (ATR, volume, EMA slope) with LLM override capability
+- Adaptive filter profiles adjust confidence thresholds, leverage caps, and position sizing per regime
+- Decision journal: every trade gets a "trade story" explaining the setup, regime context, and expected outcome
+- Trade stories reviewed during SoulReview for pattern learning
+
+### Command Center
+
+Multi-agent architecture for richer market intelligence:
+- Dedicated analyst agents (news, macro, technical) run independently
+- Grok grounding via xAI API for real-time event verification
+- Centralized command center aggregates analyst outputs before trading decisions
