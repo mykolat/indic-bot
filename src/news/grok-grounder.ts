@@ -33,7 +33,7 @@ export interface GroundingResult {
 }
 
 export class GrokGrounder {
-  constructor(private xaiApiKey: string) {}
+  constructor(private xaiApiKey: string) { }
 
   async verify(claim: string): Promise<GroundingResult> {
     try {
@@ -82,7 +82,9 @@ export class GrokGrounder {
         tokensUsed,
       };
     } catch (err: any) {
-      console.error('[GrokGrounder] Error:', err?.message);
+      if (!err?.message?.includes('timeout') && !err?.message?.includes('401')) {
+        console.error('[GrokGrounder] Error:', err?.message);
+      }
       return { claim, error: err?.message, tokensUsed: 0 };
     }
   }

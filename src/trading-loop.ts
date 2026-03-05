@@ -17,7 +17,7 @@ import type { MacroAnalysis } from './llm/prompts.js';
 import { computeIndicators, type Indicators } from './indicators/technical.js';
 import { fetchFearGreed } from './news/fear-greed.js';
 import { SessionMemory } from './memory/session.js';
-import { computeSoulStats } from './memory/memory-stats.js';
+import { computeMemoryStats } from './memory/memory-stats.js';
 import { CircuitBreaker } from './utils/circuit-breaker.js';
 import { extractExternalInsights } from './utils/soul-utils.js';
 import { MarketRegime, classifyRegime } from './market/regime-classifier.js';
@@ -93,6 +93,11 @@ export class TradingLoop {
 
   private getStaticSoul(): string | undefined {
     if (this.staticSoulCache) return this.staticSoulCache;
+
+    if (this.deps.getSoulContent) {
+      this.staticSoulCache = this.deps.getSoulContent();
+      if (this.staticSoulCache) return this.staticSoulCache;
+    }
 
     const soulPath = join(process.env.DATA_DIR || './data', 'soul.md');
     if (existsSync(soulPath)) {
@@ -336,7 +341,7 @@ export class TradingLoop {
       const signals = signalBuffer.drain();
 
       // 6. LAYER 1: Distill data via experts
-      const memoryKeeper = new MemoryKeeper(process.env.DATA_DIR || './tmp');
+      const memoryKeeper = this.deps.memoryKeeper ?? new MemoryKeeper(process.env.DATA_DIR || './tmp');
       const latestMemoryData = memoryKeeper.read();
 
       const layer1Reports = await runLayer1Experts(this.deps.llm, {
@@ -677,7 +682,7 @@ export class TradingLoop {
 
       // Update soul stats
       if (this.deps.memoryKeeper) {
-        const stats = computeSoulStats(
+        const stats = computeMemoryStats(
           this.deps.memory.load().recent_trades,
           sessionPnlPct,
         );

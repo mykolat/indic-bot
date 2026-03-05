@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { computeSoulStats } from '../../src/memory/soul-stats.js';
+import { computeMemoryStats } from '../../src/memory/memory-stats.js';
 import type { TradeRecord } from '../../src/memory/session.js';
 
-describe('computeSoulStats', () => {
-  it('returns zero stats for empty trades', () => {
-    const stats = computeSoulStats([], 0);
+describe('computeMemoryStats', () => {
+  it('computes basic stats correctly', () => {
+    const stats = computeMemoryStats([], 0);
     expect(stats.totalTrades).toBe(0);
     expect(stats.winRate).toBe(0);
     expect(stats.profitFactor).toBe(0);
@@ -24,7 +24,7 @@ describe('computeSoulStats', () => {
       { pair: 'ETHUSDT', action: 'CLOSE', pnlUsd: 6, pnlPct: 3.0, closedAt: '2026-03-04T06:00:00Z' },
     ];
 
-    const stats = computeSoulStats(trades, 1.2);
+    const stats = computeMemoryStats(trades, 1.2);
     expect(stats.totalTrades).toBe(5);
     expect(stats.winRate).toBe(60);
     expect(stats.avgWinPct).toBeCloseTo(2.5);      // (2.5+2.0+3.0)/3
@@ -43,7 +43,7 @@ describe('computeSoulStats', () => {
       { pair: 'BTCUSDT', action: 'CLOSE', pnlUsd: -3, pnlPct: -1.5, closedAt: '2026-03-04T10:00:00Z' },
       { pair: 'BTCUSDT', action: 'CLOSE', pnlUsd: 1, pnlPct: 0.5, closedAt: '2026-03-04T09:00:00Z' },
     ];
-    const stats = computeSoulStats(trades, -2);
+    const stats = computeMemoryStats(trades, -2);
     expect(stats.currentStreak).toBe(-3);
   });
 });

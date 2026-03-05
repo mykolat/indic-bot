@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SoulKeeper } from '../../src/memory/soul-keeper.js';
+import { MemoryKeeper } from '../../src/memory/memory-keeper.js';
 import { mkdirSync, rmSync, readFileSync } from 'fs';
 
 const TEST_HOME = '/tmp/indic-soul-grounding-test';
 
 describe('SoulKeeper — Verified Intelligence', () => {
-  let keeper: SoulKeeper;
+  let keeper: MemoryKeeper;
 
   beforeEach(() => {
     rmSync(TEST_HOME, { recursive: true, force: true });
     mkdirSync(TEST_HOME, { recursive: true });
-    keeper = new SoulKeeper(TEST_HOME);
+    keeper = new MemoryKeeper(TEST_HOME);
   });
 
   afterEach(() => {
@@ -28,7 +28,7 @@ describe('SoulKeeper — Verified Intelligence', () => {
       },
     ]);
 
-    const content = readFileSync(`${TEST_HOME}/soul.md`, 'utf-8');
+    const content = readFileSync(`${TEST_HOME}/memory.md`, 'utf-8');
     expect(content).toContain('## Verified Intelligence');
     expect(content).toContain('SEC approves spot BTC ETF');
     expect(content).toContain('VERIFIED');
@@ -45,7 +45,7 @@ describe('SoulKeeper — Verified Intelligence', () => {
     }));
     keeper.writeVerifiedIntel(entries);
 
-    const content = readFileSync(`${TEST_HOME}/soul.md`, 'utf-8');
+    const content = readFileSync(`${TEST_HOME}/memory.md`, 'utf-8');
     expect(content).not.toContain('Claim 0');
     expect(content).not.toContain('Claim 1');
     expect(content).toContain('Claim 6');
@@ -57,7 +57,7 @@ describe('SoulKeeper — Verified Intelligence', () => {
       { claim: 'Unknown', verified: null, confidence: undefined, summary: undefined, timestamp: '2026-03-05T12:00:00Z' },
     ]);
 
-    const content = readFileSync(`${TEST_HOME}/soul.md`, 'utf-8');
+    const content = readFileSync(`${TEST_HOME}/memory.md`, 'utf-8');
     expect(content).toContain('DEBUNKED');
     expect(content).toContain('UNCONFIRMED');
     expect(content).toContain('no details');

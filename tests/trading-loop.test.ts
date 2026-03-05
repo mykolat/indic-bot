@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../src/news/fear-greed.js', () => ({
   fetchFearGreed: vi.fn().mockResolvedValue({ value: 50, label: 'Neutral' }),
 }));
-vi.mock('../src/memory/memory-keeper.js');
 
 import { TradingLoop } from '../src/trading-loop.js';
 import { MemoryKeeper } from '../src/memory/memory-keeper.js';
@@ -62,21 +61,26 @@ describe('TradingLoop', () => {
       backupHistory: vi.fn(),
       addExternalInsight: vi.fn()
     } as any;
-    vi.mocked(MemoryKeeper).mockImplementation(() => mockMemoryKeeper);
 
     mockSessionMemory = {
       setStartBalance: vi.fn(),
+      getStartBalance: vi.fn().mockReturnValue(100),
+      getHighWaterMark: vi.fn().mockReturnValue(100),
       recordCommission: vi.fn(),
       getSessionPnlPct: vi.fn().mockReturnValue(1.5),
       getTradesRecord: vi.fn().mockReturnValue([]),
       getLastOrderResult: vi.fn().mockReturnValue(''),
-      load: vi.fn(),
+      load: vi.fn().mockReturnValue({ session_notes: '', recent_trades: [] }),
       save: vi.fn(),
       logAction: vi.fn(),
       logDecision: vi.fn(),
+      addTrade: vi.fn(),
+      updateNotes: vi.fn(),
+      setHighWaterMark: vi.fn(),
+      setLastOrderResult: vi.fn(),
     } as any;
 
-    mockSignalBuffer = { popSignals: vi.fn().mockReturnValue([]) };
+    mockSignalBuffer = { drain: vi.fn().mockReturnValue([]) };
     mockLogger = {
       logDecision: vi.fn(),
       logTrade: vi.fn(),
@@ -92,18 +96,7 @@ describe('TradingLoop', () => {
       riskManager: mockRisk,
       signalBuffer: mockSignalBuffer,
       logger: mockLogger,
-      memory: {
-        load: vi.fn().mockReturnValue({ session_notes: '', recent_trades: [] }),
-        addTrade: vi.fn(),
-        updateNotes: vi.fn(),
-        save: vi.fn(),
-        getStartBalance: vi.fn().mockReturnValue(10),
-        setStartBalance: vi.fn(),
-        setLastOrderResult: vi.fn(),
-        getLastOrderResult: vi.fn().mockReturnValue(undefined),
-        getHighWaterMark: vi.fn().mockReturnValue(100),
-        setHighWaterMark: vi.fn(),
-      } as any,
+      memory: mockSessionMemory,
       newsCache: {
         shouldRefresh: vi.fn().mockReturnValue(false),
         getAnalysis: vi.fn().mockReturnValue(null),
@@ -111,7 +104,7 @@ describe('TradingLoop', () => {
         appendHistory: vi.fn(),
         getRecentItems: vi.fn().mockReturnValue([]),
         dbCount: vi.fn().mockReturnValue(0),
-      },
+      } as any,
       newsAnalyst: {
         analyze: vi.fn().mockResolvedValue({
           market_summary: 'test',
@@ -120,12 +113,12 @@ describe('TradingLoop', () => {
           macro_signals: { fed_stance: 'neutral', risk_appetite: 'moderate', dominance_trend: 'stable' },
           risk_events: [],
         }),
-      },
+      } as any,
       newsConfig: { refreshIntervalH: 12, maxItems: 100 },
       churnCooldownMs: 900000,
       tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
       memoryKeeper: mockMemoryKeeper as any,
-      memory: mockSessionMemory as any,
+      getSoulContent: vi.fn().mockReturnValue('Trading Soul'),
     });
   });
 
@@ -195,7 +188,8 @@ describe('TradingLoop', () => {
   });
 
   it('computes sessionPnl from real balance delta', async () => {
-    // startBalance was set to 10 by mock, now balance is 12 → sessionPnl = 2
+    // startBalance mock returns 10, now balance is 12 → sessionPnl = 2
+    loop['deps'].memory.getStartBalance = vi.fn().mockReturnValue(10);
     mockMarketData.getPortfolioState.mockResolvedValueOnce({
       balanceUsd: 12,
       positions: [],
@@ -273,13 +267,12 @@ describe('TradingLoop', () => {
     });
     mockOrders.close.mockResolvedValueOnce({ success: true, orderId: 99 });
 
-    const mockMemory = loop['deps'].memory as any;
-    mockMemory.addTrade.mockClear();
+    mockSessionMemory.addTrade.mockClear();
 
     await loop.runOnce();
 
-    expect(mockMemory.addTrade).toHaveBeenCalledOnce();
-    const tradeArg = mockMemory.addTrade.mock.calls[0][0];
+    expect(mockSessionMemory.addTrade).toHaveBeenCalledOnce();
+    const tradeArg = mockSessionMemory.addTrade.mock.calls[0][0];
     expect(tradeArg.pair).toBe('BTCUSDT');
     expect(tradeArg.action).toBe('CLOSE');
     expect(tradeArg.pnlPct).toBe(5);

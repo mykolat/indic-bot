@@ -1,7 +1,7 @@
 import type { TradeRecord } from './session.js';
 import type { SoulStats } from './memory-keeper.js';
 
-export function computeSoulStats(trades: TradeRecord[], sessionPnlPct: number): SoulStats {
+export function computeMemoryStats(trades: TradeRecord[], sessionPnlPct: number): SoulStats {
   if (trades.length === 0) {
     return {
       winRate: 0, avgWinPct: 0, avgLossPct: 0, profitFactor: 0,
