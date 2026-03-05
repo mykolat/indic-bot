@@ -18,4 +18,21 @@ describe('SwarmAgent', () => {
         expect(decisions).toHaveLength(1);
         expect(decisions[0].action).toBe('HOLD');
     });
+
+    it('requests consensus from both Codex and Grok', async () => {
+        const mockCodex = { call: vi.fn().mockResolvedValue('Codex View') } as any;
+        const mockGrok = { call: vi.fn().mockResolvedValue('Grok View') } as any;
+
+        // Final analyze mock for the judge
+        mockCodex.call.mockResolvedValueOnce('Codex View')
+            .mockResolvedValueOnce('Codex View')
+            .mockResolvedValueOnce('Codex View')
+            .mockResolvedValueOnce('{ "decisions": [] }');
+
+        const agent = new SwarmAgent(mockCodex, mockGrok);
+        await agent.getConsensus({ snapshots: [], indicators: new Map(), portfolio: { balanceUsd: 100, sessionPnl: 0, positions: [] }, signals: [], news: [], fearGreed: { value: 50, label: 'Neutral' } } as any);
+
+        expect(mockCodex.call).toHaveBeenCalledTimes(4); // 3 personas + 1 judge
+        expect(mockGrok.call).toHaveBeenCalledTimes(1);  // 1 narrative expert
+    });
 });

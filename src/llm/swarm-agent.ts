@@ -3,15 +3,20 @@ import type { TradeDecision } from '../risk/manager.js';
 import { buildUserPrompt, type EnrichedPromptData, buildSwarmPersonaPrompt, buildConsensusPrompt, type SwarmPersona } from './prompts.js';
 
 export class SwarmAgent {
-    constructor(private llm: LLMClient) { }
+    constructor(private llm: LLMClient, private grokLlm?: any) { }
 
     async getConsensus(data: EnrichedPromptData): Promise<TradeDecision[]> {
         const userPrompt = buildUserPrompt(data);
 
-        console.log('[Swarm] Waking up sub-agents (Bull, Bear, RiskManager)...');
+        console.log('[Swarm] Waking up sub-agents (Bull, Bear, RiskManager, NarrativeExpert?)...');
 
         const personas: SwarmPersona[] = ['permabull', 'permabear', 'paranoid_risk_manager'];
         const expertCalls = personas.map(p => this.llm.call(buildSwarmPersonaPrompt(p), userPrompt));
+
+        if (this.grokLlm) {
+            personas.push('narrative_expert');
+            expertCalls.push(this.grokLlm.call(buildSwarmPersonaPrompt('narrative_expert'), userPrompt, 'grok-4-1-fast-reasoning'));
+        }
 
         const results = await Promise.allSettled(expertCalls);
         const expertDecisions: string[] = [];

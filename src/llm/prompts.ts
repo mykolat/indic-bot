@@ -486,7 +486,7 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   return prompt;
 }
 
-export type SwarmPersona = 'permabull' | 'permabear' | 'paranoid_risk_manager';
+export type SwarmPersona = 'permabull' | 'permabear' | 'paranoid_risk_manager' | 'narrative_expert';
 
 export function buildSwarmPersonaPrompt(persona: SwarmPersona, config?: Parameters<typeof buildSystemPrompt>[0]): string {
   const basePrompt = buildSystemPrompt(config || {
@@ -503,6 +503,9 @@ export function buildSwarmPersonaPrompt(persona: SwarmPersona, config?: Paramete
       break;
     case 'paranoid_risk_manager':
       personaPrefix = `>>> SWARM PERSONA: You are a PARANOID RISK MANAGER. Your only goal is capital preservation. You look for any excuse to HOLD or CLOSE. You only approve entries if the setup is mathematically flawless. <<<\n\n`;
+      break;
+    case 'narrative_expert':
+      personaPrefix = `>>> SWARM PERSONA: You are the Crowd Sentiment Expert with live X access. Provide narrative analysis. <<<\n\n`;
       break;
   }
 
