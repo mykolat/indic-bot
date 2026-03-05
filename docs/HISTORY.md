@@ -28,7 +28,7 @@ Indic Bot is a production crypto futures trading bot built in 36 hours (2026-03-
 | Test suite (Vitest, 15+ test files) | 1–2 weeks |
 | **Total** | **34–47 weeks** |
 
-Claude Code compressed 34–47 weeks of solo engineering into 36 hours. The key acceleration factors were: Claude generating scaffolding, tests, and documentation in parallel with design decisions rather than sequentially; the developer acting as architect and reviewer rather than implementer; bite-sized commits keeping context sharp; and a skill-based workflow (`brainstorm-indic`, `audit-report`) that packaged multi-step workflows into single prompts. The ratio is roughly 250–350x compared to a solo developer writing the same system from scratch in 2021.
+Claude Code compressed 34–47 weeks of solo engineering into 36 hours. The key acceleration factors were: Claude generating scaffolding, tests, and documentation in parallel with design decisions rather than sequentially; the developer acting as architect and reviewer rather than implementer; bite-sized commits keeping context sharp; and a skill-based workflow (`brainstorm-indic`, `audit-report`) that packaged multi-step workflows into single prompts. At 40-hour work weeks, the 34–47 week pre-LLM estimate represents 1,360–1,880 hours of solo engineering. Compressed into 36 hours with Claude Code as AI collaborator, the acceleration factor is approximately 38–52x.
 
 ---
 
@@ -104,7 +104,9 @@ The Mandatory CoT Checklist schema (`f79e7ac`) enforced structured reasoning fie
 
 `FlashCrashScanner` (`653e47f`) ran at the start of every cycle — Grok-powered, checking for market panic signals. PANIC state aborts the cycle entirely, which is the correct response: during a flash crash, all analysis is based on stale prices and the spread between bid/ask is unreliable.
 
-## Phase 7 — Max Info Pipe (2026-03-05 04:00–07:00)
+## Phase 7 — Max Info Pipe (2026-03-05 04:00–07:00) *(concurrent with Phase 6)*
+
+`feat/max-info-fetch` was developed as a concurrent branch while Phase 6 (Swarm + RAG) was ongoing on main. It was merged into main at commit `e4d85f4` (2026-03-05 04:53).
 
 Parallel news fetching with deduplication (`3537ad3`) fetched CryptoPanic and all RSS sources simultaneously via `Promise.allSettled`, merged results, and deduplicated by `(title, date)`. The reason for deduplication at fetch time rather than storage time: the LLM context window is finite; duplicate headlines waste tokens and dilute signal.
 
@@ -153,7 +155,7 @@ The Observability DB (`src/db/`) with 19 Supabase PostgreSQL tables provided the
 | Total commits | 174 |
 | Files changed / created | 178 |
 | Pre-LLM estimate (2021 solo) | 34–47 weeks |
-| Acceleration factor | ~250–350x |
+| Acceleration factor | ~38–52x |
 | LLM layers | 3 (Codex OAuth, OpenAI fallback, rule-based) |
 | Observability tables | 19 (PostgreSQL + pgvector) |
 | Market regimes | 5 (BullTrend, BearTrend, Range, Breakout, Capitulation) |
