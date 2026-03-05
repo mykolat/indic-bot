@@ -3,13 +3,13 @@ import type { LLMClient } from './client.js';
 export interface Layer1Inputs {
     newsData: string;
     macroData: string;
-    soulData: string;
+    memoryData: string;
 }
 
 export interface Layer1Outputs {
     newsReport: string;
     macroReport: string;
-    soulReport: string;
+    memoryReport: string;
 }
 
 export async function runLayer1Experts(llm: LLMClient, inputs: Layer1Inputs): Promise<Layer1Outputs> {
@@ -17,12 +17,12 @@ export async function runLayer1Experts(llm: LLMClient, inputs: Layer1Inputs): Pr
     const [news, macro, soul] = await Promise.all([
         llm.call('You are NewsExpert. Summarize catalysts as JSON.', inputs.newsData),
         llm.call('You are MacroExpert. Summarize risk as JSON.', inputs.macroData),
-        llm.call('You are SoulExpert. Review past failures and warn as JSON.', inputs.soulData)
+        llm.call('You are MemoryExpert. Review past failures and warn as JSON.', inputs.memoryData)
     ]);
 
     return {
         newsReport: news,
         macroReport: macro,
-        soulReport: soul
+        memoryReport: soul
     };
 }

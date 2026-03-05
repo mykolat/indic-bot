@@ -22,8 +22,8 @@ import { SessionMemory } from './memory/session.js';
 import { MacroFetcher } from './news/macro-fetcher.js';
 import { MacroAnalystAgent } from './news/macro-analyst.js';
 import { join } from 'path';
-import { SoulKeeper } from './memory/soul-keeper.js';
-import { SoulReviewAgent } from './memory/soul-review.js';
+import { MemoryKeeper } from './memory/memory-keeper.js';
+import { MemoryReviewAgent } from './memory/memory-review.js';
 import { RssNewsFetcher } from './news/rss-fetcher.js';
 import { GrokGrounder } from './news/grok-grounder.js';
 import { SourceHealthMonitor } from './news/source-health.js';
@@ -82,9 +82,9 @@ async function main() {
     console.log('[Fallback] No OPENAI_API_KEY_FALLBACK — Layer 3 (rule-based) on Codex failure');
   }
 
-  const soulKeeper = new SoulKeeper(join(process.env.HOME || '.', '.indic-bot'));
-  const soulReview = new SoulReviewAgent({ llm, soulKeeper });
-  console.log('[Soul] SoulKeeper + SoulReview initialized');
+  const memoryKeeper = new MemoryKeeper(join(process.env.HOME || '.', '.indic-bot'));
+  const memoryReview = new MemoryReviewAgent({ llm, memoryKeeper });
+  console.log('[Memory] MemoryKeeper + MemoryReview initialized');
 
   const newsCache = new NewsCache();
   const newsAnalyst = new NewsAnalystAgent(llm);
@@ -157,8 +157,8 @@ async function main() {
     macroAnalyst,
     macroRefreshIntervalMs: 10_800_000,
     fallbackLlm,
-    soulKeeper,
-    soulReview,
+    memoryKeeper,
+    memoryReview,
     rssFetcher,
     grokGrounder,
     sourceHealth,

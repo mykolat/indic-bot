@@ -1,5 +1,5 @@
 import type { TradeRecord } from './session.js';
-import type { SoulStats } from './soul-keeper.js';
+import type { SoulStats } from './memory-keeper.js';
 
 export function computeSoulStats(trades: TradeRecord[], sessionPnlPct: number): SoulStats {
   if (trades.length === 0) {

@@ -3,8 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../src/news/fear-greed.js', () => ({
   fetchFearGreed: vi.fn().mockResolvedValue({ value: 50, label: 'Neutral' }),
 }));
+vi.mock('../src/memory/memory-keeper.js');
 
 import { TradingLoop } from '../src/trading-loop.js';
+import { MemoryKeeper } from '../src/memory/memory-keeper.js';
 
 describe('TradingLoop', () => {
   let loop: TradingLoop;
@@ -14,7 +16,8 @@ describe('TradingLoop', () => {
   let mockRisk: any;
   let mockSignalBuffer: any;
   let mockLogger: any;
-  let mockSoulKeeper: any;
+  let mockMemoryKeeper: ReturnType<typeof vi.mocked<MemoryKeeper>>;
+  let mockSessionMemory: any;
 
   const makeCandles = (n: number) =>
     Array.from({ length: n }, (_, i) => ({
@@ -48,22 +51,37 @@ describe('TradingLoop', () => {
     mockRisk = {
       validate: vi.fn().mockReturnValue({ approved: true }),
     };
-    mockSignalBuffer = {
-      drain: vi.fn().mockReturnValue([]),
-    };
+    // 2) Other Mocks
+    mockMemoryKeeper = {
+      read: vi.fn().mockReturnValue('Trading Soul'),
+      updateStats: vi.fn(),
+      addRejection: vi.fn(),
+      addInvisibleExit: vi.fn(),
+      writeNarrativeSections: vi.fn(),
+      writeVerifiedIntel: vi.fn(),
+      backupHistory: vi.fn(),
+      addExternalInsight: vi.fn()
+    } as any;
+    vi.mocked(MemoryKeeper).mockImplementation(() => mockMemoryKeeper);
+
+    mockSessionMemory = {
+      setStartBalance: vi.fn(),
+      recordCommission: vi.fn(),
+      getSessionPnlPct: vi.fn().mockReturnValue(1.5),
+      getTradesRecord: vi.fn().mockReturnValue([]),
+      getLastOrderResult: vi.fn().mockReturnValue(''),
+      load: vi.fn(),
+      save: vi.fn(),
+      logAction: vi.fn(),
+      logDecision: vi.fn(),
+    } as any;
+
+    mockSignalBuffer = { popSignals: vi.fn().mockReturnValue([]) };
     mockLogger = {
       logDecision: vi.fn(),
       logTrade: vi.fn(),
       logError: vi.fn(),
       logPerformance: vi.fn(),
-    };
-    mockSoulKeeper = {
-      read: vi.fn().mockReturnValue('# Trading Soul\n## Identity\nTest soul'),
-      updateStats: vi.fn(),
-      addRejection: vi.fn(),
-      addInvisibleExit: vi.fn(),
-      addExternalInsight: vi.fn(),
-      writeNarrativeSections: vi.fn(),
     };
 
     loop = new TradingLoop({
@@ -106,7 +124,8 @@ describe('TradingLoop', () => {
       newsConfig: { refreshIntervalH: 12, maxItems: 100 },
       churnCooldownMs: 900000,
       tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
-      soulKeeper: mockSoulKeeper as any,
+      memoryKeeper: mockMemoryKeeper as any,
+      memory: mockSessionMemory as any,
     });
   });
 
@@ -312,16 +331,16 @@ describe('TradingLoop', () => {
 
   // ── Soul integration tests ───────────────────────────────────────────
 
-  it('passes soul content to llm.analyze', async () => {
+  it('passes static soul content to llm.analyze', async () => {
     await loop.runOnce();
     const callArg = mockLlm.analyze.mock.calls[0][0];
-    expect(callArg.soulContent).toContain('Trading Soul');
+    expect(callArg.staticSoul).toContain('Trading Soul');
   });
 
   it('records RISK_REJECTED in soul', async () => {
     mockRisk.validate.mockReturnValue({ approved: false, reason: 'too risky' });
     await loop.runOnce();
-    expect(mockSoulKeeper.addRejection).toHaveBeenCalledWith(
+    expect(mockMemoryKeeper.addRejection).toHaveBeenCalledWith(
       expect.objectContaining({ pair: 'BTCUSDT', reason: 'too risky' }),
     );
   });
@@ -337,7 +356,7 @@ describe('TradingLoop', () => {
     mockOrders.close.mockResolvedValue({ success: true, orderId: 99 });
     mockLlm.analyze.mockResolvedValue([]);
     await loop.runOnce();
-    expect(mockSoulKeeper.addInvisibleExit).toHaveBeenCalledWith(
+    expect(mockMemoryKeeper.addInvisibleExit).toHaveBeenCalledWith(
       expect.objectContaining({ pair: 'BTCUSDT', type: 'AUTO_CLOSE' }),
     );
   });
@@ -345,7 +364,7 @@ describe('TradingLoop', () => {
   it('updates soul stats after each cycle', async () => {
     mockLlm.analyze.mockResolvedValue([]);
     await loop.runOnce();
-    expect(mockSoulKeeper.updateStats).toHaveBeenCalled();
+    expect(mockMemoryKeeper.updateStats).toHaveBeenCalled();
   });
 
   // ── Resilience tests ──────────────────────────────────────────────────

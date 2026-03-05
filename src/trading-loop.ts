@@ -1,7 +1,9 @@
 import type { MarketDataFetcher, MarketSnapshot } from './binance/market-data.js';
 import type { OrderExecutor } from './binance/orders.js';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { runLayer1Experts } from './llm/agents.js';
-import { SoulKeeper } from './memory/soul-keeper.js';
+import { MemoryKeeper } from './memory/memory-keeper.js';
 import type { LLMClient } from './llm/client.js';
 import type { RiskManager, TradeDecision, PortfolioState } from './risk/manager.js';
 import type { SignalBuffer } from './webhook/signal-buffer.js';
@@ -15,7 +17,7 @@ import type { MacroAnalysis } from './llm/prompts.js';
 import { computeIndicators, type Indicators } from './indicators/technical.js';
 import { fetchFearGreed } from './news/fear-greed.js';
 import { SessionMemory } from './memory/session.js';
-import { computeSoulStats } from './memory/soul-stats.js';
+import { computeSoulStats } from './memory/memory-stats.js';
 import { CircuitBreaker } from './utils/circuit-breaker.js';
 import { extractExternalInsights } from './utils/soul-utils.js';
 import { MarketRegime, classifyRegime } from './market/regime-classifier.js';
@@ -57,8 +59,8 @@ interface TradingLoopDeps {
   macroRefreshIntervalMs?: number;  // default 10_800_000 (3h)
   fallbackLlm?: import('./llm/fallback-client.js').FallbackLLMClient;
   getSoulContent?: () => string | undefined;
-  soulKeeper?: import('./memory/soul-keeper.js').SoulKeeper;
-  soulReview?: import('./memory/soul-review.js').SoulReviewAgent;
+  memoryKeeper?: import('./memory/memory-keeper.js').MemoryKeeper;
+  memoryReview?: import('./memory/memory-review.js').MemoryReviewAgent;
   rssFetcher?: NewsFetcher;
   grokGrounder?: import('./news/grok-grounder.js').GrokGrounder;
   sourceHealth?: import('./news/source-health.js').SourceHealthMonitor;
@@ -79,6 +81,7 @@ export class TradingLoop {
   private lastMacroRefresh = 0;
   private lastMacroAnalysis: MacroAnalysis | undefined;
   private binanceCircuitBreaker = new CircuitBreaker(3);
+  private staticSoulCache: string | null = null;
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
@@ -86,6 +89,17 @@ export class TradingLoop {
 
   isShutdown(): boolean {
     return this._shutdown;
+  }
+
+  private getStaticSoul(): string | undefined {
+    if (this.staticSoulCache) return this.staticSoulCache;
+
+    const soulPath = join(process.env.DATA_DIR || './data', 'soul.md');
+    if (existsSync(soulPath)) {
+      this.staticSoulCache = readFileSync(soulPath, 'utf8');
+      return this.staticSoulCache;
+    }
+    return undefined;
   }
 
   async runOnce(): Promise<number | undefined> {
@@ -163,7 +177,7 @@ export class TradingLoop {
           const result = await orders.close(pos.pair, pos.side);
           if (result.success) {
             logger.logTrade({ type: 'AUTO_CLOSE', pair: pos.pair, reason: closeReason });
-            this.deps.soulKeeper?.addInvisibleExit({
+            this.deps.memoryKeeper?.addInvisibleExit({
               pair: pos.pair,
               side: pos.side,
               type: 'AUTO_CLOSE',
@@ -264,8 +278,8 @@ export class TradingLoop {
               });
             }
 
-            if (verifiedEntries.length > 0 && this.deps.soulKeeper) {
-              this.deps.soulKeeper.writeVerifiedIntel(verifiedEntries);
+            if (verifiedEntries.length > 0 && this.deps.memoryKeeper) {
+              this.deps.memoryKeeper.writeVerifiedIntel(verifiedEntries);
             }
           }
 
@@ -322,13 +336,13 @@ export class TradingLoop {
       const signals = signalBuffer.drain();
 
       // 6. LAYER 1: Distill data via experts
-      const soulKeeper = new SoulKeeper(process.env.DATA_DIR || './tmp');
-      const latestSoulData = soulKeeper.read();
+      const memoryKeeper = new MemoryKeeper(process.env.DATA_DIR || './tmp');
+      const latestMemoryData = memoryKeeper.read();
 
       const layer1Reports = await runLayer1Experts(this.deps.llm, {
         newsData: JSON.stringify(newsAnalysis),
         macroData: JSON.stringify(this.lastMacroAnalysis),
-        soulData: latestSoulData
+        memoryData: latestMemoryData
       });
 
       // 7. CPU Prep: Bundle the distills for the Chief Architect
@@ -337,7 +351,7 @@ export class TradingLoop {
       const sessionPnlPct = startBalance > 0 ? (sessionPnl / startBalance) * 100 : 0;
       const lossPct = Math.abs(Math.min(sessionPnlPct, 0));
       const riskStatus = lossPct >= 10 ? 'critical' : lossPct >= 5 ? 'reduced' : 'normal';
-      const soulContent = this.deps.soulKeeper?.read() ?? this.deps.getSoulContent?.();
+      const memoryContent = this.deps.memoryKeeper?.read() ?? this.deps.getSoulContent?.();
       // Pre-flight check: calculate soft filter warnings instead of skipping
       let filterWarning: string | undefined = undefined;
       const btcInd = indicators.get(btcSnap?.pair ?? '');
@@ -372,7 +386,8 @@ export class TradingLoop {
         sessionPnlPct,
         lastOrderResult: this.deps.memory.getLastOrderResult(),
         riskStatus,
-        soulContent,
+        staticSoul: this.getStaticSoul(),
+        memoryContent,
         regime: marketRegime,
         layer1Reports, // NEW INJECTION
         filterWarning,
@@ -396,7 +411,7 @@ export class TradingLoop {
             decisions = await this.deps.fallbackLlm.analyze(
               portfolio.positions,
               sessionPnlPct,
-              soulContent,
+              memoryContent,
             );
             currentLayer = 2;
             console.log('[Loop] Layer 2 (Fallback LLM) active — HOLD/CLOSE only');
@@ -414,8 +429,8 @@ export class TradingLoop {
       // Layer 3: if significant loss and positions open — read Big Brother + emergency close
       const layer3Threshold = this.deps.tradingConfig.layer3EmergencyPct ?? -5;
       if (currentLayer === 3 && portfolio.positions.length > 0 && sessionPnlPct < layer3Threshold) {
-        if (soulContent) {
-          const insights = extractExternalInsights(soulContent);
+        if (memoryContent) {
+          const insights = extractExternalInsights(memoryContent);
           if (insights) {
             console.log('[Loop] Layer 3 — Big Brother instructions:\n' + insights);
           }
@@ -527,8 +542,8 @@ export class TradingLoop {
                 });
               }
 
-              if (verifiedEntries.length > 0 && this.deps.soulKeeper) {
-                this.deps.soulKeeper.writeVerifiedIntel(verifiedEntries);
+              if (verifiedEntries.length > 0 && this.deps.memoryKeeper) {
+                this.deps.memoryKeeper.writeVerifiedIntel(verifiedEntries);
               }
             }
 
@@ -569,7 +584,7 @@ export class TradingLoop {
         const validation = riskManager.validate(decision, portfolio, validationCtx);
         if (!validation.approved) {
           logger.logDecision({ type: 'RISK_REJECTED', pair: decision.pair, reason: validation.reason });
-          this.deps.soulKeeper?.addRejection({
+          this.deps.memoryKeeper?.addRejection({
             pair: decision.pair,
             action: decision.action,
             reason: validation.reason || 'unknown',
@@ -661,12 +676,12 @@ export class TradingLoop {
       this.cycleCount++;
 
       // Update soul stats
-      if (this.deps.soulKeeper) {
+      if (this.deps.memoryKeeper) {
         const stats = computeSoulStats(
           this.deps.memory.load().recent_trades,
           sessionPnlPct,
         );
-        this.deps.soulKeeper.updateStats(stats);
+        this.deps.memoryKeeper.updateStats(stats);
       }
 
       if (nextCheckMinutes) {
@@ -674,7 +689,7 @@ export class TradingLoop {
       }
 
       // Soul review (LLM self-reflection)
-      if (this.deps.soulReview) {
+      if (this.deps.memoryReview) {
         const streak = this.deps.memory.load().recent_trades.reduce((s, t) => {
           if (s === null) return t.pnlPct < 0 ? -1 : t.pnlPct > 0 ? 1 : 0;
           if (s > 0 && t.pnlPct > 0) return s + 1;
@@ -682,15 +697,15 @@ export class TradingLoop {
           return null;
         }, null as number | null) ?? 0;
         const consecutiveLosses = streak < 0 ? Math.abs(streak) : 0;
-        if (this.deps.soulReview.shouldReview(this.cycleCount, consecutiveLosses, sessionPnlPct)) {
+        if (this.deps.memoryReview.shouldReview(this.cycleCount, consecutiveLosses, sessionPnlPct)) {
           try {
-            await this.deps.soulReview.review(
+            await this.deps.memoryReview.review(
               this.deps.memory.load().recent_trades,
               [],  // decision log — future enhancement
               this.cycleCount,
             );
           } catch (err) {
-            console.error('[SoulReview] Error:', err);
+            console.error('[MemoryReview] Error:', err);
           }
         }
       }

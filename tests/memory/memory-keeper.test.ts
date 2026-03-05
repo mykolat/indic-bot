@@ -1,41 +1,41 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { rmSync } from 'fs';
-import { SoulKeeper } from '../../src/memory/soul-keeper.js';
-import type { SoulStats, SoulRejection, SoulInvisibleExit, SoulInsight } from '../../src/memory/soul-keeper.js';
+import { MemoryKeeper } from '../../src/memory/memory-keeper.js';
+import type { SoulStats, SoulRejection, SoulInvisibleExit, SoulInsight } from '../../src/memory/memory-keeper.js';
 
 const TEST_DIR = join(process.cwd(), 'tmp-soul-test');
 
-describe('SoulKeeper', () => {
+describe('MemoryKeeper', () => {
   afterEach(() => {
-    try { rmSync(TEST_DIR, { recursive: true }); } catch {}
+    try { rmSync(TEST_DIR, { recursive: true }); } catch { }
   });
 
   beforeEach(() => {
-    try { rmSync(TEST_DIR, { recursive: true }); } catch {}
+    try { rmSync(TEST_DIR, { recursive: true }); } catch { }
   });
 
-  it('creates soul.md from template on first init', () => {
-    const sk = new SoulKeeper(TEST_DIR);
+  it('creates memory.md from template on first init', () => {
+    const sk = new MemoryKeeper(TEST_DIR);
     const content = sk.read();
-    expect(content).toContain('# Trading Soul');
-    expect(content).toContain('## Identity');
+    expect(content).toContain('# Dynamic Memory');
+    expect(content).toContain("## What I've Learned");
     expect(content).toContain('## Performance Stats');
   });
 
-  it('preserves existing soul.md on re-init', () => {
-    const sk1 = new SoulKeeper(TEST_DIR);
-    sk1.writeNarrativeSections({ identity: 'I am unique.' });
+  it('preserves existing memory.md on re-init', () => {
+    const sk1 = new MemoryKeeper(TEST_DIR);
+    sk1.writeNarrativeSections({ learned: 'I am learning.' });
     const contentBefore = sk1.read();
 
-    const sk2 = new SoulKeeper(TEST_DIR);
+    const sk2 = new MemoryKeeper(TEST_DIR);
     const contentAfter = sk2.read();
     expect(contentAfter).toBe(contentBefore);
-    expect(contentAfter).toContain('I am unique.');
+    expect(contentAfter).toContain('I am learning.');
   });
 
   it('updateStats replaces Performance Stats section', () => {
-    const sk = new SoulKeeper(TEST_DIR);
+    const sk = new MemoryKeeper(TEST_DIR);
     const stats: SoulStats = {
       winRate: 62.5,
       avgWinPct: 1.80,
@@ -57,13 +57,12 @@ describe('SoulKeeper', () => {
     expect(content).toContain('**Total trades:** 48');
 
     // Other sections untouched
-    expect(content).toContain('## Identity');
-    expect(content).toContain('## What I\'ve Learned');
+    expect(content).toContain("## What I've Learned");
     expect(content).toContain('_Nothing yet — waiting for first trades._');
   });
 
   it('addRejection prepends entry, keeps max 10', () => {
-    const sk = new SoulKeeper(TEST_DIR);
+    const sk = new MemoryKeeper(TEST_DIR);
 
     for (let i = 0; i < 12; i++) {
       const rejection: SoulRejection = {
@@ -89,7 +88,7 @@ describe('SoulKeeper', () => {
   });
 
   it('addInvisibleExit prepends entry with signed pnl', () => {
-    const sk = new SoulKeeper(TEST_DIR);
+    const sk = new MemoryKeeper(TEST_DIR);
 
     const slExit: SoulInvisibleExit = {
       pair: 'BTCUSDT',
@@ -123,7 +122,7 @@ describe('SoulKeeper', () => {
   });
 
   it('addExternalInsight keeps max 5, FIFO', () => {
-    const sk = new SoulKeeper(TEST_DIR);
+    const sk = new MemoryKeeper(TEST_DIR);
 
     for (let i = 0; i < 7; i++) {
       const insight: SoulInsight = {
@@ -148,7 +147,7 @@ describe('SoulKeeper', () => {
   });
 
   it('writeNarrativeSections updates only specified sections', () => {
-    const sk = new SoulKeeper(TEST_DIR);
+    const sk = new MemoryKeeper(TEST_DIR);
     const contentBefore = sk.read();
 
     // Capture original "learned" and "regime" content
@@ -159,7 +158,7 @@ describe('SoulKeeper', () => {
 
     // Update only identity and failures
     sk.writeNarrativeSections({
-      identity: 'I am a battle-tested trading agent.',
+      learned: 'I am a battle-tested trading agent.',
       failures: 'I tend to over-trade in choppy markets.',
     });
 
@@ -170,7 +169,21 @@ describe('SoulKeeper', () => {
     expect(contentAfter).toContain('I tend to over-trade in choppy markets.');
 
     // Untouched sections should preserve original content
-    expect(contentAfter).toContain(learnedBefore);
     expect(contentAfter).toContain(regimeBefore);
+  });
+
+  it('backs up history dynamically', () => {
+    const sk = new MemoryKeeper(TEST_DIR);
+    sk.writeNarrativeSections({ learned: 'Version 1' });
+    sk.backupHistory();
+
+    // Check if the history directory was created and contains the backup
+    const historyDir = join(TEST_DIR, 'docs', 'deepresult', 'memory_history');
+    const { readdirSync, readFileSync } = require('fs');
+    const files = readdirSync(historyDir);
+    expect(files.length).toBe(1);
+
+    const backupContent = readFileSync(join(historyDir, files[0]), 'utf-8');
+    expect(backupContent).toContain('Version 1');
   });
 });

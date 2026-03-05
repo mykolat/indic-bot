@@ -5,7 +5,7 @@ import type { TradeRecord } from './session.js';
  * Minimal interface for SoulKeeper methods used by SoulReviewAgent.
  * The full SoulKeeper class is defined in ./soul-keeper.ts.
  */
-export interface SoulReviewSoulKeeper {
+export interface MemoryReviewMemoryKeeper {
   read(): string;
   writeNarrativeSections(sections: {
     identity?: string;
@@ -13,9 +13,10 @@ export interface SoulReviewSoulKeeper {
     failures?: string;
     regime?: string;
   }): void;
+  backupHistory(): void;
 }
 
-const SOUL_REVIEW_SYSTEM = `You are reviewing your own trading soul document — your persistent identity and memory as a crypto futures trading agent.
+const MEMORY_REVIEW_SYSTEM = `You are reviewing your runtime memory document — an essential record of your changing perspective.
 
 Your task: Update the narrative sections based on your recent performance and decisions. Be honest, specific, and actionable.
 
@@ -34,20 +35,20 @@ Rules:
 - If win rate is low, acknowledge it. If you keep getting rejected, analyze why.
 - Adapt your regime view based on recent market conditions`;
 
-export interface SoulReviewDeps {
+export interface MemoryReviewDeps {
   llm: LLMClient;
-  soulKeeper: SoulReviewSoulKeeper;
+  memoryKeeper: MemoryReviewMemoryKeeper;
 }
 
-export class SoulReviewAgent {
+export class MemoryReviewAgent {
   private llm: LLMClient;
-  private soulKeeper: SoulReviewSoulKeeper;
+  private memoryKeeper: MemoryReviewMemoryKeeper;
   private lastReviewCycle = 0;
   private reviewIntervalCycles: number;
 
-  constructor(deps: SoulReviewDeps, reviewIntervalCycles = 20) {
+  constructor(deps: MemoryReviewDeps, reviewIntervalCycles = 20) {
     this.llm = deps.llm;
-    this.soulKeeper = deps.soulKeeper;
+    this.memoryKeeper = deps.memoryKeeper;
     this.reviewIntervalCycles = reviewIntervalCycles;
   }
 
@@ -62,17 +63,17 @@ export class SoulReviewAgent {
   }
 
   async review(recentTrades: TradeRecord[], recentDecisions: string[], cycleCount: number): Promise<void> {
-    const currentSoul = this.soulKeeper.read();
+    const currentMemory = this.memoryKeeper.read();
 
-    const userPrompt = `Here is your current soul document:
+    const userPrompt = `Here is your current memory document:
 
-${currentSoul}
+${currentMemory}
 
 Recent closed trades (newest first):
 ${recentTrades.slice(0, 10).map(t => {
-  const sign = t.pnlPct >= 0 ? '+' : '';
-  return `- ${t.pair} ${t.action}: ${sign}${t.pnlPct.toFixed(1)}% (${sign}$${t.pnlUsd.toFixed(2)}) at ${t.closedAt}`;
-}).join('\n') || 'No recent trades.'}
+      const sign = t.pnlPct >= 0 ? '+' : '';
+      return `- ${t.pair} ${t.action}: ${sign}${t.pnlPct.toFixed(1)}% (${sign}$${t.pnlUsd.toFixed(2)}) at ${t.closedAt}`;
+    }).join('\n') || 'No recent trades.'}
 
 Recent decision log (last 10):
 ${recentDecisions.slice(0, 10).join('\n') || 'No recent decisions.'}
@@ -80,12 +81,12 @@ ${recentDecisions.slice(0, 10).join('\n') || 'No recent decisions.'}
 Update the four narrative sections.`;
 
     try {
-      const response = await this.llm.call(SOUL_REVIEW_SYSTEM, userPrompt);
+      const response = await this.llm.call(MEMORY_REVIEW_SYSTEM, userPrompt);
 
       // Parse JSON from response
-      const jsonMatch = response.match(/\{[\s\S]*"identity"[\s\S]*\}/);
+      const jsonMatch = response.match(/\{[\s\S]*"learned"[\s\S]*\}/);
       if (!jsonMatch) {
-        console.error('[SoulReview] Failed to parse LLM response');
+        console.error('[MemoryReview] Failed to parse LLM response');
         return;
       }
 
@@ -96,11 +97,14 @@ Update the four narrative sections.`;
         regime?: string;
       };
 
-      this.soulKeeper.writeNarrativeSections(sections);
+      // Backup existing memory history before overwriting with new reflections
+      this.memoryKeeper.backupHistory();
+
+      this.memoryKeeper.writeNarrativeSections(sections);
       this.lastReviewCycle = cycleCount;
-      console.log('[SoulReview] Narrative sections updated');
+      console.log('[MemoryReview] Narrative sections updated');
     } catch (err) {
-      console.error('[SoulReview] Review failed:', err);
+      console.error('[MemoryReview] Review failed:', err);
     }
   }
 }

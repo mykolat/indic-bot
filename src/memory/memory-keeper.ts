@@ -39,24 +39,19 @@ export interface SoulInsight {
 // ── Section markers ─────────────────────────────────────────────────────
 
 export const SECTION_MARKERS: Record<string, string> = {
-  identity:       '## Identity',
-  learned:        '## What I\'ve Learned',
-  failures:       '## My Failure Patterns',
-  regime:         '## Current Regime View',
-  insights:       '## External Insights',
-  stats:          '## Performance Stats',
-  rejections:     '## Recent Rejections',
+  learned: '## What I\'ve Learned',
+  failures: '## My Failure Patterns',
+  regime: '## Current Regime View',
+  insights: '## External Insights',
+  stats: '## Performance Stats',
+  rejections: '## Recent Rejections',
   invisibleExits: '## Invisible Exits',
-  verifiedIntel:  '## Verified Intelligence',
+  verifiedIntel: '## Verified Intelligence',
 };
 
 // ── Default template ────────────────────────────────────────────────────
 
-export const TEMPLATE = `# Trading Soul
-
-## Identity
-
-I am a crypto futures trading agent. I learn from every trade.
+export const TEMPLATE = `# Dynamic Memory
 
 ## What I've Learned
 
@@ -91,22 +86,26 @@ _No rejections yet._
 _No invisible exits yet._
 `;
 
-// ── SoulKeeper ──────────────────────────────────────────────────────────
+// ── MemoryKeeper ────────────────────────────────────────────────────────
+export class MemoryKeeper {
+  private readonly memoryPath: string;
+  private readonly memoryHistoryDir: string;
 
-export class SoulKeeper {
-  private readonly soulPath: string;
-
-  constructor(soulDir: string) {
-    this.soulPath = join(soulDir, 'soul.md');
-    if (!existsSync(this.soulPath)) {
-      mkdirSync(dirname(this.soulPath), { recursive: true });
-      writeFileSync(this.soulPath, TEMPLATE, 'utf-8');
+  constructor(memoryDir: string) {
+    this.memoryPath = join(memoryDir, 'memory.md');
+    this.memoryHistoryDir = join(memoryDir, 'docs', 'deepresult', 'memory_history');
+    if (!existsSync(this.memoryPath)) {
+      mkdirSync(dirname(this.memoryPath), { recursive: true });
+      writeFileSync(this.memoryPath, TEMPLATE, 'utf-8');
+    }
+    if (!existsSync(this.memoryHistoryDir)) {
+      mkdirSync(this.memoryHistoryDir, { recursive: true });
     }
   }
 
-  /** Return full soul.md content. */
+  /** Return full memory.md content. */
   read(): string {
-    return readFileSync(this.soulPath, 'utf-8');
+    return readFileSync(this.memoryPath, 'utf-8');
   }
 
   // ── Private helpers ─────────────────────────────────────────────────
@@ -127,7 +126,7 @@ export class SoulKeeper {
     const bodyStart = content.indexOf('\n', markerIdx);
     if (bodyStart === -1) {
       // Marker is the very last line
-      writeFileSync(this.soulPath, content + '\n\n' + newContent + '\n', 'utf-8');
+      writeFileSync(this.memoryPath, content + '\n\n' + newContent + '\n', 'utf-8');
       return;
     }
 
@@ -138,9 +137,9 @@ export class SoulKeeper {
       : content.length;
 
     const before = content.slice(0, bodyStart);
-    const after  = content.slice(bodyEnd);
+    const after = content.slice(bodyEnd);
 
-    writeFileSync(this.soulPath, before + '\n\n' + newContent + '\n' + after, 'utf-8');
+    writeFileSync(this.memoryPath, before + '\n\n' + newContent + '\n' + after, 'utf-8');
   }
 
   /**
@@ -236,16 +235,31 @@ export class SoulKeeper {
     this.replaceSection('verifiedIntel', lines.join('\n'));
   }
 
-  /** Replace one or more narrative sections (identity, learned, failures, regime). */
+  /** Replace one or more narrative sections (learned, failures, regime). */
   writeNarrativeSections(sections: {
-    identity?: string;
     learned?: string;
     failures?: string;
     regime?: string;
   }): void {
-    if (sections.identity !== undefined)  this.replaceSection('identity', sections.identity);
-    if (sections.learned !== undefined)   this.replaceSection('learned', sections.learned);
-    if (sections.failures !== undefined)  this.replaceSection('failures', sections.failures);
-    if (sections.regime !== undefined)    this.replaceSection('regime', sections.regime);
+    if (sections.learned !== undefined) this.replaceSection('learned', sections.learned);
+    if (sections.failures !== undefined) this.replaceSection('failures', sections.failures);
+    if (sections.regime !== undefined) this.replaceSection('regime', sections.regime);
+  }
+
+  /**
+   * Reads current memory.md and saves it iteratively as a backup.
+   */
+  backupHistory(): void {
+    if (!existsSync(this.memoryPath)) return;
+
+    const now = new Date();
+    // YYYY-MM-DDTHH-mm-ss
+    const timestampStr = now.toISOString()
+      .replace(/:\d+\.\d+Z$/, '') // remove seconds/ms
+      .replace(/:/g, '-') + '-' + String(now.getSeconds()).padStart(2, '0');
+
+    const backupPath = join(this.memoryHistoryDir, `memory_${timestampStr}.md`);
+    const content = this.read();
+    writeFileSync(backupPath, content, 'utf-8');
   }
 }

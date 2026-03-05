@@ -130,7 +130,8 @@ export interface EnrichedPromptData {
   sessionPnlPct?: number;
   lastOrderResult?: string;
   riskStatus?: string;  // 'normal' | 'reduced' | 'critical'
-  soulContent?: string;
+  staticSoul?: string;
+  memoryContent?: string;
   regime?: string;
   filterWarning?: string;
 }
@@ -208,9 +209,14 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += `NOTE: If your narrative reading strongly contradicts this regime, use the 'regime_override' field to change it.\n\n`;
   }
 
-  // Soul — persistent identity & memory
-  if (data.soulContent) {
-    prompt += `## Soul (your persistent memory & identity)\n${data.soulContent}\n\n`;
+  // Soul — static identity
+  if (data.staticSoul) {
+    prompt += `## Original System Soul\n${data.staticSoul}\n\n`;
+  }
+
+  // Memory — dynamic reflections
+  if (data.memoryContent) {
+    prompt += `## Dynamic Memory (Current Reflections)\n${data.memoryContent}\n\n`;
   }
 
   if (data.filterWarning) {

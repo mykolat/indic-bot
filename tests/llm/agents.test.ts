@@ -8,12 +8,12 @@ describe('runLayer1Experts', () => {
         const results = await runLayer1Experts(mockLlmClient as any, {
             newsData: '...',
             macroData: '...',
-            soulData: '...'
+            memoryData: 'We lost heavily in choppy markets yesterday.'
         });
 
         expect(results).toHaveProperty('newsReport');
         expect(results).toHaveProperty('macroReport');
-        expect(results).toHaveProperty('soulReport');
+        expect(results).toHaveProperty('memoryReport');
         expect(mockLlmClient.call).toHaveBeenCalledTimes(3);
     });
 });
