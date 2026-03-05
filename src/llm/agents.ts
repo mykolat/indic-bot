@@ -13,16 +13,21 @@ export interface Layer1Outputs {
 }
 
 export async function runLayer1Experts(llm: LLMClient, inputs: Layer1Inputs): Promise<Layer1Outputs> {
-    // We run 3 parallel LLM calls to distill noisy data into clean summaries for Layer 2.
-    const [news, macro, soul] = await Promise.all([
+    const results = await Promise.allSettled([
         llm.call('You are NewsExpert. Summarize catalysts as JSON.', inputs.newsData),
         llm.call('You are MacroExpert. Summarize risk as JSON.', inputs.macroData),
         llm.call('You are MemoryExpert. Review past failures and warn as JSON.', inputs.memoryData)
     ]);
 
+    const extract = (r: PromiseSettledResult<string>, label: string): string => {
+        if (r.status === 'fulfilled') return r.value;
+        console.warn(`[Layer1] ${label} expert failed:`, r.reason);
+        return '';
+    };
+
     return {
-        newsReport: news,
-        macroReport: macro,
-        memoryReport: soul
+        newsReport: extract(results[0], 'News'),
+        macroReport: extract(results[1], 'Macro'),
+        memoryReport: extract(results[2], 'Memory')
     };
 }

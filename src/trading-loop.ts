@@ -22,6 +22,7 @@ import { CircuitBreaker } from './utils/circuit-breaker.js';
 import { extractExternalInsights } from './utils/soul-utils.js';
 import { MarketRegime, classifyRegime } from './market/regime-classifier.js';
 import { getFilterProfile, type FilterProfile } from './market/filter-profiles.js';
+import { computeConfluence } from './market/confluence.js';
 import type { DecisionJournal, JournalEntry } from './logging/decision-journal.js';
 import type { TradeStoryLogger } from './logging/trade-story.js';
 import type { CryptoNews } from './news/types.js';
@@ -410,17 +411,25 @@ export class TradingLoop {
       let filterWarning: string | undefined = undefined;
       const btcInd = indicators.get(btcSnap?.pair ?? '');
 
-      if (activeProfile && btcInd && portfolio.positions.length === 0) {
-        // Calculate confluence roughly
-        let confluence = 0;
-        if (btcInd.trend === 'bullish' || btcInd.trend === 'bearish') confluence++;
-        if (btcInd.volumeRatio > 1) confluence++;
-        if (btcInd.vwap && (parseFloat(btcSnap.markPrice) > btcInd.vwap === (btcInd.trend === 'bullish'))) confluence++;
+      let confluenceResult: { score: number; factors: string[] } | undefined;
+      if (btcInd && btcSnap) {
+        const hasNewsCatalyst = !!(newsAnalysis && Array.isArray(newsAnalysis) && newsAnalysis.some((n: any) => n.importance >= 7));
+        confluenceResult = computeConfluence({
+          trend: btcInd.trend,
+          volumeRatio: btcInd.volumeRatio,
+          vwap: btcInd.vwap || 0,
+          markPrice: parseFloat(btcSnap.markPrice),
+          rsi: btcInd.rsi,
+          rsiRange: activeProfile ? [activeProfile.rsiRange?.[0] ?? 30, activeProfile.rsiRange?.[1] ?? 70] : [30, 70],
+          hasNewsCatalyst,
+        });
+      }
 
+      if (activeProfile && btcInd && portfolio.positions.length === 0 && confluenceResult) {
         if (btcInd.volumeRatio < activeProfile.volumeMin) {
           filterWarning = `Volume ${btcInd.volumeRatio.toFixed(2)}x < ${activeProfile.volumeMin}x required for ${marketRegime}`;
-        } else if (confluence < activeProfile.confluenceMin) {
-          filterWarning = `Confluence ${confluence} < ${activeProfile.confluenceMin} required for ${marketRegime}`;
+        } else if (confluenceResult.score < activeProfile.confluenceMin) {
+          filterWarning = `Confluence ${confluenceResult.score}/5 [${confluenceResult.factors.join(',')}] < ${activeProfile.confluenceMin} required for ${marketRegime}`;
         }
       }
 
@@ -713,13 +722,13 @@ export class TradingLoop {
             console.log(`[Churn] Skipping ${decision.pair} ${decision.action} — cooldown ${remainingMin}m remaining`);
             continue;
           }
-          const result = await orders.execute(decision, portfolio.balanceUsd);
-
-          // Apply Leverage Multiplier per Filter Profile
+          // Apply Leverage Multiplier per Filter Profile BEFORE order execution
           if (activeProfile && (decision.action === 'LONG' || decision.action === 'SHORT')) {
             decision.leverage = Math.max(1, Math.round(decision.leverage * activeProfile.leverageMultiplier));
             console.log(`[Regime] Adjusted leverage for ${decision.pair} to ${decision.leverage}x based on ${marketRegime} profile`);
           }
+
+          const result = await orders.execute(decision, portfolio.balanceUsd);
 
           if (result.success) {
             logger.logTrade({
@@ -745,6 +754,10 @@ export class TradingLoop {
         openPositions: portfolio.positions.length,
         sessionPnl,
         cycleCount: this.cycleCount,
+        volumeRatio: btcInd?.volumeRatio,
+        confluence: confluenceResult?.score,
+        confluenceFactors: confluenceResult?.factors,
+        regime: marketRegime,
       });
       this.cycleCount++;
 

@@ -26,7 +26,7 @@ export class Logger {
     console.error(`[ERROR] ${code}: ${message}`);
   }
 
-  logPerformance(entry: { balance: number; openPositions: number; sessionPnl: number; cycleCount: number }): void {
+  logPerformance(entry: { balance: number; openPositions: number; sessionPnl: number; cycleCount: number; volumeRatio?: number; confluence?: number; confluenceFactors?: string[]; regime?: string }): void {
     this.append('performance.jsonl', entry);
   }
 
