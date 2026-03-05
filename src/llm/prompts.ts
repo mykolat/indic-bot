@@ -133,6 +133,7 @@ export interface EnrichedPromptData {
   staticSoul?: string;
   memoryContent?: string;
   regime?: string;
+  layer1Reports?: import('./agents.js').Layer1Outputs;
   filterWarning?: string;
 }
 
@@ -217,6 +218,14 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   // Memory — dynamic reflections
   if (data.memoryContent) {
     prompt += `## Dynamic Memory (Current Reflections)\n${data.memoryContent}\n\n`;
+  }
+
+  // Layer 1 Experts Distillation
+  if (data.layer1Reports) {
+    prompt += `## Expert Analysis Reports\n`;
+    prompt += `News Expert:\n${data.layer1Reports.newsReport}\n\n`;
+    prompt += `Macro Expert:\n${data.layer1Reports.macroReport}\n\n`;
+    prompt += `Memory Expert:\n${data.layer1Reports.memoryReport}\n\n`;
   }
 
   if (data.filterWarning) {
