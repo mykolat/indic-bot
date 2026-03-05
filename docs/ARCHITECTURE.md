@@ -82,7 +82,7 @@ Observability (Dual-Write)
 8. **LLM Execution (Swarm or Single)**:
    - If BTC volumeRatio > 1.5: `SwarmAgent` runs 3 parallel personas + optional Grok narrative expert; computes weighted consensus.
    - Otherwise: single `LLMClient.analyze()`.
-9. **Validate & Execute**: For each decision — churn cooldown → `DevilsAdvocate` veto → `RiskManager.validate()` → `OrderExecutor.execute()`.
+9. **Validate & Execute**: For each decision — churn cooldown → `RiskManager.validate()` → `OrderExecutor.execute()`. (`DevilsAdvocate` veto is implemented but not yet wired here.)
 10. **Log & Reflect**: Log performance snapshot; every ~20 cycles trigger `MemoryReviewAgent`.
 
 ## Risk Management
@@ -144,7 +144,7 @@ All Grok features require `XAI_API_KEY`. The generic wrapper is `GrokClient` (`s
 - Pre-trade veto agent powered by Grok.
 - Searches X/Twitter for reasons NOT to enter the proposed trade.
 - Returns `{ veto: boolean, reason?: string }`.
-- Runs after churn cooldown check, before `RiskManager.validate()`.
+- **Note**: Implemented but not yet wired into `TradingLoop`; currently dead code.
 
 ### GrokGrounder (`src/news/grok-grounder.ts`)
 
@@ -175,7 +175,7 @@ The news pipeline runs CryptoPanic and RSS fetchers in parallel via `Promise.all
 
 ### Macro Data
 
-- **MacroFetcher** (`src/news/macro-fetcher.ts`): Yahoo Finance data (WTI, DXY, S&P500, VIX, EUR/USD, Gold) via Apify + BTC dominance via CoinGecko. Refreshed every 3 cycles.
+- **MacroFetcher** (`src/news/macro-fetcher.ts`): Yahoo Finance data (WTI, DXY, S&P500, VIX, EUR/USD, Gold) via Apify + BTC dominance via CoinGecko. Refreshed every 3 hours (time-based, configurable via `macroRefreshIntervalMs`).
 - **MacroAnalystAgent** (`src/news/macro-analyst.ts`): LLM macro summary → `MacroAnalysis`.
 - **Fear & Greed** (`src/news/fear-greed.ts`): Fear & Greed index from alternative.me API.
 
@@ -200,7 +200,7 @@ The bot maintains a persistent hybrid identity and memory system that spans flat
 |------|----------|
 | `memory.json` | Session notes + last 20 closed trades + `start_balance` + `last_order_result` |
 | `memory.md` | Persistent bot identity document (auto-updated stats, rejections, exits + LLM-written narrative) |
-| `memory-graph.json` | Episodic graph RAG store (embeddings + episodes) |
+| `$DATA_DIR/memory-graph.json` | Episodic graph RAG store (embeddings + episodes). Default: `./tmp/memory-graph.json`; set `DATA_DIR=~/.indic-bot` on production VM |
 | `news-cache.json` | Current news analysis cache |
 | `news.db` | SQLite persistent news store (deduplication) |
 | `news-history.jsonl` | Append-only history of every news fetch |
@@ -264,3 +264,4 @@ Config is split into two files with distinct purposes:
 | `APIFY_API_TOKEN` | Apify token for CryptoPanic news fetcher and MacroFetcher (Yahoo Finance) |
 | `SUPABASE_PASS` | Supabase password — builds connection URL automatically for Observability DB |
 | `DATABASE_URL` | Custom PostgreSQL URL (alternative to `SUPABASE_PASS`) |
+| `ENABLE_SWARM` | optional — set `false` to disable `SwarmAgent` even when `volumeRatio > 1.5` (default: enabled) |
