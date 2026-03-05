@@ -132,6 +132,7 @@ export interface EnrichedPromptData {
   riskStatus?: string;  // 'normal' | 'reduced' | 'critical'
   soulContent?: string;
   regime?: string;
+  filterWarning?: string;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -210,6 +211,12 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   // Soul — persistent identity & memory
   if (data.soulContent) {
     prompt += `## Soul (your persistent memory & identity)\n${data.soulContent}\n\n`;
+  }
+
+  if (data.filterWarning) {
+    prompt += `\n>>> ⚠️ SHARK MODE WARNING ⚠️ <<<\n`;
+    prompt += `System technical filters FAILED: ${data.filterWarning}\n`;
+    prompt += `ACTION REQUIRED: You are heavily advised to HOLD. ONLY execute LONG/SHORT if you have EXTREME CONVICTION from news/fundamentals that overrides this technical weakness.\n\n`;
   }
 
   prompt += `## Technical Analysis\n\n`;
