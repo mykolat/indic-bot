@@ -382,9 +382,48 @@ export class TradingLoop {
 
         if (decision.action === 'FETCH_NEWS') {
           console.log(`[News] LLM requested refresh: ${decision.reasoning}`);
-          if (this.deps.newsClient) {
-            const items = await this.deps.newsClient.fetchNews(this.deps.newsConfig.maxItems);
+          const newsSource = this.deps.rssFetcher || this.deps.newsClient;
+          if (newsSource) {
+            const items = await newsSource.fetchNews(this.deps.newsConfig.maxItems);
+            
+            // Track source health for RSS feeds
+            if (this.deps.sourceHealth && this.deps.rssFetcher) {
+              const sources = [...new Set(items.map(i => i.source))];
+              for (const s of sources) this.deps.sourceHealth.recordSuccess(s);
+            }
+
             const analysis = await this.deps.newsAnalyst.analyze(items);
+
+            // Grounding: verify high-importance claims via Grok
+            if (this.deps.grokGrounder && analysis.top_signals?.length) {
+              const cfg = this.deps.groundingConfig ?? { minImportance: 7, maxPerCycle: 2 };
+              const toGround = analysis.top_signals
+                .filter(s => s.needs_grounding && s.importance >= cfg.minImportance)
+                .slice(0, cfg.maxPerCycle);
+
+              const verifiedEntries: Array<{ claim: string; verified: boolean | null | undefined; confidence: number | undefined; summary: string | undefined; timestamp: string }> = [];
+              for (const signal of toGround) {
+                const gResult = await this.deps.grokGrounder.verify(signal.catalyst);
+                if (gResult.summary) {
+                  signal.reasoning += ` [Grok: ${gResult.summary.slice(0, 150)}]`;
+                }
+                if (this.deps.sourceHealth) {
+                  this.deps.sourceHealth.recordGrokUsage(gResult.tokensUsed);
+                }
+                verifiedEntries.push({
+                  claim: gResult.claim,
+                  verified: gResult.verified,
+                  confidence: gResult.confidence,
+                  summary: gResult.summary,
+                  timestamp: new Date().toISOString(),
+                });
+              }
+
+              if (verifiedEntries.length > 0 && this.deps.soulKeeper) {
+                this.deps.soulKeeper.writeVerifiedIntel(verifiedEntries);
+              }
+            }
+
             const cacheState = {
               items,
               fetchedAt: new Date().toISOString(),

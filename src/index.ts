@@ -24,6 +24,9 @@ import { MacroAnalystAgent } from './news/macro-analyst.js';
 import { join } from 'path';
 import { SoulKeeper } from './memory/soul-keeper.js';
 import { SoulReviewAgent } from './memory/soul-review.js';
+import { RssNewsFetcher } from './news/rss-fetcher.js';
+import { GrokGrounder } from './news/grok-grounder.js';
+import { SourceHealthMonitor } from './news/source-health.js';
 
 async function main() {
   const config = loadConfig();
@@ -110,6 +113,16 @@ async function main() {
   if (macroFetcher) console.log('[Macro] MacroFetcher enabled — refreshing every 3h');
   else console.log('[Macro] No APIFY_API_TOKEN — macro disabled');
 
+  const sourceHealth = new SourceHealthMonitor();
+
+  // Instantiate RSS Fetcher as primary news source if no Apify token, or as supplementary
+  const rssFetcher = new RssNewsFetcher();
+
+  // Instantiate Grok Grounder if API key is provided
+  const grokGrounder = process.env.XAI_API_KEY ? new GrokGrounder(process.env.XAI_API_KEY) : undefined;
+  if (grokGrounder) console.log('[Grok] xAI Grounder enabled for claim verification');
+  else console.log('[Grok] No XAI_API_KEY — claim verification disabled');
+
   // Start webhook server
   const app = createWebhookServer(signalBuffer, logger, config.webhook.secret);
   app.listen(config.webhook.port, () => {
@@ -145,6 +158,13 @@ async function main() {
     fallbackLlm,
     soulKeeper,
     soulReview,
+    rssFetcher,
+    grokGrounder,
+    sourceHealth,
+    groundingConfig: {
+      minImportance: parseInt(process.env.GROK_MIN_IMPORTANCE || '7', 10),
+      maxPerCycle: parseInt(process.env.GROK_MAX_PER_CYCLE || '2', 10),
+    },
   });
 
   // Run loop
