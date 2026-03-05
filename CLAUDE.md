@@ -156,6 +156,25 @@ pm2 flush indic-bot
 
 **TradingView webhook** (`src/webhook/`): Express server on `WEBHOOK_PORT` (default 3000); signals buffered in-memory and drained each cycle into LLM context.
 
+### Observability Database (`src/db/`)
+
+**Supabase PostgreSQL** — unified telemetry store. 19 tables covering the full chain: prompt → decision → execution → P&L. Enabled via `SUPABASE_PASS` or `DATABASE_URL` env var.
+
+- `connection.ts` — PG pool via `pg` npm, `initPool()` / `closePool()`
+- `types.ts` — TypeScript interfaces matching all 19 tables
+- `repository.ts` — typed insert/query methods for every table + pgvector search
+
+**Tables (19):**
+- **Core:** `sessions`, `cycles`, `trade_decisions`, `trade_executions`, `trade_closes`, `risk_validations`
+- **LLM:** `llm_conversations`, `swarm_personas`, `token_usage`
+- **Intelligence:** `news_articles`, `news_analyses`, `macro_snapshots`, `macro_analyses`
+- **Memory:** `episodic_memories` (pgvector), `trade_stories`, `memory_reviews`
+- **Observability:** `errors`, `webhook_signals`, `indicator_snapshots`
+
+**Key design:** `cycle_id` is the spine — every table links to a cycle. `conversation → decision → execution → close` provides full trade lifecycle traceability. JSONL files continue as backup (dual-write).
+
+**Requires:** `SUPABASE_PASS` env var (builds connection URL automatically) or `DATABASE_URL` for custom PG. Bot runs fine without either (graceful fallback, JSONL only).
+
 ## Infrastructure
 
 **GCP VM (production)**: `34.179.171.213` — europe-west3-a (Frankfurt), e2-small, Debian 12
@@ -178,6 +197,8 @@ pm2 flush indic-bot
 - **`NewsFetcher` interface** (`src/news/news-fetcher.ts`) — swap news sources without touching TradingLoop.
 - **Grok features** require `XAI_API_KEY` env var for FlashCrashScanner, DevilsAdvocate, SwarmAgent narrative_expert, GrokGrounder.
 - **Apify caching** — news fetchers check latest Apify dataset age before triggering new actor runs to avoid unnecessary costs.
+- **DB is optional** — bot works without `DATABASE_URL`/`SUPABASE_PASS`. All DB writes are fire-and-forget with `.catch(() => {})`. Never crashes the bot.
+- **`pg` npm** — direct PG connection pool (not Supabase JS client). Dashboard reads via Supabase REST API.
 
 **Fetch timeouts** (`src/utils/fetch-timeout.ts`): AbortController-based timeouts for all external API calls (15s Apify, 10s CoinGecko, 5s Fear&Greed).
 
@@ -187,6 +208,8 @@ pm2 flush indic-bot
 - ~~Shark Mode~~ — **DONE**. 5 regimes, filter profiles, regime classifier. See `src/market/`.
 - ~~Swarm Consensus~~ — **DONE**. Multi-persona parallel analysis. See `src/llm/swarm-agent.ts`.
 - ~~Graph RAG~~ — **DONE**. Episodic memory with embeddings. See `src/llm/episodic-agent.ts`.
-- ~~Grok Integration~~ — **DONE**. FlashCrashScanner, DevilsAdvocate, GrokGrounder, SwarmAgent narrative_expert.
-- `npm run audit:debug` — JSON mode for AI-driven self-healing audit. See `docs/plans/2026-03-04-audit-design.md`.
-- Command Center Phase 1 — RSS multi-source news + Grok xAI grounding. PARTIALLY DONE (RSS + Grok implemented, full command center pending). See `docs/plans/2026-03-05-command-center-phase1-plan.md`.
+- ~~Grok Integration~~ — **DONE**. FlashCrashScanner, GrokGrounder, SwarmAgent narrative_expert wired. Note: `DevilsAdvocate` class exists at `src/risk/devils-advocate.ts` but is **not yet wired** into `TradingLoop` or `src/index.ts`.
+- ~~Command Center Phase 1~~ — **DONE**. `RssNewsFetcher` and `GrokGrounder` both wired in `TradingLoop` (`rssFetcher`, `grokGrounder` deps). See `src/news/rss-fetcher.ts`, `src/news/grok-grounder.ts`, `docs/plans/2026-03-05-command-center-phase1-plan.md`.
+- `npm run audit:debug` — JSON mode for AI-driven self-healing audit. Debug scripts exist (`scripts/debug-decisions.ts`, `debug-orders.ts`, `debug-positions.ts`, `debug-trades.ts`) but the `audit:debug` npm command is **not yet added** to `package.json`. See `docs/plans/2026-03-04-audit-design.md`.
+- DevilsAdvocate pre-trade veto — class implemented at `src/risk/devils-advocate.ts` but **not yet wired** into `TradingLoop`. CLAUDE.md architecture section incorrectly lists it as active in the decision loop.
+- ~~Observability DB~~ — **DONE**. 19 tables in Supabase PostgreSQL + pgvector. See `src/db/` and `docs/plans/2026-03-05-observability-db-design.md`.
