@@ -5,11 +5,15 @@ To conquer the noisy crypto market, the bot needs to transition from relying sol
 
 ## Core Concepts & Components
 
-### 1. The LLM-CPU-LLM Flow
-Instead of a single monolithic LLM call, the decision process is split to balance deep analysis with strict execution rules:
-*   **LLM (Analysis & Synthesis):** The primary LLM ingests the massive 100k context (raw candles, order book, news, macro). Its *only* job is to analyze the data and populate a detailed, structured JSON "Checklist" (the pre-flight assessment). It does *not* make the final trade execution decision.
-*   **CPU (Validation & Logic):** The deterministic code (CPU) takes the LLM's JSON Checklist output and evaluates it against hardcoded rules (e.g., if `liquidation_sweep_detected` is true AND `macro_risk_score` > 7, then proceed). It can also handle the `regime_override` logic here.
-*   **LLM (Execution Formatting - Optional):** If the CPU rules pass, a smaller, faster LLM (or even deterministic formatting) is used to translate the approved strategy into the final `TradeDecision` payload (entry, SL, TP, leverage).
+### 1. The Multi-Agent LLM-CPU-LLM Flow
+Instead of a single monolithic LLM call handling everything, the process is distributed:
+
+*   **Stage 1: LLM Agents (Data Distillation):** Dedicated LLM agents process specialized chunks of the 100k context.
+    *   *News Expert:* Reads RSS feeds and Twitter, outputs structured catalyst scores.
+    *   *Macro Expert:* Analyzes funding rates, open interest, and traditional finance metrics.
+    *   *Market Expert (Primary):* Synthesizes raw OHLCV and order book data with inputs from the other experts to populate a mandatory JSON Checklist.
+*   **Stage 2: CPU (Validation & Logic):** Deterministic Typescript code evaluates the primary LLM's JSON Checklist against hardcoded rules (e.g., if `liquidation_sweep_detected` is true AND `macro_risk_score` > 7, then proceed). It also handles the `regime_override` logic.
+*   **Stage 3: LLM (Execution Formulation):** If the CPU rules pass, a smaller, faster LLM translates the approved strategy into the final `TradeDecision` payload (entry, SL, TP, leverage).
 
 ### 2. The Mandatory CoT Checklist
 The primary LLM must output a strict JSON structure analyzing specific market factors *before* any trade can be considered. This forces the model into a rigorous Chain of Thought, preventing hallucinations and skipped steps.
@@ -22,12 +26,15 @@ The primary LLM must output a strict JSON structure analyzing specific market fa
 *   `news_catalyst_strength` (1-10)
 *   `regime_override_suggestion` (string / null)
 
-### 3. Data Ingestion: Raw vs. Aggregates
-*   **Raw Data Pipeline:** Feed the LLM raw arrays of the last 500 OHLCV candles and significant order book snapshots. This allows the LLM to identify price action patterns (pin bars, flags, fakeouts) that indicators blur.
-*   **Summarized Context:** To prevent context bloat, news and macroeconomic data should be pre-summarized (CPU or smaller LLM) before being fed into the primary 100k context.
+### 4. Deep Reflection: The "Soul"
+The bot's memory (`soul.md`) serves as a reflective mechanism and identity anchor, managed out-of-band by the `SoulKeeper`. It is *not* just a log of P&L; it is the bot's "experience" and "money consciousness".
+*   **Identity & Lessons:** The LLM is fed continuous self-reflections (e.g., "I keep chasing breakout fakeouts; I need to wait for confirmed support").
+*   **Performance Metrics:** The Soul tracks quantitative metrics (Win Rate, Profit Factor, Current Streak, Best/Worst Pair) that structurally influence the LLM's confidence weighting in the next cycle.
+*   This context acts as a high-level guardrail, weighting the LLM's bias *before* it processes the raw market data.
 
-### 4. The Role of the "Soul"
-The bot's memory (Soul) serves as a reflective mechanism, not a paranoid constraint. The LLM is fed the recent `DecisionJournal` entries to learn from patterns (e.g., "I see 3 consecutive losses buying breakouts; risk of fakeouts is high; waiting for confirmed range").
+### 5. Data Ingestion: Raw vs. Aggregates
+*   **Raw Data Pipeline:** Feed the primary LLM raw arrays of the last 500 OHLCV candles and dense order book snapshots. This allows the LLM to identify price action nuances (pin bars, flags, liquidity sweeps) that indicators obscure.
+*   **Summarized Context:** To respect the 100k limit and improve SNR (Signal-To-Noise Ratio), the CPU pre-assembles cleanly formatted summaries from the specialized agents (News/Macro) to feed alongside the raw price action.
 
 ## Implementation Phases
 
