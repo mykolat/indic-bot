@@ -6,7 +6,7 @@ import { fetchWithTimeout } from '../utils/fetch-timeout.js';
 const ACTOR_ID = 'piotrv1001~cryptopanic-news-scraper';
 
 export class CryptoPanicClient implements NewsFetcher {
-  constructor(private apifyToken: string) {}
+  constructor(private apifyToken: string) { }
 
   async fetchNews(limit = 100): Promise<CryptoNews[]> {
     try {
@@ -18,7 +18,7 @@ export class CryptoPanicClient implements NewsFetcher {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ category: 'top-news', filter: 'show-all' }),
         },
-        15_000,
+        30_000,
       );
 
       if (!runResponse.ok) {
