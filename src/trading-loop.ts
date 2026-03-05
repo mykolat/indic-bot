@@ -61,6 +61,7 @@ interface TradingLoopDeps {
   macroRefreshIntervalMs?: number;  // default 10_800_000 (3h)
   fallbackLlm?: import('./llm/fallback-client.js').FallbackLLMClient;
   swarmAgent?: SwarmAgent;
+  flashCrashScanner?: import('./news/flash-crash.js').FlashCrashScanner;
   getSoulContent?: () => string | undefined;
   memoryKeeper?: import('./memory/memory-keeper.js').MemoryKeeper;
   memoryReview?: import('./memory/memory-review.js').MemoryReviewAgent;
@@ -121,6 +122,15 @@ export class TradingLoop {
       console.log(`[Loop] Binance circuit breaker open (${this.binanceCircuitBreaker.failureCount} consecutive failures) — skipping cycle`);
       logger.logError('CIRCUIT_BREAKER_OPEN', `Skipping cycle — ${this.binanceCircuitBreaker.failureCount} consecutive Binance failures`);
       return;
+    }
+
+    if (this.deps.flashCrashScanner) {
+      const panicStatus = await this.deps.flashCrashScanner.scan();
+      if (panicStatus === 'PANIC') {
+        console.warn('[Loop] FlashCrashScanner detected PANIC on X! Aborting cycle & entering safety mode.');
+        logger.logError('FLASH_CRASH_DETECTED', 'Scanner detected panic sentiment. Aborting trading cycle.');
+        return undefined; // Or maybe close positions? For now abort.
+      }
     }
 
     try {
