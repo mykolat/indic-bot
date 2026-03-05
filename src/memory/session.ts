@@ -13,6 +13,9 @@ export interface MemoryState {
   session_notes: string;
   recent_trades: TradeRecord[];
   last_updated: string;
+  start_balance?: number;
+  last_order_result?: string;
+  high_water_mark_usd?: number;
 }
 
 export class SessionMemory {
@@ -38,6 +41,41 @@ export class SessionMemory {
     state.recent_trades = [trade, ...state.recent_trades].slice(0, 20);
     state.last_updated = new Date().toISOString();
     this.save(state);
+  }
+
+  getStartBalance(): number | undefined {
+    return this.load().start_balance;
+  }
+
+  setStartBalance(balance: number): void {
+    const state = this.load();
+    if (state.start_balance === undefined) {
+      state.start_balance = balance;
+      state.last_updated = new Date().toISOString();
+      this.save(state);
+    }
+  }
+
+  getHighWaterMark(): number | undefined {
+    return this.load().high_water_mark_usd;
+  }
+
+  setHighWaterMark(hwm: number): void {
+    const state = this.load();
+    state.high_water_mark_usd = hwm;
+    state.last_updated = new Date().toISOString();
+    this.save(state);
+  }
+
+  setLastOrderResult(result: string): void {
+    const state = this.load();
+    state.last_order_result = result;
+    state.last_updated = new Date().toISOString();
+    this.save(state);
+  }
+
+  getLastOrderResult(): string | undefined {
+    return this.load().last_order_result;
   }
 
   updateNotes(notes: string): void {

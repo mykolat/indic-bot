@@ -10,7 +10,11 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "audit:bot": "tsx scripts/audit.ts"
+    "audit:bot": "tsx scripts/audit.ts",
+    "audit:remote": "bash scripts/remote-audit.sh",
+    "soul:insight": "tsx scripts/soul-insight.ts",
+    "deploy": "bash scripts/deploy.sh",
+    "audit:md": "tsx scripts/audit-md.ts"
   },
   "keywords": [],
   "author": "",
@@ -19,15 +23,22 @@
     "@mariozechner/pi-ai": "^0.55.4",
     "@types/express": "^5.0.6",
     "@types/node": "^25.3.3",
+    "better-sqlite3": "^12.6.2",
     "binance": "^3.4.3",
     "chalk": "^5.6.2",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "fast-xml-parser": "^5.4.2",
+    "global-agent": "^4.1.2",
+    "js-yaml": "^4.1.1",
     "openai": "^6.25.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/global-agent": "^3.0.0",
+    "@types/js-yaml": "^4.0.9",
     "tsx": "^4.21.0"
   }
 }

@@ -6,6 +6,8 @@ export interface TradeDecision {
   stop_loss_pct: number;
   take_profit_pct: number;
   reasoning: string;
+  confidence?: number;
+  regime_override?: string;
 }
 
 export interface Position {
@@ -22,6 +24,7 @@ export interface PortfolioState {
   balanceUsd: number;
   positions: Position[];
   sessionPnl: number;
+  drawdownPct: number;
 }
 
 export interface ValidationResult {
@@ -35,16 +38,33 @@ interface RiskConfig {
   maxPositionPct: number;
   maxExposurePct: number;
   maxStopLossPct: number;
+  maxDrawdownPct: number;
   maxLossUsd: number;
   maxLossPct: number;  // % of balance; overrides maxLossUsd if > 0
+  minConfidence?: number;  // reject decisions below this confidence (default 55)
+}
+
+export interface ValidationContext {
+  indicators4h?: Map<string, { trend: string }>;
+  fearGreed?: { value: number };
+  fearGreedLeverageCap?: number;
 }
 
 export class RiskManager {
-  constructor(private config: RiskConfig) {}
+  constructor(private config: RiskConfig) { }
 
-  validate(decision: TradeDecision, portfolio: PortfolioState): ValidationResult {
+  validate(decision: TradeDecision, portfolio: PortfolioState, ctx?: ValidationContext): ValidationResult {
     if (decision.action === 'HOLD' || decision.action === 'CLOSE' || decision.action === 'FETCH_NEWS') {
       return { approved: true };
+    }
+
+    // Confidence check (only when minConfidence is configured)
+    if (this.config.minConfidence != null) {
+      const confidence = decision.confidence ?? 50;
+      const minConf = this.config.minConfidence;
+      if (confidence < minConf) {
+        return { approved: false, reason: `Low confidence: ${confidence} < ${minConf}` };
+      }
     }
 
     const effectiveMaxLoss = this.config.maxLossPct > 0
@@ -53,6 +73,10 @@ export class RiskManager {
 
     if (portfolio.sessionPnl <= -effectiveMaxLoss) {
       return { approved: false, reason: `Session loss exceeded max $${effectiveMaxLoss.toFixed(2)} — shutdown triggered`, shutdown: true };
+    }
+
+    if (portfolio.drawdownPct >= this.config.maxDrawdownPct) {
+      return { approved: false, reason: `Drawdown ${portfolio.drawdownPct.toFixed(1)}% exceeded max ${this.config.maxDrawdownPct}% — shutdown triggered`, shutdown: true };
     }
 
     if (decision.leverage > this.config.maxLeverage) {
@@ -78,6 +102,56 @@ export class RiskManager {
 
     if (totalExposurePct > this.config.maxExposurePct) {
       return { approved: false, reason: `total exposure ${totalExposurePct.toFixed(1)}% exceeds max ${this.config.maxExposurePct}%` };
+    }
+
+    // ── Hard guardrails (code-enforced, LLM cannot bypass) ──
+
+    // 4h timeframe confirmation (soft — overridable with high confidence)
+    if (ctx?.indicators4h) {
+      const trend4h = ctx.indicators4h.get(decision.pair)?.trend;
+      const confidence = decision.confidence ?? 50;
+      if (decision.action === 'LONG' && trend4h === 'bearish' && confidence < 80) {
+        return { approved: false, reason: `4h trend bearish — need confidence >=80 (got ${confidence})` };
+      }
+      if (decision.action === 'SHORT' && trend4h === 'bullish' && confidence < 80) {
+        return { approved: false, reason: `4h trend bullish — need confidence >=80 (got ${confidence})` };
+      }
+    }
+
+    // Fear & Greed leverage cap
+    if (ctx?.fearGreed) {
+      const fgCap = ctx.fearGreedLeverageCap ?? 10;
+      if ((ctx.fearGreed.value < 25 || ctx.fearGreed.value > 85) && decision.leverage > fgCap) {
+        return { approved: false, reason: `Extreme F&G (${ctx.fearGreed.value}) — max leverage ${fgCap}x (requested ${decision.leverage}x)` };
+      }
+    }
+
+    // Session loss scaling
+    if (portfolio.sessionPnl < 0 && portfolio.balanceUsd > 0) {
+      const lossPct = Math.abs(portfolio.sessionPnl) / portfolio.balanceUsd * 100;
+      let adjustedMaxLeverage = this.config.maxLeverage;
+      let adjustedMaxSize = this.config.maxPositionPct;
+      if (lossPct >= 10) {
+        adjustedMaxLeverage = Math.min(5, this.config.maxLeverage);
+        adjustedMaxSize = Math.min(25, this.config.maxPositionPct);
+      } else if (lossPct >= 5) {
+        adjustedMaxLeverage = Math.floor(this.config.maxLeverage / 2);
+        adjustedMaxSize = Math.floor(this.config.maxPositionPct / 2);
+      }
+      if (decision.leverage > adjustedMaxLeverage) {
+        return { approved: false, reason: `Session loss ${lossPct.toFixed(1)}% — max leverage reduced to ${adjustedMaxLeverage}x` };
+      }
+      if (decision.size_pct > adjustedMaxSize) {
+        return { approved: false, reason: `Session loss ${lossPct.toFixed(1)}% — max size reduced to ${adjustedMaxSize}%` };
+      }
+    }
+
+    // Duplicate position check
+    const existingSameDirection = portfolio.positions.find(
+      p => p.pair === decision.pair && p.side === decision.action
+    );
+    if (existingSameDirection) {
+      return { approved: false, reason: `Already ${decision.action} on ${decision.pair}` };
     }
 
     return { approved: true };

@@ -1,0 +1,28 @@
+trading:
+  pairs: [BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT, DOGEUSDT, ADAUSDT, AVAXUSDT]
+  maxLeverage: 25
+  maxPositionPct: 60
+  maxExposurePct: 150
+  maxStopLossPct: 5
+  maxLossUsd: 30
+  maxLossPct: 10
+  targetReturnPct: 100
+  minTakeProfitPct: 5
+  minConfidence: 55
+  churnCooldownMs: 900000
+  loopIntervalMs: 60000
+  newsRefreshIntervalH: 0.33
+  newsMaxItems: 100
+  stalePositionHours: 8
+  maxHoldHours: 24
+  fearGreedLeverageCap: 10
+
+openai:
+  model: gpt-5.3-codex
+  fallbackModel: gpt-4o-mini
+
+binance:
+  testnet: false
+
+webhook:
+  port: 3000

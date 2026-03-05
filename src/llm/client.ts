@@ -1,9 +1,11 @@
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { mkdirSync, appendFileSync } from 'node:fs';
 import type { MarketSnapshot } from '../binance/market-data.js';
 import type { PortfolioState, TradeDecision } from '../risk/manager.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
 import { SYSTEM_PROMPT, buildUserPrompt, buildSystemPrompt, type EnrichedPromptData } from './prompts.js';
+import { TokenLogger } from './token-logger.js';
 
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex/responses';
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
@@ -20,6 +22,7 @@ function extractAccountId(token: string): string {
 export class LLMClient {
   private accountId: string;
   private systemPrompt: string;
+  private tokenLogger = new TokenLogger('logs/tokens.jsonl');
 
   constructor(
     private accessToken: string,
@@ -29,6 +32,8 @@ export class LLMClient {
     this.accountId = extractAccountId(accessToken);
     this.systemPrompt = promptConfig ? buildSystemPrompt(promptConfig) : SYSTEM_PROMPT;
   }
+
+  lastNextCheckMinutes: number | undefined;
 
   async analyze(
     data: EnrichedPromptData,
@@ -64,18 +69,65 @@ export class LLMClient {
         throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
       }
 
-      const content = await this.streamSSE(response);
+      const promptLength = this.systemPrompt.length + userPrompt.length;
+      const { content, usageIn, usageOut, estimated } = await this.streamSSE(response, promptLength);
+      this.tokenLogger.log({ method: 'analyze', tokensIn: usageIn, tokensOut: usageOut, model: this.model, estimated });
 
       if (!content) {
         console.error('[LLM] Empty response from Codex API');
         return [];
       }
 
-      return this.parseResponse(content);
+      let result = this.parseResponse(content);
+
+      // Retry once if parse failed (null = parse error, [] = valid empty)
+      if (result === null && content.length > 10) {
+        console.log('[LLM] Parse failed, retrying with clarification prompt...');
+        const retryBody = {
+          model: this.model,
+          store: false,
+          stream: true,
+          instructions: this.systemPrompt,
+          input: [{ role: 'user', content: 'Your last response was not valid JSON. Respond ONLY with the JSON object containing "decisions" array. No explanation.' }],
+          text: { verbosity: 'medium' },
+          include: ['reasoning.encrypted_content'],
+        };
+        try {
+          const retryResponse = await fetch(CODEX_BASE_URL, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${this.accessToken}`,
+              'chatgpt-account-id': this.accountId,
+              'OpenAI-Beta': 'responses=experimental',
+              'User-Agent': `indic-bot (${os.platform()} ${os.release()}; ${os.arch()})`,
+              'Content-Type': 'application/json',
+              'Accept': 'text/event-stream',
+            },
+            body: JSON.stringify(retryBody),
+          });
+          if (retryResponse.ok) {
+            const retryPromptLen = this.systemPrompt.length + 100; // retry prompt is short
+            const retryResult = await this.streamSSE(retryResponse, retryPromptLen);
+            this.tokenLogger.log({ method: 'analyze', label: 'retry', tokensIn: retryResult.usageIn, tokensOut: retryResult.usageOut, model: this.model, estimated: retryResult.estimated });
+            result = this.parseResponse(retryResult.content);
+          }
+        } catch (retryErr) {
+          console.error('[LLM] Retry failed:', retryErr);
+        }
+      }
+
+      if (result) {
+        this.lastNextCheckMinutes = result.nextCheckMinutes;
+        if (result.nextCheckMinutes) {
+          console.log(`[LLM] Next check in ${result.nextCheckMinutes} min`);
+        }
+        return result.decisions;
+      }
+      return [];
     } catch (err: any) {
       console.error('[LLM] API error:', err);
       this.emergencyAlert(err);
-      return [];
+      throw err;  // Let TradingLoop switch to Layer 2/3
     }
   }
 
@@ -115,10 +167,11 @@ export class LLMClient {
     }
   }
 
-  private async streamSSE(response: Response): Promise<string> {
+  private async streamSSE(response: Response, promptLength = 0): Promise<{ content: string; usageIn: number; usageOut: number; estimated: boolean }> {
     if (!response.body) {
       const text = await response.text();
-      return this.parseSSEText(text);
+      const result = this.parseSSEText(text);
+      return { ...result, estimated: result.usageIn === 0 };
     }
 
     const reader = response.body.getReader();
@@ -126,6 +179,8 @@ export class LLMClient {
     let buffer = '';
     let output = '';
     let reasoning = '';
+    let usageIn = 0;
+    let usageOut = 0;
 
     console.log('[LLM] Streaming response...\n');
 
@@ -171,7 +226,7 @@ export class LLMClient {
             process.stdout.write(event.delta);
           }
 
-          // Response completed — extract full text as fallback
+          // Response completed — extract full text as fallback and usage
           if (event.type === 'response.completed' && event.response?.output) {
             for (const item of event.response.output) {
               if (item.type === 'message' && item.content) {
@@ -181,6 +236,12 @@ export class LLMClient {
                   }
                 }
               }
+            }
+            // Extract usage
+            const usage = event.response.usage;
+            if (usage) {
+              usageIn = usage.input_tokens ?? 0;
+              usageOut = usage.output_tokens ?? 0;
             }
           }
         } catch {}
@@ -195,10 +256,18 @@ export class LLMClient {
       console.log(`[LLM] Reasoning: ${reasoning.length} chars`);
     }
 
-    return output;
+    // Estimation fallback if API didn't provide usage
+    let estimated = false;
+    if (usageIn === 0 && usageOut === 0 && (promptLength > 0 || output.length > 0)) {
+      usageIn = Math.ceil(promptLength / 4);
+      usageOut = Math.ceil(output.length / 4);
+      estimated = true;
+    }
+
+    return { content: output, usageIn, usageOut, estimated };
   }
 
-  private parseSSEText(text: string): string {
+  private parseSSEText(text: string): { content: string; usageIn: number; usageOut: number } {
     let output = '';
 
     for (const line of text.split('\n')) {
@@ -216,7 +285,7 @@ export class LLMClient {
             if (item.type === 'message' && item.content) {
               for (const block of item.content) {
                 if (block.type === 'output_text' && block.text) {
-                  return block.text;
+                  return { content: block.text, usageIn: 0, usageOut: 0 };
                 }
               }
             }
@@ -225,22 +294,46 @@ export class LLMClient {
       } catch {}
     }
 
-    return output;
+    return { content: output, usageIn: 0, usageOut: 0 };
   }
 
-  private parseResponse(content: string): TradeDecision[] {
+  private parseResponse(content: string): { decisions: TradeDecision[]; nextCheckMinutes?: number } | null {
     try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return [];
+      // Try targeted regex first: look for object containing "decisions" array
+      let jsonMatch = content.match(/\{[^{}]*"decisions"\s*:\s*\[[\s\S]*?\]\s*[^{}]*\}/);
+      if (!jsonMatch) {
+        // Fallback: greedy match (handles nested objects in reasoning)
+        jsonMatch = content.match(/\{[\s\S]*"decisions"[\s\S]*\}/);
+      }
+      if (!jsonMatch) {
+        this.logParseError(content, 'No JSON with "decisions" key found');
+        return null;
+      }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      if (!parsed.decisions || !Array.isArray(parsed.decisions)) return [];
-
-      return parsed.decisions;
-    } catch {
-      console.error('[LLM] Failed to parse response:', content.slice(0, 200));
-      return [];
+      if (!Array.isArray(parsed.decisions)) {
+        this.logParseError(content, 'decisions is not an array');
+        return null;
+      }
+      const ncm = parsed.next_check_minutes;
+      const nextCheckMinutes = typeof ncm === 'number' && ncm >= 1 && ncm <= 30 ? ncm : undefined;
+      return { decisions: parsed.decisions, nextCheckMinutes };
+    } catch (err: any) {
+      this.logParseError(content, err.message);
+      return null;
     }
+  }
+
+  private logParseError(content: string, reason: string): void {
+    console.error(`[LLM] Parse failed: ${reason} — response: ${content.slice(0, 200)}`);
+    try {
+      mkdirSync('logs', { recursive: true });
+      appendFileSync('logs/parse-errors.jsonl', JSON.stringify({
+        ts: new Date().toISOString(),
+        reason,
+        response: content.slice(0, 2000),
+      }) + '\n', 'utf-8');
+    } catch { /* non-critical */ }
   }
 
   updateAccessToken(token: string): void {
@@ -276,6 +369,9 @@ export class LLMClient {
       throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
     }
 
-    return this.streamSSE(response);
+    const callPromptLen = systemPrompt.length + userPrompt.length;
+    const { content, usageIn, usageOut, estimated } = await this.streamSSE(response, callPromptLen);
+    this.tokenLogger.log({ method: 'call', tokensIn: usageIn, tokensOut: usageOut, model: this.model, estimated });
+    return content;
   }
 }

@@ -1,21 +1,24 @@
 import type { CryptoNews } from './types.js';
+import type { NewsFetcher } from './news-fetcher.js';
+import { fetchWithTimeout } from '../utils/fetch-timeout.js';
 
 // Apify REST API requires '~' instead of '/' in actor IDs
 const ACTOR_ID = 'piotrv1001~cryptopanic-news-scraper';
 
-export class CryptoPanicClient {
-  constructor(private apifyToken: string) {}
+export class CryptoPanicClient implements NewsFetcher {
+  constructor(private apifyToken: string) { }
 
   async fetchNews(limit = 100): Promise<CryptoNews[]> {
     try {
       // Run the actor and wait for it to finish
-      const runResponse = await fetch(
+      const runResponse = await fetchWithTimeout(
         `https://api.apify.com/v2/acts/${ACTOR_ID}/run-sync-get-dataset-items?token=${this.apifyToken}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ category: 'top-news', filter: 'show-all' }),
         },
+        30_000,
       );
 
       if (!runResponse.ok) {

@@ -38,13 +38,13 @@ describe('OrderExecutor', () => {
 
     const stopCall = mockClient.submitNewOrder.mock.calls[1][0];
     expect(stopCall.type).toBe('STOP_MARKET');
-    expect(stopCall.reduceOnly).toBe('true');
-    expect(stopCall.closePosition).toBeUndefined();
+    expect(stopCall.closePosition).toBe('true');
+    expect(stopCall.reduceOnly).toBeUndefined();
 
     const tpCall = mockClient.submitNewOrder.mock.calls[2][0];
     expect(tpCall.type).toBe('TAKE_PROFIT_MARKET');
-    expect(tpCall.reduceOnly).toBe('true');
-    expect(tpCall.closePosition).toBeUndefined();
+    expect(tpCall.closePosition).toBe('true');
+    expect(tpCall.reduceOnly).toBeUndefined();
   });
 
   it('stop price is below entry for LONG, above for SHORT', async () => {
@@ -96,6 +96,50 @@ describe('OrderExecutor', () => {
     const call = mockClient.submitNewOrder.mock.calls[0][0];
     expect(call.reduceOnly).toBe('true');
     expect(result.success).toBe(true);
+  });
+
+  it('closes position if SL placement fails', async () => {
+    let callCount = 0;
+    mockClient.submitNewOrder = vi.fn().mockImplementation(async (params: any) => {
+      callCount++;
+      if (callCount === 1) return { orderId: 1 }; // entry OK
+      if (callCount === 2) throw new Error('SL rejected'); // SL fails
+      return { orderId: 3 }; // close position
+    });
+    mockClient.getPositions = vi.fn().mockResolvedValue([
+      { symbol: 'BTCUSDT', positionAmt: '0.001' },
+    ]);
+
+    const decision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'LONG', size_pct: 10,
+      leverage: 5, stop_loss_pct: 2, take_profit_pct: 10, reasoning: 'test',
+    };
+
+    const result = await executor.execute(decision, 10000);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('SL');
+    // Should have called submitNewOrder 3 times: entry, SL (fail), close
+    expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(3);
+  });
+
+  it('succeeds if only TP fails (SL is set)', async () => {
+    let callCount = 0;
+    mockClient.submitNewOrder = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) return { orderId: 1 }; // entry
+      if (callCount === 2) return { orderId: 2 }; // SL OK
+      throw new Error('TP rejected'); // TP fails
+    });
+
+    const decision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'LONG', size_pct: 10,
+      leverage: 5, stop_loss_pct: 2, take_profit_pct: 10, reasoning: 'test',
+    };
+
+    const result = await executor.execute(decision, 10000);
+
+    expect(result.success).toBe(true); // TP failure is non-fatal
   });
 
   it('returns error on API failure', async () => {

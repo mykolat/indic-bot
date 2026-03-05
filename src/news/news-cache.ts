@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import type { CryptoNews } from './types.js';
+import { NewsDB, type NewsRow } from './news-db.js';
 
 export interface NewsSignal {
   coins: string[];
@@ -13,6 +14,7 @@ export interface NewsSignal {
   expires_hours: number;
   source_count: number;
   conflicting: boolean;
+  needs_grounding?: boolean;
 }
 
 export interface NewsAnalysis {
@@ -35,9 +37,17 @@ export interface NewsCacheState {
 }
 
 export class NewsCache {
+  private _db: NewsDB | null = null;
+
   private get dir() { return join(process.env.HOME || '.', '.indic-bot'); }
   private get cacheFile() { return join(this.dir, 'news-cache.json'); }
   private get historyFile() { return join(this.dir, 'news-history.jsonl'); }
+  private get dbPath() { return join(this.dir, 'news.db'); }
+
+  private get db(): NewsDB {
+    if (!this._db) this._db = new NewsDB(this.dbPath);
+    return this._db;
+  }
 
   load(): NewsCacheState | null {
     try {
@@ -49,7 +59,15 @@ export class NewsCache {
 
   save(state: NewsCacheState): void {
     mkdirSync(this.dir, { recursive: true });
-    writeFileSync(this.cacheFile, JSON.stringify(state, null, 2), 'utf-8');
+    // Insert items into SQLite (dedup on title+date)
+    if (state.items?.length) this.db.insert(state.items);
+    // Persist metadata only — items live in SQLite now
+    writeFileSync(this.cacheFile, JSON.stringify({
+      fetchedAt: state.fetchedAt,
+      analysis: state.analysis,
+      analyzedAt: state.analyzedAt,
+      items: [],
+    }, null, 2), 'utf-8');
   }
 
   shouldRefresh(intervalHours: number): boolean {
@@ -61,6 +79,14 @@ export class NewsCache {
 
   getAnalysis(): NewsAnalysis | null {
     return this.load()?.analysis ?? null;
+  }
+
+  getRecentItems(hours = 48): NewsRow[] {
+    return this.db.getRecent(hours);
+  }
+
+  dbCount(): number {
+    return this.db.count();
   }
 
   appendHistory(state: NewsCacheState): void {

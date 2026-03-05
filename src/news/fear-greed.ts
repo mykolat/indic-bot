@@ -1,10 +1,11 @@
 import type { FearGreedData } from './types.js';
+import { fetchWithTimeout } from '../utils/fetch-timeout.js';
 
 const FEAR_GREED_URL = 'https://api.alternative.me/fng/?limit=1';
 
 export async function fetchFearGreed(): Promise<FearGreedData> {
   try {
-    const response = await fetch(FEAR_GREED_URL);
+    const response = await fetchWithTimeout(FEAR_GREED_URL, {}, 5_000);
     if (!response.ok) throw new Error(`Fear & Greed API: ${response.status}`);
 
     const json = (await response.json()) as any;
