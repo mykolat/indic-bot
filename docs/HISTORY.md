@@ -151,6 +151,7 @@ The Observability DB (`src/db/`) with 19 Supabase PostgreSQL tables provided the
 |---|---|
 | Total duration | 36 hours (2026-03-04 02:27 to 2026-03-05 13:08) |
 | Total commits | 174 |
+| Files changed / created | 178 |
 | Pre-LLM estimate (2021 solo) | 34–47 weeks |
 | Acceleration factor | ~250–350x |
 | LLM layers | 3 (Codex OAuth, OpenAI fallback, rule-based) |
