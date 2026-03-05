@@ -1,5 +1,7 @@
 import type { MarketDataFetcher, MarketSnapshot } from './binance/market-data.js';
 import type { OrderExecutor } from './binance/orders.js';
+import { runLayer1Experts } from './llm/agents.js';
+import { SoulKeeper } from './memory/soul-keeper.js';
 import type { LLMClient } from './llm/client.js';
 import type { RiskManager, TradeDecision, PortfolioState } from './risk/manager.js';
 import type { SignalBuffer } from './webhook/signal-buffer.js';
@@ -319,7 +321,17 @@ export class TradingLoop {
       // 5. Drain TradingView signals
       const signals = signalBuffer.drain();
 
-      // 6. LLM analysis — 3-layer fallback
+      // 6. LAYER 1: Distill data via experts
+      const soulKeeper = new SoulKeeper(process.env.DATA_DIR || './tmp');
+      const latestSoulData = soulKeeper.read();
+
+      const layer1Reports = await runLayer1Experts(this.deps.llm, {
+        newsData: JSON.stringify(newsAnalysis),
+        macroData: JSON.stringify(this.lastMacroAnalysis),
+        soulData: latestSoulData
+      });
+
+      // 7. CPU Prep: Bundle the distills for the Chief Architect
       const memState = this.deps.memory.load();
       const recentNewsWithAge = this.deps.newsCache.getRecentItems(48);
       const sessionPnlPct = startBalance > 0 ? (sessionPnl / startBalance) * 100 : 0;
@@ -344,6 +356,7 @@ export class TradingLoop {
         riskStatus,
         soulContent,
         regime: marketRegime,
+        layer1Reports, // NEW INJECTION
       };
 
       // Pre-flight check: if we miss the active profile volume/confluence, skip LLM to save tokens

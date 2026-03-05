@@ -39,6 +39,7 @@ describe('TradingLoop', () => {
       analyze: vi.fn().mockResolvedValue([
         { pair: 'BTCUSDT', action: 'LONG', size_pct: 20, leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'bullish' },
       ]),
+      call: vi.fn().mockResolvedValue('{}'),
     };
     mockOrders = {
       execute: vi.fn().mockResolvedValue({ success: true, orderId: 123 }),
@@ -114,7 +115,8 @@ describe('TradingLoop', () => {
 
     expect(mockMarketData.getSnapshot).toHaveBeenCalledWith('BTCUSDT');
     expect(mockMarketData.getPortfolioState).toHaveBeenCalled();
-    expect(mockLlm.analyze).toHaveBeenCalled();
+    expect(mockLlm.call).toHaveBeenCalledTimes(3); // Layer 1 triggered
+    expect(mockLlm.analyze).toHaveBeenCalled(); // Layer 2 triggered
     expect(mockRisk.validate).toHaveBeenCalled();
     expect(mockOrders.execute).toHaveBeenCalled();
     expect(mockLogger.logDecision).toHaveBeenCalled();
