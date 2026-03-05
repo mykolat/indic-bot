@@ -4,6 +4,7 @@ export interface OrderResult {
   success: boolean;
   orderId?: number;
   error?: string;
+  fillPrice?: number;
 }
 
 export class OrderExecutor {

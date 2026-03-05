@@ -7,6 +7,7 @@ export interface TradeDecision {
   take_profit_pct: number;
   reasoning: string;
   confidence?: number;
+  regime_override?: string;
 }
 
 export interface Position {
