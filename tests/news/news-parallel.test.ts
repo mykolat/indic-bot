@@ -53,6 +53,45 @@ describe('TradingLoop News Parallel Fetch', () => {
         };
     });
 
+    it('passes news, macro, and memory data to experts', async () => {
+        mockDeps.llm.call = vi.fn().mockResolvedValue('{}');
+        const mockMacro = {
+            fetch: vi.fn().mockResolvedValue({}),
+            fetchBTCDominance: vi.fn().mockResolvedValue({})
+        };
+        const mockMacroAnalyst = { analyze: vi.fn().mockResolvedValue({ risk_score: 5 }) };
+
+        // Set cache to return something
+        mockDeps.newsCache.getAnalysis.mockReturnValue({ some: 'data' });
+        mockDeps.memoryKeeper.read.mockReturnValue('past memory');
+
+        const loop = new TradingLoop({
+            ...mockDeps,
+            macroFetcher: mockMacro as any,
+            macroAnalyst: mockMacroAnalyst as any,
+        });
+
+        await loop.runOnce();
+
+        expect(mockMacro.fetch).toHaveBeenCalled();
+        expect(mockMacroAnalyst.analyze).toHaveBeenCalled();
+
+        // Check LLM calls (runLayer1Experts calls llm.call 3 times)
+        expect(mockDeps.llm.call).toHaveBeenCalledTimes(3);
+
+        // Verify one of the calls contains news data
+        const newsCall = mockDeps.llm.call.mock.calls.find((c: any) => c[0].includes('NewsExpert'));
+        expect(newsCall[1]).toContain('data');
+
+        // Verify one of the calls contains macro data
+        const macroCall = mockDeps.llm.call.mock.calls.find((c: any) => c[0].includes('MacroExpert'));
+        expect(macroCall[1]).toContain('risk_score');
+
+        // Verify one of the calls contains memory data
+        const memCall = mockDeps.llm.call.mock.calls.find((c: any) => c[0].includes('MemoryExpert'));
+        expect(memCall[1]).toContain('past memory');
+    });
+
     it('fetches from all available sources and deduplicates with priority to CP', async () => {
         const mockRss = {
             fetchNews: vi.fn().mockResolvedValue([
