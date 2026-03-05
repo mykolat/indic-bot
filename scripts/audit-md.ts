@@ -243,7 +243,7 @@ try {
   auditData.regime.confidence = confidence;
 
   row('Detected Regime', regime);
-  row('Confidence', `${confidence}/2`);
+  row('Confidence', `${confidence.toFixed(1)}%`);
   row('Volume Req', `Must be > ${profile.volumeMin}x`);
   row('Confluence Req', `Must have >= ${profile.confluenceMin} factors`);
   row('Leverage Multiplier', `${profile.leverageMultiplier}x`);
@@ -428,7 +428,7 @@ ${auditData.metrics.lastCycles.length > 0
     : '- Немає даних'}
 
 ## 🦈 Ринковий Режим (Shark Mode)
-- **Визначений:** ${auditData.regime.name} (Впевненість: ${auditData.regime.confidence}/2)
+- **Визначений:** ${auditData.regime.name} (Впевненість: ${auditData.regime.confidence.toFixed(1)}%)
 - **Сентимент:** ${auditData.news.sentiment}
 - **Монетарна політика:** ${auditData.news.fedStance}
 - **Апетит до ризику:** ${auditData.news.riskAppetite}

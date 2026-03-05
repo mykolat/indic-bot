@@ -169,7 +169,7 @@ try {
   const profile = getFilterProfile(regime);
 
   row('Detected Regime', regime);
-  row('Confidence', `${confidence}/2`);
+  row('Confidence', `${confidence.toFixed(1)}%`);
   row('Volume Req', `Must be > ${profile.volumeMin}x`);
   row('Confluence Req', `Must have >= ${profile.confluenceMin} factors`);
   row('Leverage Multiplier', `${profile.leverageMultiplier}x`);
