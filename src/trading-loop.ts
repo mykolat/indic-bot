@@ -95,7 +95,7 @@ export class TradingLoop {
     if (this.staticSoulCache) return this.staticSoulCache;
 
     if (this.deps.getSoulContent) {
-      this.staticSoulCache = this.deps.getSoulContent();
+      this.staticSoulCache = this.deps.getSoulContent() ?? null;
       if (this.staticSoulCache) return this.staticSoulCache;
     }
 
