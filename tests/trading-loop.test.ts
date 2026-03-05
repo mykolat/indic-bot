@@ -100,6 +100,7 @@ describe('TradingLoop', () => {
       newsCache: {
         shouldRefresh: vi.fn().mockReturnValue(false),
         getAnalysis: vi.fn().mockReturnValue(null),
+        load: vi.fn().mockReturnValue(null),
         save: vi.fn(),
         appendHistory: vi.fn(),
         getRecentItems: vi.fn().mockReturnValue([]),
@@ -612,5 +613,40 @@ describe('TradingLoop', () => {
     expect(mockEpisodicAgent.getRelevantContext).toHaveBeenCalled();
     const callArg = mockLlm.analyze.mock.calls[0][0];
     expect(callArg.ragContext).toBe('Past Episode: Chop. PNL -2%');
+  });
+
+  it('closes all positions on PANIC from FlashCrashScanner', async () => {
+    mockMarketData.getPortfolioState.mockResolvedValue({
+      balanceUsd: 1000, sessionPnl: 0, drawdownPct: 0,
+      positions: [
+        { pair: 'BTCUSDT', side: 'LONG', sizeUsd: 500, leverage: 5, entryPrice: 70000, unrealizedPnlPct: -2, heldHours: 1 },
+      ],
+    });
+    mockOrders.close.mockResolvedValue({ success: true });
+
+    const loopWithScanner = new TradingLoop({
+      pairs: ['BTCUSDT'],
+      marketData: mockMarketData,
+      llm: mockLlm,
+      orders: mockOrders,
+      riskManager: mockRisk,
+      signalBuffer: mockSignalBuffer,
+      logger: mockLogger,
+      memory: mockSessionMemory,
+      newsCache: loop['deps'].newsCache,
+      newsAnalyst: loop['deps'].newsAnalyst,
+      newsConfig: { refreshIntervalH: 12, maxItems: 100 },
+      churnCooldownMs: 900000,
+      tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
+      flashCrashScanner: { scan: vi.fn().mockResolvedValue('PANIC') } as any,
+    });
+
+    await loopWithScanner.runOnce();
+
+    expect(mockOrders.close).toHaveBeenCalledWith('BTCUSDT', 'LONG');
+    expect(mockLogger.logTrade).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'EMERGENCY_CLOSE' }),
+    );
+    expect(mockLlm.analyze).not.toHaveBeenCalled();
   });
 });

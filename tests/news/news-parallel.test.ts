@@ -25,7 +25,7 @@ describe('TradingLoop News Parallel Fetch', () => {
                     positions: []
                 }),
             },
-            llm: { analyze: vi.fn().mockResolvedValue([]) },
+            llm: { analyze: vi.fn().mockResolvedValue([]), call: vi.fn().mockResolvedValue('{}') },
             orders: { execute: vi.fn() },
             riskManager: { validate: vi.fn().mockReturnValue({ approved: true }) },
             signalBuffer: { drain: vi.fn().mockReturnValue([]) },
@@ -34,6 +34,7 @@ describe('TradingLoop News Parallel Fetch', () => {
                 shouldRefresh: vi.fn().mockReturnValue(true),
                 save: vi.fn(),
                 getAnalysis: vi.fn().mockReturnValue({}),
+                load: vi.fn().mockReturnValue(null),
                 appendHistory: vi.fn(),
                 getRecentItems: vi.fn().mockReturnValue([]),
             },
@@ -63,6 +64,7 @@ describe('TradingLoop News Parallel Fetch', () => {
 
         // Set cache to return something
         mockDeps.newsCache.getAnalysis.mockReturnValue({ some: 'data' });
+        mockDeps.newsCache.load.mockReturnValue({ analysis: { some: 'data' }, analyzedAt: new Date().toISOString() });
         mockDeps.memoryKeeper.read.mockReturnValue('past memory');
 
         const loop = new TradingLoop({

@@ -125,6 +125,7 @@ export interface EnrichedPromptData {
   sessionNotes?: string;
   recentTrades?: TradeRecord[];
   newsAnalysis?: import('../news/news-cache.js').NewsAnalysis;
+  newsAnalyzedAt?: string;
   recentNewsWithAge?: Array<CryptoNews & { age_hours: number }>;
   macroAnalysis?: MacroAnalysis;
   sessionPnlPct?: number;
@@ -367,22 +368,43 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   }
 
   // News section
+  const analysisAgeH = data.newsAnalyzedAt
+    ? Math.round((Date.now() - new Date(data.newsAnalyzedAt).getTime()) / 3_600_000)
+    : undefined;
+
+  const filterSignals = (signals: import('../news/news-cache.js').NewsSignal[]) => {
+    if (analysisAgeH === undefined) return signals;
+    return signals.filter(s => !s.expires_hours || analysisAgeH < s.expires_hours);
+  };
+
+  const formatSignal = (s: import('../news/news-cache.js').NewsSignal) => {
+    const coins = s.coins.join('/');
+    const ageStr = analysisAgeH !== undefined && s.expires_hours
+      ? ` | ${analysisAgeH}h/${s.expires_hours}h`
+      : '';
+    const conflict = s.conflicting ? ' ⚡conflicting' : '';
+    return `  [${s.importance}/10${ageStr}] ${coins} ${s.direction.toUpperCase()} (${s.timeframe}) — ${s.catalyst}${conflict}\n`;
+  };
+
   if (data.recentNewsWithAge && data.recentNewsWithAge.length > 0) {
-    prompt += '## News (last 48h)\n';
     if (data.newsAnalysis) {
       const na = data.newsAnalysis;
+      const activeSignals = filterSignals(na.top_signals);
+      const ageLabel = analysisAgeH !== undefined ? ` (analyzed ${analysisAgeH}h ago, ${activeSignals.length}/${na.top_signals.length} signals active)` : '';
+      prompt += `## News${ageLabel}\n`;
       prompt += `Sentiment: ${na.overall_sentiment} | fed=${na.macro_signals.fed_stance}, risk=${na.macro_signals.risk_appetite}\n`;
       prompt += `Summary: ${na.market_summary}\n`;
-      if (na.top_signals.length > 0) {
+      if (activeSignals.length > 0) {
         prompt += 'Key signals:\n';
-        for (const s of na.top_signals.sort((a, b) => b.importance - a.importance).slice(0, 10)) {
-          const coins = s.coins.join('/');
-          prompt += `  [${s.importance}/10] ${coins} ${s.direction.toUpperCase()} (${s.timeframe}) — ${s.catalyst}\n`;
+        for (const s of activeSignals.sort((a, b) => b.importance - a.importance).slice(0, 10)) {
+          prompt += formatSignal(s);
         }
       }
       if (na.risk_events.length > 0) {
         prompt += `Risk: ${na.risk_events.slice(0, 3).join(' | ')}\n`;
       }
+    } else {
+      prompt += '## News (last 48h)\n';
     }
     prompt += '\nHeadlines:\n';
     for (const n of data.recentNewsWithAge.slice(0, 30)) {
@@ -394,14 +416,15 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += '\n';
   } else if (data.newsAnalysis) {
     const na = data.newsAnalysis;
-    prompt += '## News Analysis\n';
+    const activeSignals = filterSignals(na.top_signals);
+    const ageLabel = analysisAgeH !== undefined ? ` (analyzed ${analysisAgeH}h ago, ${activeSignals.length}/${na.top_signals.length} active)` : '';
+    prompt += `## News Analysis${ageLabel}\n`;
     prompt += `Sentiment: ${na.overall_sentiment} | fed=${na.macro_signals.fed_stance}, risk=${na.macro_signals.risk_appetite}\n`;
     prompt += `Summary: ${na.market_summary}\n`;
-    if (na.top_signals.length > 0) {
+    if (activeSignals.length > 0) {
       prompt += 'Signals:\n';
-      for (const s of na.top_signals.sort((a, b) => b.importance - a.importance).slice(0, 8)) {
-        const coins = s.coins.join('/');
-        prompt += `  [${s.importance}/10] ${coins} ${s.direction.toUpperCase()} (${s.timeframe}) — ${s.catalyst}${s.conflicting ? ' ⚡conflicting' : ''}\n`;
+      for (const s of activeSignals.sort((a, b) => b.importance - a.importance).slice(0, 8)) {
+        prompt += formatSignal(s);
       }
     }
     if (na.risk_events.length > 0) {

@@ -128,9 +128,22 @@ export class TradingLoop {
     if (this.deps.flashCrashScanner) {
       const panicStatus = await this.deps.flashCrashScanner.scan();
       if (panicStatus === 'PANIC') {
-        console.warn('[Loop] FlashCrashScanner detected PANIC on X! Aborting cycle & entering safety mode.');
-        logger.logError('FLASH_CRASH_DETECTED', 'Scanner detected panic sentiment. Aborting trading cycle.');
-        return undefined; // Or maybe close positions? For now abort.
+        console.warn('[Loop] FlashCrashScanner detected PANIC! Emergency closing all positions.');
+        logger.logError('FLASH_CRASH_DETECTED', 'Scanner detected panic sentiment — emergency close triggered.');
+
+        try {
+          const portfolio = await marketData.getPortfolioState();
+          for (const pos of portfolio.positions) {
+            const result = await orders.close(pos.pair, pos.side);
+            if (result.success) {
+              logger.logTrade({ type: 'EMERGENCY_CLOSE', pair: pos.pair, reason: 'flash_crash_panic' });
+              this.lastClosedAt.set(pos.pair, Date.now());
+            }
+          }
+        } catch (err: any) {
+          logger.logError('FLASH_CRASH_CLOSE_FAILED', err.message ?? 'unknown');
+        }
+        return undefined;
       }
     }
 
@@ -342,7 +355,9 @@ export class TradingLoop {
       if (this.deps.sourceHealth && this.cycleCount % 10 === 0) {
         console.log('[SourceHealth]\n' + this.deps.sourceHealth.getSummary());
       }
-      const newsAnalysis = this.deps.newsCache.getAnalysis() ?? undefined;
+      const newsCacheState = this.deps.newsCache.load();
+      const newsAnalysis = newsCacheState?.analysis ?? undefined;
+      const newsAnalyzedAt = newsCacheState?.analyzedAt ?? undefined;
       const fearGreed = await fetchFearGreed();
 
       // Macro refresh (every 3h)
@@ -449,6 +464,7 @@ export class TradingLoop {
         sessionNotes: memState.session_notes || undefined,
         recentTrades: memState.recent_trades.slice(0, 5),
         newsAnalysis,
+        newsAnalyzedAt,
         recentNewsWithAge,
         macroAnalysis: this.lastMacroAnalysis,
         sessionPnlPct,
