@@ -338,6 +338,24 @@ export class TradingLoop {
       const lossPct = Math.abs(Math.min(sessionPnlPct, 0));
       const riskStatus = lossPct >= 10 ? 'critical' : lossPct >= 5 ? 'reduced' : 'normal';
       const soulContent = this.deps.soulKeeper?.read() ?? this.deps.getSoulContent?.();
+      // Pre-flight check: calculate soft filter warnings instead of skipping
+      let filterWarning: string | undefined = undefined;
+      const btcInd = indicators.get(btcSnap?.pair ?? '');
+
+      if (activeProfile && btcInd && portfolio.positions.length === 0) {
+        // Calculate confluence roughly
+        let confluence = 0;
+        if (btcInd.trend === 'bullish' || btcInd.trend === 'bearish') confluence++;
+        if (btcInd.volumeRatio > 1) confluence++;
+        if (btcInd.vwap && (parseFloat(btcSnap.markPrice) > btcInd.vwap === (btcInd.trend === 'bullish'))) confluence++;
+
+        if (btcInd.volumeRatio < activeProfile.volumeMin) {
+          filterWarning = `Volume ${btcInd.volumeRatio.toFixed(2)}x < ${activeProfile.volumeMin}x required for ${marketRegime}`;
+        } else if (confluence < activeProfile.confluenceMin) {
+          filterWarning = `Confluence ${confluence} < ${activeProfile.confluenceMin} required for ${marketRegime}`;
+        }
+      }
+
       const promptData = {
         snapshots,
         indicators,
@@ -357,61 +375,39 @@ export class TradingLoop {
         soulContent,
         regime: marketRegime,
         layer1Reports, // NEW INJECTION
+        filterWarning,
       };
-
-      // Pre-flight check: if we miss the active profile volume/confluence, skip LLM to save tokens
-      let skipLlm = false;
-      let skippedReason = '';
-      const btcInd = indicators.get(btcSnap?.pair ?? '');
-
-      if (activeProfile && btcInd && portfolio.positions.length === 0) {
-        // Calculate confluence roughly
-        let confluence = 0;
-        if (btcInd.trend === 'bullish' || btcInd.trend === 'bearish') confluence++;
-        if (btcInd.volumeRatio > 1) confluence++;
-        if (btcInd.vwap && (parseFloat(btcSnap.markPrice) > btcInd.vwap === (btcInd.trend === 'bullish'))) confluence++;
-
-        if (btcInd.volumeRatio < activeProfile.volumeMin) {
-          skipLlm = true;
-          skippedReason = `Volume ${btcInd.volumeRatio.toFixed(2)}x < ${activeProfile.volumeMin}x required for ${marketRegime}`;
-        } else if (confluence < activeProfile.confluenceMin) {
-          skipLlm = true;
-          skippedReason = `Confluence ${confluence} < ${activeProfile.confluenceMin} required for ${marketRegime}`;
-        }
-      }
 
       let decisions: TradeDecision[] = [];
       let currentLayer: 1 | 2 | 3 = 1;
 
-      if (skipLlm) {
-        console.log(`[Loop] Pre-flight filter: Skipping LLM analysis — ${skippedReason}`);
-        logger.logError('LLM_SKIPPED_PREFLIGHT', skippedReason);
-        decisions = [];
-      } else {
-        try {
-          decisions = await llm.analyze(promptData);
-        } catch (llmErr: any) {
-          console.error('[Loop] Layer 1 (Codex API) failed:', llmErr?.message);
-          logger.logError('LLM_LAYER1_FAILED', llmErr?.message ?? 'unknown');
+      try {
+        if (filterWarning) {
+          console.log(`[Loop] Pre-flight warning: ${filterWarning} (Passing to LLM as Soft Filter)`);
+          logger.logError('LLM_PREFLIGHT_WARNING', filterWarning);
+        }
+        decisions = await llm.analyze(promptData);
+      } catch (llmErr: any) {
+        console.error('[Loop] Layer 1 (Codex API) failed:', llmErr?.message);
+        logger.logError('LLM_LAYER1_FAILED', llmErr?.message ?? 'unknown');
 
-          if (this.deps.fallbackLlm) {
-            try {
-              decisions = await this.deps.fallbackLlm.analyze(
-                portfolio.positions,
-                sessionPnlPct,
-                soulContent,
-              );
-              currentLayer = 2;
-              console.log('[Loop] Layer 2 (Fallback LLM) active — HOLD/CLOSE only');
-            } catch (fallbackErr: any) {
-              console.error('[Loop] Layer 2 (Fallback LLM) failed:', fallbackErr?.message);
-              logger.logError('LLM_LAYER2_FAILED', fallbackErr?.message ?? 'unknown');
-              currentLayer = 3;
-            }
-          } else {
+        if (this.deps.fallbackLlm) {
+          try {
+            decisions = await this.deps.fallbackLlm.analyze(
+              portfolio.positions,
+              sessionPnlPct,
+              soulContent,
+            );
+            currentLayer = 2;
+            console.log('[Loop] Layer 2 (Fallback LLM) active — HOLD/CLOSE only');
+          } catch (fallbackErr: any) {
+            console.error('[Loop] Layer 2 (Fallback LLM) failed:', fallbackErr?.message);
+            logger.logError('LLM_LAYER2_FAILED', fallbackErr?.message ?? 'unknown');
             currentLayer = 3;
-            console.log('[Loop] Layer 3 (rule-based) — no fallback LLM configured');
           }
+        } else {
+          currentLayer = 3;
+          console.log('[Loop] Layer 3 (rule-based) — no fallback LLM configured');
         }
       }
 
@@ -482,7 +478,7 @@ export class TradingLoop {
             },
             action: decision.action,
             reasoning: decision.reasoning,
-            confidence: decision.confidence,
+            confidence: decision.confidence ?? 50,
             riskValidation: 'PENDING',
             indicatorsSnapshot: {
               rsi: indicators.get(decision.pair)?.rsi ?? 0,
