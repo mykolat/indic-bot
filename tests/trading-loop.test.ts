@@ -667,7 +667,7 @@ describe('TradingLoop', () => {
       newsConfig: { refreshIntervalH: 12, maxItems: 100 },
       churnCooldownMs: 900000,
       tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
-      flashCrashScanner: { scan: vi.fn().mockResolvedValue('PANIC') } as any,
+      flashCrashScanner: { scan: vi.fn().mockResolvedValue({ verdict: 'PANIC', grokSays: 'PANIC', reason: 'test' }) } as any,
     });
 
     await loopWithScanner.runOnce();

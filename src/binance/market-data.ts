@@ -215,6 +215,11 @@ export class MarketDataFetcher {
     };
   }
 
+  async getRecentCandles(pair: string, interval: string = '1m', limit: number = 5): Promise<CandleData[]> {
+    const raw = await this.client.getKlines({ symbol: pair, interval, limit });
+    return this.parseCandles(raw);
+  }
+
   private parseCandles(raw: any[]): CandleData[] {
     return raw.map((c: any) => ({
       openTime: c[0],

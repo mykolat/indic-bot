@@ -36,12 +36,12 @@ const makeStructuredResponse = (persona: string, position: string, prob: number)
 const consensusResponse = `{"decisions": [{"pair": "BTCUSDT", "action": "HOLD", "confidence": 70, "reasoning": "mixed"}], "next_check_minutes": 15}`;
 
 describe('SwarmAgent', () => {
-  it('runs 5 experts + 5 critiques + 1 judge = 11 LLM calls (no Grok, no revise)', async () => {
+  it('runs 3 experts + 0 critiques (all HOLD) + 1 judge = 4 LLM calls', async () => {
     let callCount = 0;
     const mockRawCall = vi.fn().mockImplementation(() => {
       callCount++;
-      if (callCount <= 5) {
-        const personas = ['risk_manager', 'bull_thesis', 'bear_thesis', 'market_structure', 'devils_advocate'];
+      if (callCount <= 3) {
+        const personas = ['risk_manager', 'market_structure', 'devils_advocate'];
         return Promise.resolve(makeStructuredResponse(personas[callCount - 1], 'HOLD', 60));
       }
       return Promise.resolve(consensusResponse);
@@ -56,18 +56,18 @@ describe('SwarmAgent', () => {
     const agent = new SwarmAgent(mockLlm);
     const decisions = await agent.getConsensus(makeMinimalPromptData());
 
-    // 5 experts + 5 critiques + 1 judge = 11
-    expect(mockRawCall).toHaveBeenCalledTimes(11);
+    // 3 experts + 0 critiques (all HOLD skip) + 1 judge = 4
+    expect(mockRawCall).toHaveBeenCalledTimes(4);
     expect(decisions).toHaveLength(1);
     expect(decisions[0].action).toBe('HOLD');
   });
 
-  it('with Grok: 5 Codex experts + 1 Grok + 6 critiques + 1 judge', async () => {
+  it('with Grok: 3 Codex + 1 Grok + 0 critiques (all HOLD) + 1 judge = 5 total', async () => {
     let codexCallCount = 0;
     const mockCodex = {
       call: vi.fn().mockImplementation(() => {
         codexCallCount++;
-        if (codexCallCount <= 5) {
+        if (codexCallCount <= 3) {
           return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 55));
         }
         return Promise.resolve(consensusResponse);
@@ -81,8 +81,8 @@ describe('SwarmAgent', () => {
     const agent = new SwarmAgent(mockCodex, mockGrok);
     await agent.getConsensus(makeMinimalPromptData());
 
-    // 5 experts + 6 critiques (for all 6 personas) + 1 judge = 12
-    expect(mockCodex.call).toHaveBeenCalledTimes(12);
+    // 3 experts + 0 critiques (all HOLD) + 1 judge = 4 codex calls
+    expect(mockCodex.call).toHaveBeenCalledTimes(4);
     expect(mockGrok.call).toHaveBeenCalledTimes(1);
   });
 
@@ -91,7 +91,7 @@ describe('SwarmAgent', () => {
     const mockLlm = {
       call: vi.fn().mockImplementation(() => {
         callCount++;
-        if (callCount <= 5) {
+        if (callCount <= 3) {
           return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60));
         }
         return Promise.reject(new Error('API timeout'));
@@ -105,14 +105,17 @@ describe('SwarmAgent', () => {
     expect(decisions).toEqual([]);
   });
 
-  it('runs revise stage (3-stage) when high-stakes detected', async () => {
+  it('runs revise stage when high-stakes (2 HOLD + 1 LONG = critique not skipped)', async () => {
     let callCount = 0;
     const mockLlm = {
       call: vi.fn().mockImplementation(() => {
         callCount++;
-        if (callCount <= 5) {
-          const personas = ['risk_manager', 'bull_thesis', 'bear_thesis', 'market_structure', 'devils_advocate'];
+        if (callCount <= 2) {
+          const personas = ['risk_manager', 'market_structure'];
           return Promise.resolve(makeStructuredResponse(personas[callCount - 1], 'HOLD', 60));
+        }
+        if (callCount === 3) {
+          return Promise.resolve(makeStructuredResponse('devils_advocate', 'LONG', 70));
         }
         return Promise.resolve(consensusResponse);
       }),
@@ -122,9 +125,52 @@ describe('SwarmAgent', () => {
     const agent = new SwarmAgent(mockLlm);
     const decisions = await agent.getConsensus(makeHighStakesPromptData());
 
-    // 5 experts + 5 critiques + 5 revises + 1 judge = 16
-    expect(mockLlm.call).toHaveBeenCalledTimes(16);
+    // 3 experts + 3 critiques + 3 revises + 1 judge = 10
+    expect(mockLlm.call).toHaveBeenCalledTimes(10);
     expect(decisions).toHaveLength(1);
+  });
+
+  it('skips critique when all experts vote HOLD', async () => {
+    let callCount = 0;
+    const mockLlm = {
+      call: vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount <= 3) {
+          return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60));
+        }
+        return Promise.resolve(consensusResponse);
+      }),
+      lastNextCheckMinutes: undefined,
+    } as any;
+
+    const agent = new SwarmAgent(mockLlm);
+    await agent.getConsensus(makeMinimalPromptData());
+
+    // 3 experts + 0 critiques + 1 judge = 4
+    expect(mockLlm.call).toHaveBeenCalledTimes(4);
+  });
+
+  it('runs critique when experts disagree', async () => {
+    let callCount = 0;
+    const mockLlm = {
+      call: vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount <= 2) {
+          return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60));
+        }
+        if (callCount === 3) {
+          return Promise.resolve(makeStructuredResponse('devils_advocate', 'LONG', 70));
+        }
+        return Promise.resolve(consensusResponse);
+      }),
+      lastNextCheckMinutes: undefined,
+    } as any;
+
+    const agent = new SwarmAgent(mockLlm);
+    await agent.getConsensus(makeMinimalPromptData());
+
+    // 3 experts + 3 critiques + 1 judge = 7
+    expect(mockLlm.call).toHaveBeenCalledTimes(7);
   });
 
   it('judge prompt contains structured expert data with probability_of_success and persona names', () => {
@@ -205,7 +251,7 @@ describe('SwarmAgent', () => {
     const mockLlm = {
       call: vi.fn().mockImplementation(() => {
         callCount++;
-        if (callCount <= 5) return Promise.resolve(makeStructuredResponse('test', 'HOLD', 50));
+        if (callCount <= 3) return Promise.resolve(makeStructuredResponse('test', 'HOLD', 50));
         return Promise.resolve(consensusResponse);
       }),
       lastNextCheckMinutes: undefined,
@@ -229,7 +275,7 @@ describe('SwarmAgent', () => {
     const mockLlm = {
       call: vi.fn().mockImplementation(() => {
         callCount++;
-        if (callCount <= 5) return Promise.resolve(makeStructuredResponse('test', 'HOLD', 50));
+        if (callCount <= 3) return Promise.resolve(makeStructuredResponse('test', 'HOLD', 50));
         return Promise.resolve(consensusResponse);
       }),
       lastNextCheckMinutes: undefined,

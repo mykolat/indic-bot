@@ -176,8 +176,14 @@ export class TradingLoop {
     }
 
     if (this.deps.flashCrashScanner) {
-      const panicStatus = await this.deps.flashCrashScanner.scan();
-      if (panicStatus === 'PANIC') {
+      const flashResult = await this.deps.flashCrashScanner.scan(
+        this.deps.marketData as any,
+        this.deps.pairs,
+      );
+      if (flashResult.verdict === 'UNCONFIRMED') {
+        console.warn(`[FlashCrash] UNCONFIRMED: ${flashResult.reason}`);
+      }
+      if (flashResult.verdict === 'PANIC') {
         console.warn('[Loop] FlashCrashScanner detected PANIC! Emergency closing all positions.');
         logger.logError('FLASH_CRASH_DETECTED', 'Scanner detected panic sentiment — emergency close triggered.');
 

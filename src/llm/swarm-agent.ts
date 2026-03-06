@@ -187,12 +187,10 @@ export class SwarmAgent {
   async getConsensus(data: EnrichedPromptData): Promise<TradeDecision[]> {
     const userPrompt = buildUserPrompt(data);
 
-    console.log('[Swarm] Multi-Agent Debate: RiskMgr, Bull, Bear, MarketStructure, Devil + Judge');
+    console.log('[Swarm] Multi-Agent Debate: RiskMgr, MarketStructure, Devil + Judge');
 
     const personas: SwarmPersona[] = [
       'risk_manager',
-      'bull_thesis',
-      'bear_thesis',
       'market_structure',
       'devils_advocate',
     ];
@@ -250,7 +248,10 @@ export class SwarmAgent {
     const expertSummaries = validExperts.map(toExpertSummary);
     let critiqueOutputs: (CritiqueOutput | null)[] | undefined;
 
-    if (validExperts.length >= 2) {
+    // Skip critique if all experts unanimously vote HOLD
+    const allHold = validExperts.length > 0 && validExperts.every(eo => eo.position === 'HOLD');
+
+    if (!allHold && validExperts.length >= 2) {
       console.log('[Swarm] Stage 2 (Critique): experts reviewing each other...');
       const critiqueCalls = personas.map((p, i) => {
         if (!expertOutputs[i]) return Promise.resolve('');
