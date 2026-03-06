@@ -19,7 +19,7 @@ describe('TokenLogger', () => {
   });
 
   it('appends a JSONL entry', () => {
-    logger.log({ method: 'analyze', tokensIn: 1000, tokensOut: 200, model: 'gpt-5.3-codex', cycle: 1 });
+    logger.log({ method: 'analyze', tokensIn: 1000, tokensOut: 200, model: 'gpt-5.4', cycle: 1 });
     const lines = readFileSync(LOG_FILE, 'utf-8').trim().split('\n');
     expect(lines).toHaveLength(1);
     const entry = JSON.parse(lines[0]);
@@ -30,8 +30,8 @@ describe('TokenLogger', () => {
   });
 
   it('appends multiple entries', () => {
-    logger.log({ method: 'call', label: 'news', tokensIn: 500, tokensOut: 100, model: 'gpt-5.3-codex', cycle: 1 });
-    logger.log({ method: 'call', label: 'macro', tokensIn: 400, tokensOut: 80, model: 'gpt-5.3-codex', cycle: 1 });
+    logger.log({ method: 'call', label: 'news', tokensIn: 500, tokensOut: 100, model: 'gpt-5.4', cycle: 1 });
+    logger.log({ method: 'call', label: 'macro', tokensIn: 400, tokensOut: 80, model: 'gpt-5.4', cycle: 1 });
     const lines = readFileSync(LOG_FILE, 'utf-8').trim().split('\n');
     expect(lines).toHaveLength(2);
   });

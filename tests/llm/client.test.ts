@@ -40,7 +40,7 @@ describe('LLMClient', () => {
   let llm: LLMClient;
 
   beforeEach(() => {
-    llm = new LLMClient(FAKE_TOKEN, 'gpt-5.3-codex');
+    llm = new LLMClient(FAKE_TOKEN, 'gpt-5.4');
   });
 
   afterEach(() => {
@@ -92,7 +92,7 @@ describe('LLMClient', () => {
     expect(url).toBe('https://chatgpt.com/backend-api/codex/responses');
 
     const body = JSON.parse(opts.body);
-    expect(body.model).toBe('gpt-5.3-codex');
+    expect(body.model).toBe('gpt-5.4');
     expect(body.instructions).toBeDefined();
     expect(body.input).toBeInstanceOf(Array);
     expect(body.input[0].content).toContain('BTCUSDT');

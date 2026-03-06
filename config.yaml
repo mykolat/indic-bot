@@ -18,7 +18,7 @@ trading:
   fearGreedLeverageCap: 10
 
 openai:
-  model: gpt-5.3-codex
+  model: gpt-5.4
   fallbackModel: gpt-4o-mini
 
 binance:
