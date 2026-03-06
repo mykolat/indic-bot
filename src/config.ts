@@ -86,7 +86,7 @@ export function loadConfig(): Config {
     database: {
       url: process.env.DATABASE_URL
         || (process.env.SUPABASE_PASS
-          ? `postgresql://postgres:${process.env.SUPABASE_PASS}@db.kyuyqfbjeopyysxeltxl.supabase.co:5432/postgres`
+          ? `postgresql://postgres.kyuyqfbjeopyysxeltxl:${process.env.SUPABASE_PASS}@aws-1-eu-central-1.pooler.supabase.com:6543/postgres`
           : undefined),
     },
     apifyToken: process.env.APIFY_API_TOKEN,
