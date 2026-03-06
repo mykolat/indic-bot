@@ -1,5 +1,14 @@
 import type { TradeDecision } from '../risk/manager.js';
 
+/** Convert a Binance step/tick size string (e.g. "0.0001") to decimal count (4). */
+export function computeDecimalsFromStep(stepStr: string): number {
+  const step = parseFloat(stepStr);
+  if (step >= 1) return 0;
+  // Count decimal places from the string to avoid float precision issues
+  const parts = stepStr.replace(/0+$/, '').split('.');
+  return parts.length > 1 ? parts[1].length : 0;
+}
+
 export interface OrderResult {
   success: boolean;
   orderId?: number;

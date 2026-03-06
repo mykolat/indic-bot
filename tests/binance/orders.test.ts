@@ -1,6 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OrderExecutor } from '../../src/binance/orders.js';
+import { OrderExecutor, computeDecimalsFromStep } from '../../src/binance/orders.js';
 import type { TradeDecision } from '../../src/risk/manager.js';
+
+describe('computeDecimalsFromStep', () => {
+  it('returns 0 for stepSize >= 1', () => {
+    expect(computeDecimalsFromStep('1')).toBe(0);
+    expect(computeDecimalsFromStep('10')).toBe(0);
+  });
+
+  it('returns correct decimals for fractional stepSize', () => {
+    expect(computeDecimalsFromStep('0.1')).toBe(1);      // BTCUSDT tickSize
+    expect(computeDecimalsFromStep('0.01')).toBe(2);     // ETHUSDT tickSize
+    expect(computeDecimalsFromStep('0.0001')).toBe(4);   // XRPUSDT tickSize
+    expect(computeDecimalsFromStep('0.00001')).toBe(5);  // DOGEUSDT tickSize
+    expect(computeDecimalsFromStep('0.001')).toBe(3);    // SOLUSDT stepSize
+  });
+
+  it('handles edge case of stepSize with trailing zeros', () => {
+    expect(computeDecimalsFromStep('0.00010')).toBe(4);  // trailing zero
+    expect(computeDecimalsFromStep('0.10000')).toBe(1);
+  });
+});
 
 describe('OrderExecutor', () => {
   let executor: OrderExecutor;
