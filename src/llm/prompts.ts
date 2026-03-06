@@ -137,6 +137,14 @@ export interface EnrichedPromptData {
   layer1Reports?: import('./agents.js').Layer1Outputs;
   filterWarning?: string;
   ragContext?: string;
+  positionContexts?: Array<{
+    pair: string;
+    sl_price: number;
+    tp_price: number;
+    entry_thesis: string;
+    fill_price: number;
+  }>;
+  watchdogSummary?: string;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -232,6 +240,10 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += `News Expert:\n${data.layer1Reports.newsReport}\n\n`;
     prompt += `Macro Expert:\n${data.layer1Reports.macroReport}\n\n`;
     prompt += `Memory Expert:\n${data.layer1Reports.memoryReport}\n\n`;
+  }
+
+  if (data.watchdogSummary) {
+    prompt += `## Watchdog Summary (since last Brain cycle)\n${data.watchdogSummary}\n\n`;
   }
 
   if (data.filterWarning) {
@@ -479,6 +491,24 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     for (const pos of data.portfolio.positions) {
       const pnlSign = pos.unrealizedPnlPct >= 0 ? '+' : '';
       prompt += `  ${pos.pair} ${pos.side} | entry $${pos.entryPrice.toFixed(2)} | held ${pos.heldHours.toFixed(1)}h | P&L: ${pnlSign}${pos.unrealizedPnlPct.toFixed(1)}% | ${pos.leverage}x leverage\n`;
+
+      // SL/TP context from DB
+      const ctx = data.positionContexts?.find(c => c.pair === pos.pair);
+      if (ctx) {
+        const slPrice = Number(ctx.sl_price);
+        const tpPrice = Number(ctx.tp_price);
+        const fillPrice = Number(ctx.fill_price);
+        if (fillPrice > 0) {
+          const slDist = ((Math.abs(fillPrice - slPrice) / fillPrice) * 100).toFixed(1);
+          const tpDist = ((Math.abs(tpPrice - fillPrice) / fillPrice) * 100).toFixed(1);
+          const slHit = pos.side === 'LONG'
+            ? parseFloat(data.snapshots.find(s => s.pair === pos.pair)?.markPrice || '0') <= slPrice
+            : parseFloat(data.snapshots.find(s => s.pair === pos.pair)?.markPrice || '0') >= slPrice;
+          prompt += `    SL: $${slPrice.toFixed(2)} (${slDist}% away) ${slHit ? 'HIT' : 'NOT hit'} | TP: $${tpPrice.toFixed(2)} (${tpDist}% away)\n`;
+          prompt += `    Entry thesis: ${ctx.entry_thesis}\n`;
+          prompt += `    >>> DO NOT close this position unless SL is hit or thesis is invalidated <<<\n`;
+        }
+      }
     }
   } else {
     prompt += 'No open positions.\n';
@@ -509,48 +539,195 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   return prompt;
 }
 
-export type SwarmPersona = 'permabull' | 'permabear' | 'paranoid_risk_manager' | 'narrative_expert';
+export type SwarmPersona =
+  | 'risk_manager'
+  | 'bull_thesis'
+  | 'bear_thesis'
+  | 'market_structure'
+  | 'devils_advocate'
+  | 'narrative_expert';
 
-export function buildSwarmPersonaPrompt(persona: SwarmPersona, config?: Parameters<typeof buildSystemPrompt>[0]): string {
-  const basePrompt = buildSystemPrompt(config || {
-    targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5
-  });
+const EXPERT_OUTPUT_FORMAT = `
+You MUST respond with ONLY this JSON (no markdown, no explanation):
+{
+  "persona": "<your_persona_name>",
+  "pair": "<pair>",
+  "position": "LONG" | "SHORT" | "HOLD" | "CLOSE",
+  "thesis": "<1-2 sentence core argument>",
+  "arguments": ["<argument 1>", "<argument 2>", "<argument 3>"],
+  "probability_of_success": <0-100>,
+  "key_risks": ["<risk 1>", "<risk 2>"],
+  "confidence": <0-100>
+}
 
+For multiple pairs, return an array of these objects.
+Output ONLY valid JSON. No text before or after.`;
+
+export function buildExpertSystemPrompt(persona: SwarmPersona): string {
   let personaPrefix = '';
   switch (persona) {
-    case 'permabull':
-      personaPrefix = `>>> SWARM PERSONA: You are an ultra-aggressive PERMABULL. You look for any excuse to go LONG. You ignore bearish signals unless absolutely catastrophic. <<<\n\n`;
+    case 'risk_manager':
+      personaPrefix = `You are a PARANOID RISK MANAGER analyzing crypto futures positions on a LIVE account with real money.
+Your job is to find reasons NOT to trade.
+- Analyze liquidation risk, leverage danger, drawdown scenarios
+- Check if SL placement is adequate given current volatility
+- Evaluate position sizing relative to account and session P&L
+- If session has consecutive losses, argue for reduced exposure or HOLD
+- You would rather miss 10 winners than take 1 catastrophic loss`;
       break;
-    case 'permabear':
-      personaPrefix = `>>> SWARM PERSONA: You are an ultra-aggressive PERMABEAR. You look for any excuse to go SHORT. You ignore bullish signals unless absolutely undeniable. <<<\n\n`;
+
+    case 'bull_thesis':
+      personaPrefix = `You are a BULL THESIS ANALYST analyzing crypto futures on a LIVE account with real money.
+You argue the bullish case with conviction backed by evidence.
+- Momentum signals, trend strength, volume confirmation
+- Positive news catalysts, sentiment shifts
+- Technical breakout patterns, support levels holding
+- Macro tailwinds (risk-on, DXY weakness, liquidity)
+- Be specific: cite exact indicator values and price levels from the data`;
       break;
-    case 'paranoid_risk_manager':
-      personaPrefix = `>>> SWARM PERSONA: You are a PARANOID RISK MANAGER. Your only goal is capital preservation. You look for any excuse to HOLD or CLOSE. You only approve entries if the setup is mathematically flawless. <<<\n\n`;
+
+    case 'bear_thesis':
+      personaPrefix = `You are a BEAR THESIS ANALYST analyzing crypto futures on a LIVE account with real money.
+You argue the bearish case with conviction backed by evidence.
+- Overbought conditions, divergences, exhaustion signals
+- Negative news, regulatory risk, contagion
+- Technical resistance, failed breakouts, lower highs
+- Macro headwinds (risk-off, DXY strength, liquidity drain)
+- Be specific: cite exact indicator values and price levels from the data`;
       break;
+
+    case 'market_structure':
+      personaPrefix = `You are a MARKET STRUCTURE EXPERT analyzing crypto futures microstructure on a LIVE account with real money.
+You analyze the plumbing underneath price.
+- Funding rate: positive/negative, extreme? Who pays whom?
+- Open interest: rising with price (conviction) or falling (unwinding)?
+- Long/short ratio: crowded trade risk?
+- Order book imbalance: bid-heavy or ask-heavy?
+- Liquidity zones: where are the clusters of stops/liquidations?
+- Volume profile: is this move supported by real volume?`;
+      break;
+
+    case 'devils_advocate':
+      personaPrefix = `You are the DEVIL'S ADVOCATE (Adversarial) analyzing crypto futures on a LIVE account with real money.
+Your job is to ATTACK every position — bull AND bear.
+- Find blind spots, assumptions, and logical flaws in ALL arguments
+- Challenge consensus — if the data looks bullish, find the bear case. If bearish, find the bull case.
+- Ask: "What if the opposite happens? What are we missing?"
+- Point out: confirmation bias, recency bias, anchoring to entry price
+- You are NOT a defender of any position. You are the stress-tester.
+- Your goal: force the judge to consider scenarios others ignored`;
+      break;
+
     case 'narrative_expert':
-      personaPrefix = `>>> SWARM PERSONA: You are the Crowd Sentiment Expert with live X access. Provide narrative analysis. <<<\n\n`;
+      personaPrefix = `You are the CROWD SENTIMENT EXPERT with live X/Twitter access analyzing crypto futures on a LIVE account with real money.
+You analyze social narrative and crowd positioning.
+- What is the dominant narrative on crypto Twitter?
+- Is the crowd positioned one way? (contrarian signal)
+- Any viral threads, influencer calls, or panic?
+- Sentiment vs price divergence?`;
       break;
   }
 
-  return personaPrefix + basePrompt;
+  return `${personaPrefix}\n\n${EXPERT_OUTPUT_FORMAT}`;
 }
 
-export function buildConsensusPrompt(expertDecisions: string[], config?: Parameters<typeof buildSystemPrompt>[0]): string {
-  const basePrompt = buildSystemPrompt(config || {
-    targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5
-  });
+const CRITIQUE_OUTPUT_FORMAT = `
+You MUST respond with ONLY this JSON (no markdown, no explanation):
+{
+  "persona": "<your_persona_name>",
+  "critiques": [
+    {
+      "target_persona": "<persona you are critiquing>",
+      "agrees": true | false,
+      "critique": "<specific flaw or agreement point>",
+      "counter_argument": "<if disagrees, your counter>"
+    }
+  ],
+  "updated_probability": <0-100>,
+  "updated_position": "LONG" | "SHORT" | "HOLD" | "CLOSE",
+  "strongest_risk_found": "<the most important risk across all experts>"
+}
 
-  // We replace the persona intro with the judge persona
-  const judgePrompt = basePrompt.replace(
-    /You are an aggressive crypto futures trader managing a LIVE account with real money\./,
-    `You are the SWARM CONSENSUS JUDGE managing a LIVE account with real money. You must objectively weigh the conflicting opinions of your sub-agents and make the final, most rational decision.`
-  );
+Output ONLY valid JSON. No text before or after.`;
 
-  let prompt = `${judgePrompt}\n\n## Sub-Agent Opinions for Current Cycle\n\n`;
-  expertDecisions.forEach((dec, i) => {
-    prompt += `### Expert ${i + 1}\n${dec}\n\n`;
-  });
+export interface ExpertSummary {
+  persona: string;
+  thesis: string;
+  position: string;
+  probability_of_success: number;
+  arguments: string[];
+  key_risks: string[];
+}
 
-  prompt += `Analyze the expert opinions. If they strongly disagree, lean towards HOLD. If two agree, lean towards their consensus if rationally justified.\n`;
-  return prompt;
+export function buildCritiquePrompt(
+  persona: SwarmPersona,
+  expertOutputs: ExpertSummary[],
+): string {
+  const otherExperts = expertOutputs
+    .filter(e => e.persona !== persona)
+    .map(e => `## ${e.persona.toUpperCase()}
+Position: ${e.position} (${e.probability_of_success}% probability)
+Thesis: ${e.thesis}
+Arguments: ${e.arguments.join('; ')}
+Risks: ${e.key_risks.join('; ')}`)
+    .join('\n\n');
+
+  return `You are ${persona.toUpperCase()} reviewing other experts' analyses for a LIVE crypto futures account.
+
+You already gave your opinion. Now critically evaluate the other experts:
+
+${otherExperts}
+
+Your tasks:
+1. Find logical flaws, missing data, or biases in each expert's argument
+2. Identify the strongest counter-argument to YOUR OWN position
+3. Update your probability based on what you learned
+4. State whether you changed your mind or held your position
+
+${CRITIQUE_OUTPUT_FORMAT}`;
+}
+
+const REVISE_OUTPUT_FORMAT = `
+You MUST respond with ONLY this JSON (no markdown, no explanation):
+{
+  "persona": "<your_persona_name>",
+  "original_position": "LONG" | "SHORT" | "HOLD" | "CLOSE",
+  "revised_position": "LONG" | "SHORT" | "HOLD" | "CLOSE",
+  "changed_mind": true | false,
+  "revised_thesis": "<updated 1-2 sentence argument>",
+  "revised_arguments": ["<arg 1>", "<arg 2>", "<arg 3>"],
+  "revised_probability": <0-100>,
+  "key_concessions": ["<what you conceded from critiques>"],
+  "final_confidence": <0-100>
+}
+
+Output ONLY valid JSON. No text before or after.`;
+
+export function buildRevisePrompt(
+  persona: SwarmPersona,
+  originalOutput: ExpertSummary & { confidence: number },
+  critiquesOfMe: Array<{ from: string; agrees: boolean; critique: string; counter_argument?: string }>,
+): string {
+  const critiqueText = critiquesOfMe
+    .map(c => `- ${c.from.toUpperCase()} ${c.agrees ? 'AGREES' : 'DISAGREES'}: ${c.critique}${c.counter_argument ? ` | Counter: ${c.counter_argument}` : ''}`)
+    .join('\n');
+
+  return `You are ${persona.toUpperCase()} revising your analysis for a LIVE crypto futures account.
+
+Your original analysis:
+Position: ${originalOutput.position} (${originalOutput.probability_of_success}% probability)
+Thesis: ${originalOutput.thesis}
+Arguments: ${originalOutput.arguments.join('; ')}
+Key risks: ${originalOutput.key_risks.join('; ')}
+
+Other experts' critiques of YOUR position:
+${critiqueText || 'No critiques received.'}
+
+Your tasks:
+1. Honestly evaluate the critiques — are they valid?
+2. If valid, update your thesis and probability
+3. If not valid, defend your position with NEW evidence
+4. State clearly if you changed your mind
+
+${REVISE_OUTPUT_FORMAT}`;
 }
