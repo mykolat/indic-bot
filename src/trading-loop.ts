@@ -26,7 +26,8 @@ import type { DecisionJournal, JournalEntry } from './logging/decision-journal.j
 import type { TradeStoryLogger } from './logging/trade-story.js';
 import type { CryptoNews } from './news/types.js';
 import type { SwarmAgent } from './llm/swarm-agent.js';
-import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getMarketSnapshotsSince, getRecentDecisions } from './db/repository.js';
+import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp } from './db/repository.js';
+import type { AdjustContext } from './risk/manager.js';
 import { buildWatchdogSummary } from './watchdog-summary.js';
 
 interface TradingLoopDeps {
@@ -525,6 +526,36 @@ export class TradingLoop {
       let decisions: TradeDecision[] = [];
       let currentLayer: 1 | 2 | 3 = 1;
 
+      // Insert cycle early so swarm/LLM get a cycleId for conversation tracking
+      let cycleId: number | undefined;
+      if (this.deps.sessionId) {
+        try {
+          cycleId = await insertCycle({
+            session_id: this.deps.sessionId,
+            cycle_number: this.cycleCount,
+            balance: portfolio.balanceUsd,
+            session_pnl: sessionPnl,
+            open_positions: portfolio.positions.map(p => ({ pair: p.pair, side: p.side, sizeUsd: p.sizeUsd, pnlPct: p.unrealizedPnlPct })),
+            volume_ratio: btcInd?.volumeRatio,
+            confluence_score: confluenceResult?.score,
+            confluence_factors: confluenceResult?.factors,
+            regime: marketRegime,
+            regime_confidence: regimeConfidence,
+            fear_greed_value: fearGreed?.value,
+            layer: currentLayer,
+            filter_warning: filterWarning,
+          });
+          logger.cycleId = cycleId ?? null;
+          if (cycleId) {
+            this.deps.llm.cycleId = cycleId;
+            if (this.deps.fallbackLlm) (this.deps.fallbackLlm as any).cycleId = cycleId;
+            if (this.deps.swarmAgent) (this.deps.swarmAgent as any).cycleId = cycleId;
+          }
+        } catch (err: any) {
+          console.error('[DB] Failed to insert cycle:', err.message);
+        }
+      }
+
       try {
         if (filterWarning) {
           console.log(`[Loop] Pre-flight warning: ${filterWarning} (Passing to LLM as Soft Filter)`);
@@ -613,37 +644,6 @@ export class TradingLoop {
       // Safety guard: in Layer 2/3, filter out any LONG/SHORT decisions
       if (currentLayer >= 2) {
         decisions = decisions.filter(d => d.action === 'HOLD' || d.action === 'CLOSE');
-      }
-
-      // Insert cycle into observability DB
-      let cycleId: number | undefined;
-      if (this.deps.sessionId) {
-        try {
-          cycleId = await insertCycle({
-            session_id: this.deps.sessionId,
-            cycle_number: this.cycleCount,
-            balance: portfolio.balanceUsd,
-            session_pnl: sessionPnl,
-            open_positions: portfolio.positions.map(p => ({ pair: p.pair, side: p.side, sizeUsd: p.sizeUsd, pnlPct: p.unrealizedPnlPct })),
-            volume_ratio: btcInd?.volumeRatio,
-            confluence_score: confluenceResult?.score,
-            confluence_factors: confluenceResult?.factors,
-            regime: marketRegime,
-            regime_confidence: regimeConfidence,
-            fear_greed_value: fearGreed?.value,
-            layer: currentLayer,
-            filter_warning: filterWarning,
-          });
-          logger.cycleId = cycleId ?? null;
-          // Pass cycleId to LLM clients for conversation tracking
-          if (cycleId) {
-            this.deps.llm.cycleId = cycleId;
-            if (this.deps.fallbackLlm) (this.deps.fallbackLlm as any).cycleId = cycleId;
-            if (this.deps.swarmAgent) (this.deps.swarmAgent as any).cycleId = cycleId;
-          }
-        } catch (err: any) {
-          console.error('[DB] Failed to insert cycle:', err.message);
-        }
       }
 
       // Save indicator snapshots to DB
@@ -784,7 +784,21 @@ export class TradingLoop {
           fearGreed,
           fearGreedLeverageCap: this.deps.tradingConfig.fearGreedLeverageCap,
         };
-        const validation = riskManager.validate(decision, portfolio, validationCtx);
+        // Build ADJUST context if needed
+        let adjustCtx: AdjustContext | undefined;
+        if (decision.action === 'ADJUST') {
+          const posCtx = positionContexts.find(c => c.pair === decision.pair);
+          const pos = portfolio.positions.find(p => p.pair === decision.pair);
+          if (posCtx && pos) {
+            adjustCtx = {
+              currentSlPrice: Number(posCtx.sl_price),
+              currentTpPrice: Number(posCtx.tp_price),
+              entryPrice: Number(posCtx.fill_price),
+              side: pos.side,
+            };
+          }
+        }
+        const validation = riskManager.validate(decision, portfolio, validationCtx, adjustCtx);
 
         // Save trade decision + risk validation to DB
         let decisionId: number | undefined;
@@ -891,6 +905,61 @@ export class TradingLoop {
             } else {
               logger.logError('ORDER_FAIL', result.error || 'Unknown error');
             }
+          }
+        } else if (decision.action === 'ADJUST') {
+          const pos = portfolio.positions.find(p => p.pair === decision.pair);
+          const posCtx = positionContexts.find(c => c.pair === decision.pair);
+          if (!pos || !posCtx) {
+            console.log(`[Adjust] No open position or context for ${decision.pair} — skipping`);
+            continue;
+          }
+
+          const entryPrice = Number(posCtx.fill_price);
+          const newSlPrice = pos.side === 'LONG'
+            ? entryPrice * (1 - decision.stop_loss_pct / 100)
+            : entryPrice * (1 + decision.stop_loss_pct / 100);
+          const newTpPrice = pos.side === 'LONG'
+            ? entryPrice * (1 + decision.take_profit_pct / 100)
+            : entryPrice * (1 - decision.take_profit_pct / 100);
+
+          const result = await orders.adjustSlTp({
+            pair: decision.pair,
+            side: pos.side,
+            newSlPrice,
+            newTpPrice,
+          });
+
+          if (result.success) {
+            const oldSl = Number(posCtx.sl_price);
+            const oldTp = Number(posCtx.tp_price);
+            console.log(`[Adjust] ${decision.pair}: SL $${oldSl.toFixed(4)}→$${newSlPrice.toFixed(4)}, TP $${oldTp.toFixed(4)}→$${newTpPrice.toFixed(4)}`);
+
+            // Update execution record so next cycle sees current SL/TP
+            if (posCtx.id) {
+              updateExecutionSlTp(posCtx.id, newSlPrice, newTpPrice).catch(() => {});
+            }
+
+            // Log adjustment to DB
+            if (cycleId) {
+              insertSlTpAdjustment({
+                cycle_id: cycleId,
+                execution_id: posCtx.id,
+                pair: decision.pair,
+                side: pos.side,
+                old_sl: oldSl,
+                new_sl: newSlPrice,
+                old_tp: oldTp,
+                new_tp: newTpPrice,
+                reasoning: decision.reasoning,
+              }).catch(() => {});
+            }
+
+            this.deps.memory.setLastOrderResult(
+              `${decision.pair} ADJUST — SL→$${newSlPrice.toFixed(4)}, TP→$${newTpPrice.toFixed(4)}: ${decision.reasoning}`
+            );
+          } else {
+            console.error(`[Adjust] Failed for ${decision.pair}: ${result.error}`);
+            logger.logError('ADJUST_FAIL', result.error || 'Unknown');
           }
         } else {
           const lastClose = this.lastClosedAt.get(decision.pair);
