@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from '../utils/fetch-timeout.js';
+import { insertMacroSnapshot } from '../db/repository.js';
 
 export interface MacroSnapshot {
   symbol: string;
@@ -53,7 +54,7 @@ export class MacroFetcher {
       if (!datasetRes.ok) throw new Error(`Failed to fetch macro dataset ${datasetId}`);
       const items = await datasetRes.json() as any[];
 
-      return items.map((item: any) => {
+      const snapshots = items.map((item: any) => {
         const sym = SYMBOLS.find(s => s.symbol === item.ticker || s.symbol === item.symbol);
         return {
           symbol: item.ticker ?? item.symbol,
@@ -65,6 +66,20 @@ export class MacroFetcher {
           dayLow: parseFloat(item.regularMarketDayLow ?? item.dayLow ?? 0),
         };
       });
+
+      // Save to DB
+      const wti = snapshots.find(s => s.symbol === 'CL=F');
+      const dxy = snapshots.find(s => s.symbol === 'DX-Y.NYB');
+      const sp500 = snapshots.find(s => s.symbol === '^GSPC');
+      const vix = snapshots.find(s => s.symbol === '^VIX');
+      const eurusd = snapshots.find(s => s.symbol === 'EURUSD=X');
+      const gold = snapshots.find(s => s.symbol === 'GC=F');
+      insertMacroSnapshot({
+        wti: wti?.price, dxy: dxy?.price, sp500: sp500?.price,
+        vix: vix?.price, eurusd: eurusd?.price, gold: gold?.price,
+      }).catch(() => {});
+
+      return snapshots;
     } catch (err) {
       console.error('[MacroFetcher] Error:', err);
       return [];

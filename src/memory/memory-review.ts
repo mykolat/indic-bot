@@ -1,5 +1,6 @@
 import type { LLMClient } from '../llm/client.js';
 import type { TradeRecord } from './session.js';
+import { insertMemoryReview } from '../db/repository.js';
 
 /**
  * Minimal interface for SoulKeeper methods used by SoulReviewAgent.
@@ -45,6 +46,7 @@ export class MemoryReviewAgent {
   private memoryKeeper: MemoryReviewMemoryKeeper;
   private lastReviewCycle = 0;
   private reviewIntervalCycles: number;
+  sessionId: string | undefined;
 
   constructor(deps: MemoryReviewDeps, reviewIntervalCycles = 20) {
     this.llm = deps.llm;
@@ -101,6 +103,22 @@ Update the four narrative sections.`;
       this.memoryKeeper.backupHistory();
 
       this.memoryKeeper.writeNarrativeSections(sections);
+
+      // Save review to DB
+      if (this.sessionId) {
+        const triggerReason = cycleCount - this.lastReviewCycle >= this.reviewIntervalCycles
+          ? 'periodic' : 'consecutive_losses_or_balance_change';
+        insertMemoryReview({
+          session_id: this.sessionId,
+          cycle_number: cycleCount,
+          trigger_reason: triggerReason,
+          review_text: JSON.stringify(sections),
+          actions_taken: Object.entries(sections).map(([section, content]) => ({
+            section, action: 'update', content,
+          })),
+        }).catch(() => {});
+      }
+
       this.lastReviewCycle = cycleCount;
       console.log('[MemoryReview] Narrative sections updated');
     } catch (err) {

@@ -6,6 +6,7 @@ import type { PortfolioState, TradeDecision } from '../risk/manager.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
 import { SYSTEM_PROMPT, buildUserPrompt, buildSystemPrompt, type EnrichedPromptData } from './prompts.js';
 import { TokenLogger } from './token-logger.js';
+import { insertLlmConversation } from '../db/repository.js';
 
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex/responses';
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
@@ -33,6 +34,8 @@ export class LLMClient {
     this.systemPrompt = promptConfig ? buildSystemPrompt(promptConfig) : SYSTEM_PROMPT;
   }
 
+  sessionId: string | undefined;
+  cycleId: number | undefined;
   lastNextCheckMinutes: number | undefined;
 
   async analyze(
@@ -114,6 +117,24 @@ export class LLMClient {
         } catch (retryErr) {
           console.error('[LLM] Retry failed:', retryErr);
         }
+      }
+
+      // Save conversation to DB (fire-and-forget)
+      if (this.sessionId) {
+        insertLlmConversation({
+          cycle_id: this.cycleId,
+          session_id: this.sessionId,
+          layer: 1,
+          model: this.model,
+          method: 'analyze',
+          system_prompt: this.systemPrompt,
+          user_prompt: userPrompt,
+          raw_response: content,
+          tokens_in: usageIn,
+          tokens_out: usageOut,
+          estimated,
+          parsed_ok: result !== null,
+        }).catch(() => {});
       }
 
       if (result) {
@@ -372,6 +393,24 @@ export class LLMClient {
     const callPromptLen = systemPrompt.length + userPrompt.length;
     const { content, usageIn, usageOut, estimated } = await this.streamSSE(response, callPromptLen);
     this.tokenLogger.log({ method: 'call', tokensIn: usageIn, tokensOut: usageOut, model: this.model, estimated });
+
+    // Save to DB (fire-and-forget)
+    if (this.sessionId) {
+      insertLlmConversation({
+        cycle_id: this.cycleId,
+        session_id: this.sessionId,
+        layer: 1,
+        model: this.model,
+        method: 'call',
+        system_prompt: systemPrompt,
+        user_prompt: userPrompt,
+        raw_response: content,
+        tokens_in: usageIn,
+        tokens_out: usageOut,
+        estimated,
+      }).catch(() => {});
+    }
+
     return content;
   }
 }

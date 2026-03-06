@@ -1,5 +1,6 @@
 import { mkdirSync, appendFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { insertTradeStory } from '../db/repository.js';
 
 export interface TradeStory {
   pair: string;
@@ -31,6 +32,19 @@ export class TradeStoryLogger {
         story: story.story, lesson: story.lesson,
       }) + '\n';
       appendFileSync(this.logFile, line, 'utf-8');
+
+      // Dual-write to DB
+      insertTradeStory({
+        pair: story.pair,
+        direction: story.direction,
+        entry_price: story.entryPrice,
+        exit_price: story.exitPrice,
+        pnl_pct: story.pnlPct,
+        regime_at_entry: story.regimeAtEntry,
+        regime_at_exit: story.regimeAtExit,
+        story: story.story,
+        lesson: story.lesson,
+      }).catch(() => {});
     } catch { /* Non-critical */ }
   }
 

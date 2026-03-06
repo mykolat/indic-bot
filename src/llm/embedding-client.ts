@@ -21,11 +21,16 @@ export class EmbeddingClient {
         }
 
         const data = await response.json();
+        if (!data?.data?.[0]?.embedding) {
+            throw new Error('Unexpected embedding API response: missing data.data[0].embedding');
+        }
         return data.data[0].embedding;
     }
 }
 
 export function cosineSimilarity(vecA: number[], vecB: number[]): number {
+    if (vecA.length === 0 || vecB.length === 0 || vecA.length !== vecB.length) return 0;
+
     let dotProduct = 0;
     let normA = 0;
     let normB = 0;

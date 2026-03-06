@@ -1,8 +1,10 @@
 import { appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { insertError } from '../db/repository.js';
 
 export class Logger {
   private dir: string;
+  cycleId: number | null = null;
 
   constructor(logDir: string = 'logs') {
     this.dir = logDir;
@@ -24,6 +26,9 @@ export class Logger {
   logError(code: string, message: string, details?: unknown): void {
     this.append('errors.jsonl', { code, message, details });
     console.error(`[ERROR] ${code}: ${message}`);
+    if (this.cycleId !== null) {
+      insertError({ cycle_id: this.cycleId, code, message, details: details as Record<string, unknown> }).catch(() => {});
+    }
   }
 
   logPerformance(entry: { balance: number; openPositions: number; sessionPnl: number; cycleCount: number; volumeRatio?: number; confluence?: number; confluenceFactors?: string[]; regime?: string }): void {

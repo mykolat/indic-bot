@@ -1,5 +1,6 @@
 import type { LLMClient } from '../llm/client.js';
 import type { MacroSnapshot } from './macro-fetcher.js';
+import { insertMacroAnalysis } from '../db/repository.js';
 
 export interface MacroAnalysis {
   macro_summary: string;
@@ -54,6 +55,14 @@ export class MacroAnalystAgent {
 
       const parsed = JSON.parse(match[0]) as MacroAnalysis;
       parsed.refreshed_at = new Date().toISOString();
+
+      // Save to DB
+      insertMacroAnalysis({
+        summary: parsed.macro_summary,
+        risk_level: parsed.risk_environment,
+        key_factors: { key_levels: parsed.key_levels, crypto_signal: parsed.crypto_correlation_signal },
+      }).catch(() => {});
+
       console.log(`[MacroAnalyst] ${parsed.risk_environment} / crypto: ${parsed.crypto_correlation_signal}`);
       return parsed;
     } catch (err) {

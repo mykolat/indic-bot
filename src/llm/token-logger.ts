@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
+import { insertTokenUsage } from '../db/repository.js';
 
 export interface TokenLogEntry {
   method: 'analyze' | 'call';
@@ -28,6 +29,16 @@ export class TokenLogger {
         estimated: entry.estimated || false,
       }) + '\n';
       appendFileSync(this.logFile, line, 'utf-8');
+
+      // Dual-write to DB
+      insertTokenUsage({
+        model: entry.model,
+        method: entry.method,
+        label: entry.label,
+        tokens_in: entry.tokensIn,
+        tokens_out: entry.tokensOut,
+        estimated: entry.estimated,
+      }).catch(() => {});
     } catch {
       // Non-critical — never crash the bot over logging
     }

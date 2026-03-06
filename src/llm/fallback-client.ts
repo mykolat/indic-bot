@@ -1,6 +1,7 @@
 import type { TradeDecision, Position } from '../risk/manager.js';
 import { fetchWithTimeout } from '../utils/fetch-timeout.js';
 import { extractExternalInsights } from '../utils/soul-utils.js';
+import { insertLlmConversation } from '../db/repository.js';
 
 const FALLBACK_API_URL = 'https://api.openai.com/v1/chat/completions';
 
@@ -10,6 +11,9 @@ Be conservative — when in doubt, HOLD and let the exchange SL/TP handle it.
 Respond ONLY with valid JSON, no explanation.`;
 
 export class FallbackLLMClient {
+  sessionId: string | undefined;
+  cycleId: number | undefined;
+
   /**
    * @param throwOnError - if true, throws on API error instead of returning [].
    *   Used so TradingLoop can detect that Layer 2 is also down and enter Layer 3.
@@ -80,6 +84,20 @@ export class FallbackLLMClient {
         return [];
       }
       if (!Array.isArray(parsed.decisions)) return [];
+
+      // Save Layer 2 conversation to DB
+      if (this.sessionId) {
+        insertLlmConversation({
+          cycle_id: this.cycleId,
+          session_id: this.sessionId,
+          layer: 2,
+          model: this.model,
+          method: 'fallback',
+          user_prompt: userPrompt,
+          raw_response: content,
+          parsed_ok: true,
+        }).catch(() => {});
+      }
 
       // Hard guard: ONLY HOLD and CLOSE allowed
       return (parsed.decisions as any[])

@@ -1,6 +1,7 @@
 import type { LLMClient } from '../llm/client.js';
 import type { CryptoNews } from './types.js';
 import type { NewsAnalysis } from './news-cache.js';
+import { insertNewsAnalysis } from '../db/repository.js';
 
 const ANALYST_SYSTEM_PROMPT = `You are a crypto news analyst. Given a list of headlines, return ONLY valid JSON (no markdown, no explanation).
 
@@ -69,6 +70,18 @@ export class NewsAnalystAgent {
       if (!jsonMatch) return FALLBACK;
 
       const parsed = JSON.parse(jsonMatch[0]) as NewsAnalysis;
+
+      // Save analysis to DB
+      insertNewsAnalysis({
+        overall_sentiment: parsed.overall_sentiment,
+        fed_stance: parsed.macro_signals?.fed_stance,
+        risk_appetite: parsed.macro_signals?.risk_appetite,
+        dominance_trend: parsed.macro_signals?.dominance_trend,
+        signals: parsed.top_signals,
+        risk_events: parsed.risk_events,
+        article_count: items.length,
+      }).catch(() => {});
+
       console.log(`[NewsAnalyst] Done — ${parsed.top_signals?.length ?? 0} signals, sentiment: ${parsed.overall_sentiment}`);
       return parsed;
     } catch (err) {

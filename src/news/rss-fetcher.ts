@@ -2,6 +2,7 @@ import { XMLParser } from 'fast-xml-parser';
 import type { CryptoNews } from './types.js';
 import type { NewsFetcher } from './news-fetcher.js';
 import { fetchWithTimeout } from '../utils/fetch-timeout.js';
+import { insertNewsArticles } from '../db/repository.js';
 
 export interface RssFeedSource {
   name: string;
@@ -39,7 +40,17 @@ export class RssNewsFetcher implements NewsFetcher {
       return db - da;
     });
 
-    return allItems.slice(0, limit);
+    // Dual-write to DB
+    const result = allItems.slice(0, limit);
+    insertNewsArticles(result.map(a => ({
+      title: a.title,
+      source: a.source || 'rss',
+      coins: a.coins,
+      sentiment: a.sentiment,
+      published_at: a.date || undefined,
+    }))).catch(() => {});
+
+    return result;
   }
 
   private async fetchFeed(feed: RssFeedSource): Promise<CryptoNews[]> {

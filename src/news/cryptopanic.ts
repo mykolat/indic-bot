@@ -1,6 +1,7 @@
 import type { CryptoNews } from './types.js';
 import type { NewsFetcher } from './news-fetcher.js';
 import { fetchWithTimeout } from '../utils/fetch-timeout.js';
+import { insertNewsArticles } from '../db/repository.js';
 
 // Apify REST API requires '~' instead of '/' in actor IDs
 const ACTOR_ID = 'piotrv1001~cryptopanic-news-scraper';
@@ -39,13 +40,24 @@ export class CryptoPanicClient implements NewsFetcher {
       }
       const items = (await datasetRes.json()) as any[];
 
-      return items.slice(0, limit).map((item) => ({
+      const articles = items.slice(0, limit).map((item) => ({
         title: item.title || '',
         date: item.date || '',
         coins: Array.isArray(item.coins) ? item.coins : [],
         sentiment: this.computeSentiment(item.votes),
         source: item.source || '',
       }));
+
+      // Dual-write to DB
+      insertNewsArticles(articles.map(a => ({
+        title: a.title,
+        source: a.source || 'cryptopanic',
+        coins: a.coins,
+        sentiment: a.sentiment,
+        published_at: a.date || undefined,
+      }))).catch(() => {});
+
+      return articles;
     } catch (err) {
       console.error('[CryptoPanic] Error:', err);
       return [];
