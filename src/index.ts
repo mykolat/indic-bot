@@ -185,7 +185,7 @@ async function main() {
   else console.log('[Grok] No XAI_API_KEY — claim verification disabled');
 
   // Start webhook server
-  const app = createWebhookServer(signalBuffer, logger, config.webhook.secret);
+  const app = createWebhookServer(signalBuffer, logger, config.webhook.secret, marketData);
   app.listen(config.webhook.port, () => {
     console.log(`Webhook server listening on :${config.webhook.port}`);
   });
