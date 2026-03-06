@@ -22,6 +22,31 @@ describe('computeDecimalsFromStep', () => {
   });
 });
 
+describe('computeDecimalsFromStep — all configured pairs', () => {
+  // Real Binance exchangeInfo tickSize values as of 2026-03
+  const PAIR_TICK_SIZES: Record<string, string> = {
+    BTCUSDT: '0.10',
+    ETHUSDT: '0.01',
+    SOLUSDT: '0.010',
+    BNBUSDT: '0.010',
+    XRPUSDT: '0.0001',
+    DOGEUSDT: '0.000010',
+    ADAUSDT: '0.00010',
+    AVAXUSDT: '0.010',
+  };
+
+  const EXPECTED: Record<string, number> = {
+    BTCUSDT: 1, ETHUSDT: 2, SOLUSDT: 2, BNBUSDT: 2,
+    XRPUSDT: 4, DOGEUSDT: 5, ADAUSDT: 4, AVAXUSDT: 2,
+  };
+
+  for (const [pair, tickSize] of Object.entries(PAIR_TICK_SIZES)) {
+    it(`${pair} tickSize=${tickSize} → ${EXPECTED[pair]}dp`, () => {
+      expect(computeDecimalsFromStep(tickSize)).toBe(EXPECTED[pair]);
+    });
+  }
+});
+
 describe('OrderExecutor', () => {
   let executor: OrderExecutor;
   let mockClient: any;

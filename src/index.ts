@@ -6,7 +6,7 @@ if (process.env.GLOBAL_AGENT_HTTPS_PROXY) {
 import { loadConfig } from './config.js';
 import { createBinanceClient } from './binance/client.js';
 import { MarketDataFetcher } from './binance/market-data.js';
-import { OrderExecutor } from './binance/orders.js';
+import { OrderExecutor, computeDecimalsFromStep } from './binance/orders.js';
 import { LLMClient } from './llm/client.js';
 import { FallbackLLMClient } from './llm/fallback-client.js';
 import { getOpenAIAccessToken } from './llm/oauth.js';
@@ -77,26 +77,29 @@ async function main() {
   const binanceClient = createBinanceClient(config.binance);
   const marketData = new MarketDataFetcher(binanceClient);
 
-  // Load exchange info for quantity precision
+  // Load exchange info for quantity + price precision
   let stepDecimals = new Map<string, number>();
+  let priceDecimals = new Map<string, number>();
   try {
     const info = await binanceClient.getExchangeInfo();
     for (const sym of info.symbols) {
       if (config.trading.pairs.includes(sym.symbol)) {
         const lotFilter = sym.filters.find((f: any) => f.filterType === 'LOT_SIZE');
         if (lotFilter?.stepSize) {
-          const step = parseFloat(lotFilter.stepSize);
-          const dec = step >= 1 ? 0 : Math.round(-Math.log10(step));
-          stepDecimals.set(sym.symbol, dec);
+          stepDecimals.set(sym.symbol, computeDecimalsFromStep(lotFilter.stepSize));
+        }
+        const priceFilter = sym.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+        if (priceFilter?.tickSize) {
+          priceDecimals.set(sym.symbol, computeDecimalsFromStep(priceFilter.tickSize));
         }
       }
     }
-    console.log(`[Binance] Loaded stepSize for ${stepDecimals.size} pairs`);
+    console.log(`[Binance] Loaded precision for ${stepDecimals.size} pairs (qty: stepSize, price: tickSize)`);
   } catch (e: any) {
     console.warn(`[Binance] Failed to load exchangeInfo: ${e.message} — using defaults`);
   }
 
-  const orders = new OrderExecutor(binanceClient, stepDecimals);
+  const orders = new OrderExecutor(binanceClient, stepDecimals, priceDecimals);
 
   // OpenAI auth: OAuth (default) or API key fallback
   let accessToken: string;
