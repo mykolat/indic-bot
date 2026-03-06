@@ -63,8 +63,8 @@ export function computeEMA(closes: number[], period: number): number {
   if (closes.length === 0) return 0;
   if (closes.length < period) return closes[closes.length - 1];
   const k = 2 / (period + 1);
-  let ema = closes[0];
-  for (let i = 1; i < closes.length; i++) {
+  let ema = closes.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < closes.length; i++) {
     ema = closes[i] * k + ema * (1 - k);
   }
   return ema;
@@ -88,20 +88,32 @@ export function computeATR(
 
 export function computeMACD(closes: number[], fast = 12, slow = 26, signal = 9): MACDResult {
   if (closes.length < slow + signal) return { macd: 0, signal: 0, histogram: 0 };
-  const ema12 = computeEMA(closes, fast);
-  const ema26 = computeEMA(closes, slow);
-  const macdLine = ema12 - ema26;
-  const macdSeries: number[] = [];
-  for (let i = slow + signal; i <= closes.length; i++) {
-    const slice = closes.slice(0, i);
-    macdSeries.push(computeEMA(slice, fast) - computeEMA(slice, slow));
+
+  const kFast = 2 / (fast + 1);
+  const kSlow = 2 / (slow + 1);
+
+  let emaFast = closes.slice(0, fast).reduce((s, v) => s + v, 0) / fast;
+  let emaSlow = closes.slice(0, slow).reduce((s, v) => s + v, 0) / slow;
+
+  for (let i = fast; i < slow; i++) {
+    emaFast = closes[i] * kFast + emaFast * (1 - kFast);
   }
-  const signalLine = computeEMA(macdSeries, signal);
-  return {
-    macd: macdLine,
-    signal: signalLine,
-    histogram: macdLine - signalLine,
-  };
+
+  const macdSeries: number[] = [];
+  for (let i = slow; i < closes.length; i++) {
+    emaFast = closes[i] * kFast + emaFast * (1 - kFast);
+    emaSlow = closes[i] * kSlow + emaSlow * (1 - kSlow);
+    macdSeries.push(emaFast - emaSlow);
+  }
+
+  const kSignal = 2 / (signal + 1);
+  let signalLine = macdSeries.slice(0, signal).reduce((s, v) => s + v, 0) / signal;
+  for (let i = signal; i < macdSeries.length; i++) {
+    signalLine = macdSeries[i] * kSignal + signalLine * (1 - kSignal);
+  }
+
+  const macdLine = macdSeries[macdSeries.length - 1];
+  return { macd: macdLine, signal: signalLine, histogram: macdLine - signalLine };
 }
 
 export function computeBollingerBands(closes: number[], period = 20, stdDev = 2): BollingerResult {
@@ -129,7 +141,7 @@ export function computeVolumeRatio(volumes: number[], openTimes?: number[], peri
 
   let currentVol = volumes[volumes.length - 1];
 
-  if (openTimes && openTimes.length > 0) {
+  if (openTimes && openTimes.length === volumes.length && openTimes.length > 0) {
     const lastOpenTime = openTimes[openTimes.length - 1];
     const ageMins = (Date.now() - lastOpenTime) / 60000;
 

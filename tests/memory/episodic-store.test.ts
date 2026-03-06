@@ -45,6 +45,28 @@ describe('EpisodicStore', () => {
         expect(all[2].id).toBe('5');
     });
 
+    it('handles corrupted JSON file gracefully', () => {
+        fs.writeFileSync(dbPath, 'not json {{{');
+        const store = new EpisodicStore(dbPath);
+        expect(store.getAll()).toEqual([]);
+    });
+
+    it('handles JSON object instead of array', () => {
+        fs.writeFileSync(dbPath, '{"key": "value"}');
+        const store = new EpisodicStore(dbPath);
+        expect(store.getAll()).toEqual([]);
+    });
+
+    it('filters out episodes with missing embedding', () => {
+        fs.writeFileSync(dbPath, JSON.stringify([
+            { id: '1', timestamp: 1, textSummary: 'good', embedding: [1, 0], resultPnl: 0 },
+            { id: '2', timestamp: 2, textSummary: 'bad', resultPnl: 0 },
+        ]));
+        const store = new EpisodicStore(dbPath);
+        expect(store.getAll()).toHaveLength(1);
+        expect(store.getAll()[0].id).toBe('1');
+    });
+
     it('retrieves top K similar episodes', () => {
         const store = new EpisodicStore(dbPath);
         store.addEpisode({ id: '1', timestamp: 1, textSummary: 'A', embedding: [1, 0], resultPnl: 0 }); // Sim: 1.0 (exact match)

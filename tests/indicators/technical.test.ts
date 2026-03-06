@@ -61,6 +61,14 @@ describe('computeVolumeRatio', () => {
     expect(ratio).toBeCloseTo(0.4, 1);
   });
 
+  it('skips extrapolation when openTimes length mismatches volumes', () => {
+    const volumes = [...Array(20).fill(1000), 200];
+    const openTimes = [1, 2, 3]; // shorter than volumes — should skip extrapolation
+    const ratio = computeVolumeRatio(volumes, openTimes);
+    // Should use raw ratio: 200/1000 = 0.2
+    expect(ratio).toBeCloseTo(0.2, 1);
+  });
+
   it('uses previous volume if candle is younger than 10 mins', () => {
     const volumes = [...Array(20).fill(1000), 10]; // last volume is 10
     const now = Date.now();
