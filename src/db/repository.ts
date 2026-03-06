@@ -357,6 +357,25 @@ export async function getRecentDecisions(limit: number = 3): Promise<RecentDecis
   return rows;
 }
 
+export async function getRecentDecisionsBySession(sessionId: string, limit: number = 20): Promise<RecentDecision[]> {
+  const { rows } = await q().query(
+    `SELECT td.pair, td.action, td.confidence, td.reasoning, td.regime, td.created_at,
+            CASE
+              WHEN te.id IS NOT NULL THEN 'filled'
+              WHEN e.message IS NOT NULL THEN 'ORDER_FAIL: ' || e.message
+              ELSE NULL
+            END as execution_result
+     FROM trade_decisions td
+     LEFT JOIN trade_executions te ON te.decision_id = td.id
+     LEFT JOIN errors e ON e.cycle_id = td.cycle_id AND e.code = 'ORDER_FAIL'
+     WHERE td.session_id = $1
+     ORDER BY td.created_at DESC
+     LIMIT $2`,
+    [sessionId, limit],
+  );
+  return rows;
+}
+
 export async function getOpenPositionContexts(pairs: string[]): Promise<OpenPositionContext[]> {
   if (pairs.length === 0) return [];
   const placeholders = pairs.map((_, i) => `$${i + 1}`).join(',');

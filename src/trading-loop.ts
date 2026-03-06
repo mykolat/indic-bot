@@ -708,6 +708,16 @@ export class TradingLoop {
         decisions = decisions.filter(d => d.action === 'HOLD' || d.action === 'CLOSE');
       }
 
+      // Apply regime_override if LLM suggested one
+      for (const d of decisions) {
+        if ((d as any).regime_override && Object.values(MarketRegime).includes((d as any).regime_override)) {
+          console.log(`[Loop] LLM regime override: ${marketRegime} → ${(d as any).regime_override}`);
+          marketRegime = (d as any).regime_override as MarketRegime;
+          activeProfile = getFilterProfile(marketRegime);
+          break;
+        }
+      }
+
       // Save indicator snapshots to DB
       if (cycleId) {
         for (const [pair, ind] of indicators.entries()) {
@@ -1116,9 +1126,19 @@ export class TradingLoop {
         const consecutiveLosses = streak < 0 ? Math.abs(streak) : 0;
         if (this.deps.memoryReview.shouldReview(this.cycleCount, consecutiveLosses, sessionPnlPct)) {
           try {
+            let recentDecisionStrings: string[] = [];
+            if (this.deps.sessionId) {
+              try {
+                const { getRecentDecisionsBySession } = await import('./db/repository.js');
+                const rows = await getRecentDecisionsBySession(this.deps.sessionId, 20);
+                recentDecisionStrings = rows.map((d: any) =>
+                  `${d.pair} ${d.action} (conf:${d.confidence}) — ${(d.reasoning ?? '').slice(0, 100)}`
+                );
+              } catch { /* DB optional */ }
+            }
             await this.deps.memoryReview.review(
               this.deps.memory.load().recent_trades,
-              [],  // decision log — future enhancement
+              recentDecisionStrings,
               this.cycleCount,
             );
           } catch (err) {
