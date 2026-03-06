@@ -86,4 +86,30 @@ describe('GrokGrounder', () => {
     expect(result.summary).toBeDefined();
     expect(result.tokensUsed).toBe(50);
   });
+
+  it('records success in sourceHealth on verify', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"verified": true, "confidence": 0.9, "summary": "confirmed"}' } }],
+        usage: { total_tokens: 100 },
+      }),
+    } as any);
+    const mockHealth = { recordSuccess: vi.fn(), recordFailure: vi.fn() };
+    const g = new GrokGrounder('key', mockHealth as any);
+    await g.verify('test claim');
+    expect(mockHealth.recordSuccess).toHaveBeenCalledWith('grok-grounder');
+  });
+
+  it('records failure in sourceHealth on API error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => 'Internal Server Error',
+    } as any);
+    const mockHealth = { recordSuccess: vi.fn(), recordFailure: vi.fn() };
+    const g = new GrokGrounder('key', mockHealth as any);
+    await g.verify('test claim');
+    expect(mockHealth.recordFailure).toHaveBeenCalledWith('grok-grounder', expect.stringContaining('500'));
+  });
 });

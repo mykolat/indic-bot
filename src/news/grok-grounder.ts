@@ -33,7 +33,7 @@ export interface GroundingResult {
 }
 
 export class GrokGrounder {
-  constructor(private xaiApiKey: string) { }
+  constructor(private xaiApiKey: string, private sourceHealth?: { recordSuccess(source: string): void; recordFailure(source: string, reason: string): void }) { }
 
   async verify(claim: string): Promise<GroundingResult> {
     try {
@@ -72,6 +72,7 @@ export class GrokGrounder {
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
+      this.sourceHealth?.recordSuccess('grok-grounder');
       return {
         claim,
         verified: parsed.verified,
@@ -85,6 +86,7 @@ export class GrokGrounder {
       if (!err?.message?.includes('timeout') && !err?.message?.includes('401')) {
         console.error('[GrokGrounder] Error:', err?.message);
       }
+      this.sourceHealth?.recordFailure('grok-grounder', err?.message ?? 'unknown');
       return { claim, error: err?.message, tokensUsed: 0 };
     }
   }
