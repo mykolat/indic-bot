@@ -266,6 +266,85 @@ describe('SwarmAgent', () => {
     );
   });
 
+  it('skips debate when fingerprint unchanged, returns cached decisions', async () => {
+    let callCount = 0;
+    const mockLlm = {
+      call: vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount <= 3) return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60));
+        return Promise.resolve(consensusResponse);
+      }),
+      lastNextCheckMinutes: undefined,
+    } as any;
+
+    const agent = new SwarmAgent(mockLlm);
+    const data = makeMinimalPromptData();
+
+    const d1 = await agent.getConsensus(data);
+    expect(mockLlm.call).toHaveBeenCalledTimes(4);
+
+    // Second call same data — cached, no new LLM calls
+    const d2 = await agent.getConsensus(data);
+    expect(mockLlm.call).toHaveBeenCalledTimes(4);
+    expect(d2).toEqual(d1);
+  });
+
+  it('runs new debate when fingerprint changes (new position)', async () => {
+    let callCount = 0;
+    const mockLlm = {
+      call: vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount <= 3 || (callCount >= 5 && callCount <= 7)) {
+          return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60));
+        }
+        return Promise.resolve(consensusResponse);
+      }),
+      lastNextCheckMinutes: undefined,
+    } as any;
+
+    const agent = new SwarmAgent(mockLlm);
+    await agent.getConsensus(makeMinimalPromptData());
+    expect(mockLlm.call).toHaveBeenCalledTimes(4);
+
+    // Add a position — fingerprint changes
+    const data2 = {
+      ...makeMinimalPromptData(),
+      portfolio: {
+        balanceUsd: 100, availableUsd: 50, sessionPnl: 0,
+        positions: [{ pair: 'BTCUSDT', side: 'LONG' as const, entryPrice: 90000, heldHours: 1, unrealizedPnlPct: 2, leverage: 5 }],
+      },
+    };
+
+    await agent.getConsensus(data2);
+    expect(mockLlm.call).toHaveBeenCalledTimes(8);
+  });
+
+  it('re-runs debate after TTL expires even if fingerprint unchanged', async () => {
+    let callCount = 0;
+    const mockLlm = {
+      call: vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount <= 3 || (callCount >= 5 && callCount <= 7)) {
+          return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60));
+        }
+        return Promise.resolve(consensusResponse);
+      }),
+      lastNextCheckMinutes: undefined,
+    } as any;
+
+    const agent = new SwarmAgent(mockLlm);
+    const data = makeMinimalPromptData();
+
+    await agent.getConsensus(data);
+    expect(mockLlm.call).toHaveBeenCalledTimes(4);
+
+    // Simulate TTL expiry
+    (agent as any).lastDebateAt = Date.now() - 31 * 60_000;
+
+    await agent.getConsensus(data);
+    expect(mockLlm.call).toHaveBeenCalledTimes(8);
+  });
+
   it('tracks narrative_expert success in sourceHealth', async () => {
     const mockGrokLlm = {
       call: vi.fn().mockResolvedValue(makeStructuredResponse('narrative_expert', 'HOLD', 50)),
