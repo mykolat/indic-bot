@@ -9,6 +9,7 @@ export function Overview() {
   const [positions, setPositions] = useState<any[]>([]);
   const [errors, setErrors] = useState<any[]>([]);
   const [snapshotCount, setSnapshotCount] = useState(0);
+  const [lastSnapshotAge, setLastSnapshotAge] = useState<number | null>(null);
 
   const fetchData = useCallback(() => {
     supabase
@@ -29,12 +30,25 @@ export function Overview() {
       .limit(20)
       .then(({ data }) => data && setErrors(data));
 
+    // Watchdog health: count snapshots in last hour + check freshness
     const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
     supabase
       .from('market_snapshots')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', oneHourAgo)
       .then(({ count }) => setSnapshotCount(count ?? 0));
+
+    supabase
+      .from('market_snapshots')
+      .select('created_at')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data?.[0]) {
+          const ageSec = Math.round((Date.now() - new Date(data[0].created_at).getTime()) / 1000);
+          setLastSnapshotAge(ageSec);
+        }
+      });
   }, []);
 
   useEffect(() => {
@@ -61,12 +75,28 @@ export function Overview() {
   const pnlColor =
     cycle?.session_pnl > 0 ? 'green' : cycle?.session_pnl < 0 ? 'red' : ('default' as const);
 
+  const cycleAge = cycle?.created_at
+    ? Math.round((Date.now() - new Date(cycle.created_at).getTime()) / 60_000)
+    : null;
+
+  const watchdogHealthy = lastSnapshotAge !== null && lastSnapshotAge < 120;
+
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">Overview</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-xl font-bold">Overview</h1>
+        {cycleAge !== null && (
+          <span className="text-xs text-zinc-500">
+            Last cycle: {cycleAge}m ago
+          </span>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Balance" value={`$${Number(cycle?.balance || 0).toFixed(2)}`} />
+        <StatCard
+          label="Wallet Balance"
+          value={`$${Number(cycle?.balance || 0).toFixed(2)}`}
+        />
         <StatCard
           label="Session PnL"
           value={`$${Number(cycle?.session_pnl || 0).toFixed(2)}`}
@@ -78,10 +108,10 @@ export function Overview() {
           subtitle={`F&G: ${cycle?.fear_greed_value ?? '\u2014'} | Layer: ${cycle?.layer ?? '\u2014'}`}
         />
         <StatCard
-          label="Watchdog (1h)"
-          value={snapshotCount}
-          subtitle="market snapshots"
-          color={snapshotCount > 50 ? 'green' : 'yellow'}
+          label="Watchdog"
+          value={watchdogHealthy ? 'Healthy' : 'Stale'}
+          subtitle={`${snapshotCount} snaps/h (8 pairs \u00d7 1/min)`}
+          color={watchdogHealthy ? 'green' : 'red'}
         />
       </div>
 

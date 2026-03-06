@@ -31,12 +31,14 @@ export function Swarm() {
 
       const result: SwarmCycle[] = [];
       for (const j of judges) {
-        const windowStart = new Date(new Date(j.created_at).getTime() - 120_000).toISOString();
+        // Personas may be written BEFORE or AFTER judge — search +/- 10min window
+        const windowStart = new Date(new Date(j.created_at).getTime() - 600_000).toISOString();
+        const windowEnd = new Date(new Date(j.created_at).getTime() + 600_000).toISOString();
         const { data: personas } = await supabase
           .from('swarm_personas')
           .select('persona, vote, confidence, reasoning')
           .gte('created_at', windowStart)
-          .lte('created_at', j.created_at)
+          .lte('created_at', windowEnd)
           .order('created_at', { ascending: true });
 
         result.push({
@@ -66,6 +68,7 @@ export function Swarm() {
             {cycles.map((c, i) => (
               <option key={i} value={i}>
                 Cycle {c.cycle_id} &mdash; {new Date(c.created_at).toLocaleString()}
+                {c.personas.length > 0 ? ` (${c.personas.length} experts)` : ' (no experts)'}
               </option>
             ))}
           </select>
@@ -74,11 +77,17 @@ export function Swarm() {
 
       {current ? (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {current.personas.map((p, i) => (
-              <PersonaCard key={i} {...p} />
-            ))}
-          </div>
+          {current.personas.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {current.personas.map((p, i) => (
+                <PersonaCard key={i} {...p} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-zinc-500 text-sm">
+              No parsed expert responses for this cycle (experts may have failed to parse)
+            </div>
+          )}
 
           <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
             <h3 className="text-sm font-semibold mb-2 text-zinc-300">Judge Consensus</h3>
