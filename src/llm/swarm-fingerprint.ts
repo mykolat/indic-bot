@@ -15,7 +15,7 @@ export function buildSwarmFingerprint(input: FingerprintInput): string {
     .sort()
     .join('|');
 
-  const fgBucket = Math.floor(input.fearGreedValue / 20); // 0-4 buckets (0-19, 20-39, ...)
+  const fgBucket = Math.floor(input.fearGreedValue / 20); // 0-4 buckets
   const volBucket = input.volumeRatio < 1 ? 'low' : input.volumeRatio < 2 ? 'mid' : 'high';
 
   return `${posPart};;${input.regime};;${volBucket};;fg${fgBucket}`;
