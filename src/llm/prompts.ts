@@ -150,6 +150,8 @@ export interface EnrichedPromptData {
     fill_price: number;
   }>;
   watchdogSummary?: string;
+  pairDiversityContext?: string;
+  todayRealizedPnl?: number;
   recentDecisions?: Array<{
     pair: string;
     action: string;
@@ -519,6 +521,9 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   prompt += `Wallet Balance: $${data.portfolio.balanceUsd.toFixed(2)}\n`;
   prompt += `Available (free): $${(data.portfolio.availableUsd ?? data.portfolio.balanceUsd).toFixed(2)}\n`;
   prompt += `Session PnL: $${data.portfolio.sessionPnl.toFixed(2)}\n`;
+  if (data.todayRealizedPnl !== undefined) {
+    prompt += `Today's Realized PnL: $${data.todayRealizedPnl.toFixed(2)}\n`;
+  }
 
   if (data.portfolio.positions.length > 0) {
     prompt += 'Open positions:\n';
@@ -571,6 +576,10 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
       const sign = t.pnlUsd >= 0 ? '+' : '';
       prompt += `- ${t.pair} ${t.action}: ${sign}$${t.pnlUsd.toFixed(2)} (${sign}${t.pnlPct.toFixed(1)}%) closed ${t.closedAt}\n`;
     }
+  }
+
+  if (data.pairDiversityContext) {
+    prompt += `\n${data.pairDiversityContext}\n`;
   }
 
   prompt += '\nProvide your trading decisions as JSON:';

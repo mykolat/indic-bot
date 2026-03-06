@@ -29,6 +29,7 @@ import type { SwarmAgent } from './llm/swarm-agent.js';
 import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp } from './db/repository.js';
 import type { AdjustContext } from './risk/manager.js';
 import { buildWatchdogSummary } from './watchdog-summary.js';
+import { buildDiversityContext, type PairDecisionEntry } from './market/pair-diversity.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -94,6 +95,7 @@ export class TradingLoop {
   private binanceCircuitBreaker = new CircuitBreaker(3);
   private staticSoulCache: string | null = null;
   private _lastPositionCount = 0;
+  private pairDecisionHistory: PairDecisionEntry[] = [];
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
@@ -561,6 +563,19 @@ export class TradingLoop {
         }
       }
 
+      // Pair diversity context
+      const diversityContext = buildDiversityContext(
+        this.pairDecisionHistory,
+        this.deps.pairs,
+        this.cycleCount,
+      );
+
+      // Today's realized PnL
+      let todayRealizedPnl = 0;
+      try {
+        todayRealizedPnl = await (this.deps.marketData as any).getTodayRealizedPnl();
+      } catch { /* optional */ }
+
       const promptData = {
         snapshots,
         indicators,
@@ -589,6 +604,8 @@ export class TradingLoop {
         positionContexts,
         watchdogSummary,
         recentDecisions,
+        pairDiversityContext: diversityContext,
+        todayRealizedPnl,
       };
 
       let decisions: TradeDecision[] = [];
@@ -1055,9 +1072,39 @@ export class TradingLoop {
             console.log(`[Regime] Adjusted leverage for ${decision.pair} to ${decision.leverage}x based on ${decisionRegime} profile`);
           }
 
+          // Regime-aware SL/TP adjustment
+          if (decision.action === 'LONG' || decision.action === 'SHORT') {
+            const pairProfile = pairRegimes.get(decision.pair);
+            const pairInd = indicators.get(decision.pair);
+            if (pairProfile?.profile && pairInd) {
+              const { computeSlTpPrices } = await import('./market/sl-tp-styles.js');
+              const snap = snapshots.find(s => s.pair === decision.pair);
+              const currentPrice = snap ? parseFloat(snap.markPrice) : 0;
+              if (currentPrice > 0) {
+                const adjusted = computeSlTpPrices({
+                  slStyle: pairProfile.profile.slStyle || 'fixed',
+                  tpStyle: pairProfile.profile.tpStyle || 'fixed',
+                  slPct: decision.stop_loss_pct,
+                  tpPct: decision.take_profit_pct,
+                  fillPrice: currentPrice,
+                  side: decision.action as 'LONG' | 'SHORT',
+                  indicators: pairInd,
+                });
+                decision.stop_loss_pct = Math.abs((adjusted.slPrice - currentPrice) / currentPrice * 100);
+                decision.take_profit_pct = Math.abs((adjusted.tpPrice - currentPrice) / currentPrice * 100);
+              }
+            }
+          }
+
           const result = await orders.execute(decision, portfolio.balanceUsd);
 
           if (result.success) {
+            // Track pair decision for diversity context
+            this.pairDecisionHistory.push({ pair: decision.pair, cycle: this.cycleCount });
+            if (this.pairDecisionHistory.length > 50) {
+              this.pairDecisionHistory = this.pairDecisionHistory.slice(-50);
+            }
+
             logger.logTrade({
               type: decision.action,
               pair: decision.pair,
