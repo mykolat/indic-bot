@@ -1,5 +1,7 @@
+import type { SourceHealthMonitor } from './source-health.js';
+
 export class FlashCrashScanner {
-    constructor(private grokClient: any) { }
+    constructor(private grokClient: any, private sourceHealth?: SourceHealthMonitor) { }
 
     async scan(): Promise<'PANIC' | 'IGNORE'> {
         if (!this.grokClient) return 'IGNORE';
@@ -10,8 +12,13 @@ Respond with EXACTLY ONE WORD: "PANIC" if crypto twitter is currently freaking o
         try {
             // Speed is critical here
             const raw = await this.grokClient.call(sys, 'Scan crypto X now.', 'grok-4-1-fast-non-reasoning');
+            this.sourceHealth?.recordSuccess('grok-flash-crash');
             if (raw.trim().toUpperCase().includes('PANIC')) return 'PANIC';
-        } catch (e) { /* ignore */ }
+        } catch (e: any) {
+            const msg = e?.message ?? 'unknown';
+            console.warn(`[FlashCrash] Grok scan failed: ${msg}`);
+            this.sourceHealth?.recordFailure('grok-flash-crash', msg);
+        }
 
         return 'IGNORE';
     }
