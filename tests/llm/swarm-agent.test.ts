@@ -33,7 +33,12 @@ const makeStructuredResponse = (persona: string, position: string, prob: number)
     confidence: 80,
   });
 
-const consensusResponse = `{"decisions": [{"pair": "BTCUSDT", "action": "HOLD", "confidence": 70, "reasoning": "mixed"}], "next_check_minutes": 15}`;
+const consensusResponse = JSON.stringify({
+  continue: false,
+  verdict: 'Consensus reached',
+  decisions: [{ pair: 'BTCUSDT', action: 'HOLD', confidence: 70, reasoning: 'mixed' }],
+  next_check_minutes: 15,
+});
 
 describe('SwarmAgent', () => {
   it('runs 3 experts + 0 critiques (all HOLD) + 1 judge = 4 LLM calls', async () => {
@@ -105,19 +110,23 @@ describe('SwarmAgent', () => {
     expect(decisions).toEqual([]);
   });
 
-  it('runs revise stage when high-stakes (2 HOLD + 1 LONG = critique not skipped)', async () => {
+  it('continues to Level 2 when Judge says continue=true', async () => {
+    const judgeContinueResponse = JSON.stringify({
+      continue: true,
+      next_speakers: ['devils_advocate', 'risk_manager'],
+      verdict: 'Disagreement on direction',
+      decisions: [],
+      next_check_minutes: 15,
+    });
+
     let callCount = 0;
     const mockLlm = {
       call: vi.fn().mockImplementation(() => {
         callCount++;
-        if (callCount <= 2) {
-          const personas = ['risk_manager', 'market_structure'];
-          return Promise.resolve(makeStructuredResponse(personas[callCount - 1], 'HOLD', 60));
-        }
-        if (callCount === 3) {
-          return Promise.resolve(makeStructuredResponse('devils_advocate', 'LONG', 70));
-        }
-        return Promise.resolve(consensusResponse);
+        if (callCount <= 3) return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60)); // L1 experts
+        if (callCount === 4) return Promise.resolve(judgeContinueResponse);                        // L1 judge: continue
+        if (callCount <= 6) return Promise.resolve(makeStructuredResponse('expert', 'LONG', 70)); // L2 speakers
+        return Promise.resolve(consensusResponse);                                                 // L2 judge: stop
       }),
       lastNextCheckMinutes: undefined,
     } as any;
@@ -125,8 +134,8 @@ describe('SwarmAgent', () => {
     const agent = new SwarmAgent(mockLlm);
     const decisions = await agent.getConsensus(makeHighStakesPromptData());
 
-    // 3 experts + 3 critiques + 3 revises + 1 judge = 10
-    expect(mockLlm.call).toHaveBeenCalledTimes(10);
+    // L1: 3 experts + 1 judge = 4 | L2: 2 speakers + 1 judge = 3 → total 7
+    expect(mockLlm.call).toHaveBeenCalledTimes(7);
     expect(decisions).toHaveLength(1);
   });
 
@@ -150,18 +159,25 @@ describe('SwarmAgent', () => {
     expect(mockLlm.call).toHaveBeenCalledTimes(4);
   });
 
-  it('runs critique when experts disagree', async () => {
+  it('caps at MAX_LEVELS even if Judge always says continue', async () => {
+    const judgeContinueResponse = JSON.stringify({
+      continue: true,
+      next_speakers: ['risk_manager', 'market_structure'],
+      verdict: 'Still disagreeing',
+      decisions: [],
+      next_check_minutes: 15,
+    });
+
     let callCount = 0;
     const mockLlm = {
       call: vi.fn().mockImplementation(() => {
         callCount++;
-        if (callCount <= 2) {
-          return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60));
-        }
-        if (callCount === 3) {
-          return Promise.resolve(makeStructuredResponse('devils_advocate', 'LONG', 70));
-        }
-        return Promise.resolve(consensusResponse);
+        // Expert calls return HOLD; judge always continues until last level
+        const isExpert = [1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15].includes(callCount);
+        if (isExpert) return Promise.resolve(makeStructuredResponse('expert', 'HOLD', 60));
+        // Judge at L5 must stop
+        if (callCount >= 20) return Promise.resolve(consensusResponse);
+        return Promise.resolve(judgeContinueResponse);
       }),
       lastNextCheckMinutes: undefined,
     } as any;
@@ -169,8 +185,8 @@ describe('SwarmAgent', () => {
     const agent = new SwarmAgent(mockLlm);
     await agent.getConsensus(makeMinimalPromptData());
 
-    // 3 experts + 3 critiques + 1 judge = 7
-    expect(mockLlm.call).toHaveBeenCalledTimes(7);
+    // Should not exceed 25 calls (5 levels × ~5 calls each)
+    expect(mockLlm.call.mock.calls.length).toBeLessThanOrEqual(25);
   });
 
   it('judge prompt contains structured expert data with probability_of_success and persona names', () => {

@@ -7,6 +7,8 @@ export default defineConfig({
       '**/dist/**',
       '**/.claude/**',
       '**/tmp/**',
+      'dashboard/**',
     ],
+    include: ['tests/**/*.test.ts'],
   },
 });

@@ -1,6 +1,6 @@
 import type { LLMClient } from './client.js';
 import type { TradeDecision } from '../risk/manager.js';
-import { buildUserPrompt, type EnrichedPromptData, buildExpertSystemPrompt, buildCritiquePrompt, buildRevisePrompt, type SwarmPersona, type ExpertSummary } from './prompts.js';
+import { buildUserPrompt, type EnrichedPromptData, buildExpertSystemPrompt, buildCritiquePrompt, buildRevisePrompt, buildLevelJudgePrompt, type SwarmPersona, type ExpertSummary } from './prompts.js';
 import { insertSwarmPersona, insertLlmConversation } from '../db/repository.js';
 import { buildSwarmFingerprint, hasChanged } from './swarm-fingerprint.js';
 
@@ -210,136 +210,108 @@ export class SwarmAgent {
     }
 
     const userPrompt = buildUserPrompt(data);
+    const MAX_LEVELS = 5;
+    const allPersonas: SwarmPersona[] = ['risk_manager', 'market_structure', 'devils_advocate'];
+    if (this.grokLlm) allPersonas.push('narrative_expert');
 
-    console.log('[Swarm] Multi-Agent Debate: RiskMgr, MarketStructure, Devil + Judge');
+    const conversationHistory: Array<{ persona: string; content: string; vote?: string; phase: number }> = [];
+    const pendingPersonasByLevel = new Map<number, Array<{ persona: string; model: string; raw_response: string; vote?: string; confidence?: number; reasoning?: string; phase: number }>>();
 
-    const personas: SwarmPersona[] = [
-      'risk_manager',
-      'market_structure',
-      'devils_advocate',
-    ];
+    let finalDecisions: TradeDecision[] = [];
+    let nextSpeakers: SwarmPersona[] = allPersonas;
 
-    const expertCalls = personas.map(p =>
-      this.llm.call(buildExpertSystemPrompt(p), userPrompt),
-    );
+    for (let level = 1; level <= MAX_LEVELS; level++) {
+      const speakers = level === 1 ? allPersonas : nextSpeakers;
+      console.log(`[Swarm] Level ${level}: ${speakers.join(', ')}`);
 
-    if (this.grokLlm) {
-      personas.push('narrative_expert');
-      expertCalls.push(
-        this.grokLlm.call(buildExpertSystemPrompt('narrative_expert'), userPrompt, 'grok-4-1-fast-reasoning'),
-      );
-    }
+      const contextSuffix = level > 1
+        ? '\n\n== PRIOR DEBATE MESSAGES ==\n' + conversationHistory
+          .map(m => `[L${m.phase}] ${m.persona.toUpperCase()}${m.vote ? ` (${m.vote})` : ''}: ${m.content}`)
+          .join('\n\n')
+        : '';
 
-    // Stage 1: Generate
-    const results = await Promise.allSettled(expertCalls);
-    const rawTexts: string[] = [];
-    const expertOutputs: (ExpertOutput | null)[] = [];
-    const pendingPersonas: Array<{ persona: string; model: string; raw_response: string; vote?: string; confidence?: number; reasoning?: string }> = [];
+      const expertCalls = speakers.map(p => {
+        const isGrok = p === 'narrative_expert' && this.grokLlm;
+        return isGrok
+          ? this.grokLlm.call(buildExpertSystemPrompt(p), userPrompt + contextSuffix, 'grok-4-1-fast-reasoning')
+          : this.llm.call(buildExpertSystemPrompt(p), userPrompt + contextSuffix);
+      });
 
-    for (let i = 0; i < results.length; i++) {
-      const res = results[i];
-      if (res.status === 'fulfilled') {
-        rawTexts.push(res.value);
-        expertOutputs.push(parseExpertOutput(res.value, personas[i]));
-        if (personas[i] === 'narrative_expert') this.sourceHealth?.recordSuccess('grok-narrative');
-        if (this.sessionId) {
-          const eo = expertOutputs[expertOutputs.length - 1];
-          pendingPersonas.push({
-            persona: personas[i],
-            model: personas[i] === 'narrative_expert' ? 'grok' : 'codex',
-            raw_response: res.value,
+      const results = await Promise.allSettled(expertCalls);
+      const levelPending: typeof pendingPersonasByLevel extends Map<number, infer V> ? V : never = [];
+
+      for (let i = 0; i < results.length; i++) {
+        const res = results[i];
+        if (res.status === 'fulfilled') {
+          const eo = parseExpertOutput(res.value, speakers[i]);
+          if (speakers[i] === 'narrative_expert') this.sourceHealth?.recordSuccess('grok-narrative');
+          conversationHistory.push({
+            persona: speakers[i],
+            content: eo?.thesis || res.value.slice(0, 500),
             vote: eo?.position,
-            confidence: eo?.confidence,
-            reasoning: eo?.thesis || res.value.slice(0, 500),
+            phase: level,
           });
+          if (this.sessionId) {
+            levelPending.push({
+              persona: speakers[i],
+              model: speakers[i] === 'narrative_expert' ? 'grok' : 'codex',
+              raw_response: res.value,
+              vote: eo?.position,
+              confidence: eo?.confidence,
+              reasoning: eo?.thesis || res.value.slice(0, 500),
+              phase: level,
+            });
+          }
+        } else {
+          console.warn(`[Swarm] ${speakers[i]} failed at L${level}:`, results[i].status === 'rejected' ? (results[i] as PromiseRejectedResult).reason : '');
+          if (speakers[i] === 'narrative_expert') {
+            const reason = results[i].status === 'rejected' ? (results[i] as PromiseRejectedResult).reason : new Error('unknown');
+            this.sourceHealth?.recordFailure('grok-narrative', reason?.message ?? String(reason));
+          }
         }
-      } else {
-        console.warn(`[Swarm] Sub-agent ${personas[i]} failed:`, res.reason);
-        if (personas[i] === 'narrative_expert') this.sourceHealth?.recordFailure('grok-narrative', res.reason?.message ?? String(res.reason));
-        rawTexts.push('');
-        expertOutputs.push(null);
       }
-    }
 
-    const validExperts = expertOutputs.filter((eo): eo is ExpertOutput => eo !== null);
-    if (validExperts.length === 0) {
-      console.error('[Swarm] All sub-agents failed, aborting consensus.');
-      throw new Error('Swarm failure');
-    }
+      pendingPersonasByLevel.set(level, levelPending);
 
-    console.log(`[Swarm] Stage 1 (Generate): ${validExperts.length}/${personas.length} experts responded`);
+      if (conversationHistory.filter(m => m.phase === level).length === 0) {
+        console.error('[Swarm] All sub-agents failed at level', level);
+        throw new Error('Swarm failure');
+      }
 
-    // Stage 2: Critique — all experts critique each other
-    const expertSummaries = validExperts.map(toExpertSummary);
-    let critiqueOutputs: (CritiqueOutput | null)[] | undefined;
+      // Judge for this level
+      const judgePrompt = buildLevelJudgePrompt(level, conversationHistory, MAX_LEVELS);
+      let rawJudge: string;
+      try {
+        rawJudge = await this.llm.call(judgePrompt, userPrompt);
+      } catch (e) {
+        console.error(`[Swarm] Judge failed at L${level}:`, e);
+        return [];
+      }
 
-    // Skip critique if all experts unanimously vote HOLD
-    const allHold = validExperts.length > 0 && validExperts.every(eo => eo.position === 'HOLD');
+      conversationHistory.push({ persona: 'judge', content: rawJudge.slice(0, 500), phase: level });
 
-    if (!allHold && validExperts.length >= 2) {
-      console.log('[Swarm] Stage 2 (Critique): experts reviewing each other...');
-      const critiqueCalls = personas.map((p, i) => {
-        if (!expertOutputs[i]) return Promise.resolve('');
-        return this.llm.call(
-          buildCritiquePrompt(p, expertSummaries),
-          userPrompt,
-        );
-      });
+      // Parse judge response
+      let judgeResult: any;
+      try {
+        judgeResult = JSON.parse(rawJudge);
+      } catch {
+        const match = rawJudge.match(/\{[\s\S]*"decisions"\s*:\s*\[[\s\S]*\][\s\S]*\}/);
+        if (match) { try { judgeResult = JSON.parse(match[0]); } catch { /* ignore */ } }
+      }
 
-      const critiqueResults = await Promise.allSettled(critiqueCalls);
-      critiqueOutputs = critiqueResults.map((r, i) => {
-        if (r.status === 'fulfilled' && r.value) {
-          return parseCritiqueOutput(r.value, personas[i]);
-        }
-        return null;
-      });
+      if (!judgeResult) {
+        console.error(`[Swarm] Judge parse failed at L${level}`);
+        return [];
+      }
 
-      const validCritiques = critiqueOutputs.filter(Boolean).length;
-      console.log(`[Swarm] Stage 2: ${validCritiques}/${personas.length} critiques parsed`);
-    }
+      console.log(`[Swarm] L${level} Judge: continue=${judgeResult.continue}, verdict="${(judgeResult.verdict || '').slice(0, 80)}"`);
 
-    // Stage 3: Revise — gated on high-stakes
-    let reviseOutputs: (ReviseOutput | null)[] | undefined;
+      const ncm = judgeResult.next_check_minutes;
+      if (typeof ncm === 'number' && Number.isFinite(ncm) && ncm >= 1 && ncm <= 30) {
+        this.llm.lastNextCheckMinutes = ncm;
+      }
 
-    if (critiqueOutputs && isHighStakes(data)) {
-      console.log('[Swarm] Stage 3 (Revise): HIGH-STAKES detected — experts revising positions...');
-      const reviseCalls = personas.map((p, i) => {
-        const eo = expertOutputs[i];
-        if (!eo) return Promise.resolve('');
-
-        const critiquesOfMe = (critiqueOutputs ?? [])
-          .filter((c): c is CritiqueOutput => c !== null && c.persona !== p)
-          .flatMap(c => c.critiques.filter(cr => cr.target_persona === p).map(cr => ({
-            from: c.persona,
-            agrees: cr.agrees,
-            critique: cr.critique,
-            counter_argument: cr.counter_argument,
-          })));
-
-        return this.llm.call(
-          buildRevisePrompt(p, { ...toExpertSummary(eo), confidence: eo.confidence }, critiquesOfMe),
-          userPrompt,
-        );
-      });
-
-      const reviseResults = await Promise.allSettled(reviseCalls);
-      reviseOutputs = reviseResults.map((r, i) => {
-        if (r.status === 'fulfilled' && r.value) {
-          return parseReviseOutput(r.value, personas[i]);
-        }
-        return null;
-      });
-
-      const validRevisions = reviseOutputs.filter(Boolean).length;
-      console.log(`[Swarm] Stage 3: ${validRevisions}/${personas.length} revisions parsed`);
-    }
-
-    // Judge
-    const judgeSystem = buildJudgePrompt(expertOutputs, rawTexts, personas, critiqueOutputs, reviseOutputs);
-
-    let rawConsensus: string;
-    try {
-      rawConsensus = await this.llm.call(judgeSystem, userPrompt);
+      // Store DB for this level
       if (this.sessionId) {
         if (!this.cycleId) {
           console.warn('[Swarm] WARNING: cycleId is null — conversation will not be linked to cycle');
@@ -350,51 +322,32 @@ export class SwarmAgent {
           layer: 1,
           model: 'codex',
           method: 'swarm_consensus',
-          system_prompt: judgeSystem,
+          label: `judge_level_${level}`,
+          system_prompt: judgePrompt,
           user_prompt: userPrompt,
-          raw_response: rawConsensus,
+          raw_response: rawJudge,
         }).then((convId) => {
-          // Insert all pending personas with judge's conversation_id
-          for (const pp of pendingPersonas) {
+          for (const pp of levelPending) {
             insertSwarmPersona({ ...pp, conversation_id: convId }).catch(() => {});
           }
         }).catch(() => {});
       }
-    } catch (e) {
-      console.error('[Swarm] Consensus LLM call failed:', e);
-      return [];
-    }
 
-    let jsonStr: string | undefined;
-    try {
-      JSON.parse(rawConsensus);
-      jsonStr = rawConsensus;
-    } catch {
-      const match = rawConsensus.match(/\{[\s\S]*"decisions"\s*:\s*\[[\s\S]*\]\s*[\s\S]*\}/);
-      if (match) {
-        jsonStr = match[0];
+      if (!judgeResult.continue || level >= MAX_LEVELS) {
+        finalDecisions = judgeResult.decisions || [];
+        break;
       }
+
+      // Prepare next speakers
+      const requestedSpeakers = judgeResult.next_speakers ?? [];
+      nextSpeakers = requestedSpeakers.length > 0
+        ? requestedSpeakers.filter((s: string) => allPersonas.includes(s as SwarmPersona)) as SwarmPersona[]
+        : allPersonas;
     }
 
-    if (!jsonStr || !jsonStr.includes('"decisions"')) {
-      console.error('[Swarm] Consensus parser failed to find JSON');
-      return [];
-    }
-
-    try {
-      const parsed = JSON.parse(jsonStr);
-      const ncm = parsed.next_check_minutes;
-      if (typeof ncm === 'number' && Number.isFinite(ncm) && ncm >= 1 && ncm <= 30) {
-        this.llm.lastNextCheckMinutes = ncm;
-      }
-      const decisions = parsed.decisions || [];
-      this.lastFingerprint = fp;
-      this.lastDecisions = decisions;
-      this.lastDebateAt = Date.now();
-      return decisions;
-    } catch (e) {
-      console.error('[Swarm] Consensus JSON invalid', e);
-      return [];
-    }
+    this.lastFingerprint = fp;
+    this.lastDecisions = finalDecisions;
+    this.lastDebateAt = Date.now();
+    return finalDecisions;
   }
 }

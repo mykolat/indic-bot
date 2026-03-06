@@ -1,7 +1,7 @@
 import express from 'express';
 import type { SignalBuffer, TradingViewSignal } from './signal-buffer.js';
 import type { Logger } from '../logger/index.js';
-import { insertWebhookSignal } from '../db/repository.js';
+import { insertWebhookSignal, insertSwarmPersona } from '../db/repository.js';
 
 export function createWebhookServer(
   signalBuffer: SignalBuffer,
@@ -11,6 +11,11 @@ export function createWebhookServer(
 ): express.Express {
   const app = express();
   app.use(express.json());
+  app.use((_req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    next();
+  });
 
   app.post('/webhook', (req, res) => {
     if (secret && req.headers['x-webhook-secret'] !== secret) {
@@ -84,6 +89,36 @@ export function createWebhookServer(
       }
     });
   }
+
+  app.post('/api/swarm/inject', async (req, res) => {
+    const { cycle_id, message } = req.body;
+    if (!cycle_id || !message) {
+      res.status(400).json({ error: 'Missing cycle_id or message' });
+      return;
+    }
+    try {
+      // Find latest conversation_id for this cycle
+      const { getPool } = await import('../db/connection.js');
+      const pool = getPool();
+      const { rows } = await pool.query(
+        `SELECT id FROM llm_conversations WHERE cycle_id = $1 AND method = 'swarm_consensus' ORDER BY created_at DESC LIMIT 1`,
+        [cycle_id],
+      );
+      const convId = rows[0]?.id ?? null;
+
+      const id = await insertSwarmPersona({
+        conversation_id: convId,
+        persona: 'superuser',
+        model: 'human',
+        raw_response: message,
+        reasoning: message,
+        phase: 99, // superuser messages shown after current level
+      });
+      res.json({ ok: true, id });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   return app;
 }

@@ -781,3 +781,45 @@ Your tasks:
 
 ${REVISE_OUTPUT_FORMAT}`;
 }
+
+export function buildLevelJudgePrompt(
+  level: number,
+  conversationHistory: Array<{ persona: string; content: string; vote?: string; phase: number }>,
+  maxLevels: number = 5,
+): string {
+  const historyText = conversationHistory
+    .map(m => `[Level ${m.phase}] ${m.persona.toUpperCase()}${m.vote ? ` (${m.vote})` : ''}: ${m.content}`)
+    .join('\n\n');
+
+  const isLastLevel = level >= maxLevels;
+
+  return `You are the SWARM CONSENSUS JUDGE managing a LIVE crypto futures account with real money.
+
+You are reviewing Level ${level} of a multi-level debate. Max ${maxLevels} levels.
+
+== FULL CONVERSATION HISTORY ==
+${historyText}
+
+== YOUR TASK ==
+${isLastLevel
+    ? 'This is the FINAL level. You MUST produce a final trading decision.'
+    : `Decide whether the debate needs another round:
+- If experts strongly disagree on direction → continue with targeted speakers
+- If consensus is clear → stop and produce final decision
+- If new risks were raised but not addressed → continue
+- If arguments are just repeating → stop`}
+
+You MUST respond with valid JSON:
+{
+  "continue": ${isLastLevel ? 'false' : 'true or false'},
+  "next_speakers": ["persona_name"],
+  "verdict": "<1-2 sentence summary of current state>",
+  "decisions": [{"pair": "<pair>", "action": "LONG|SHORT|HOLD|CLOSE", "size_pct": 0, "leverage": 1, "stop_loss_pct": 2, "take_profit_pct": 6, "confidence": 70, "reasoning": "<string>"}],
+  "next_check_minutes": 15
+}
+
+If continue=true, decisions can be [].
+If continue=false or this is the final level, decisions MUST contain at least one entry.
+If experts strongly disagree, lean towards HOLD.
+The Devil's Advocate's contrarian view gets extra weight — they argue the opposite for a reason.`;
+}

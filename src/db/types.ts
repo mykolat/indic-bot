@@ -166,6 +166,8 @@ export interface DbSwarmPersona {
   reasoning?: string;
   tokens_in?: number;
   tokens_out?: number;
+  phase?: number;
+  reply_to_id?: number;
   created_at?: string;
 }
 

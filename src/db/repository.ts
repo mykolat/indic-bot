@@ -164,10 +164,10 @@ export async function insertMacroAnalysis(a: Omit<DbMacroAnalysis, 'id' | 'creat
 
 export async function insertSwarmPersona(p: Omit<DbSwarmPersona, 'id' | 'created_at'>): Promise<number> {
   const { rows } = await q().query(
-    `INSERT INTO swarm_personas (conversation_id, persona, model, raw_response, vote, confidence, reasoning, tokens_in, tokens_out)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    `INSERT INTO swarm_personas (conversation_id, persona, model, raw_response, vote, confidence, reasoning, tokens_in, tokens_out, phase, reply_to_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
     [p.conversation_id, p.persona, p.model, p.raw_response, p.vote,
-     p.confidence, p.reasoning, p.tokens_in, p.tokens_out],
+     p.confidence, p.reasoning, p.tokens_in, p.tokens_out, p.phase ?? 1, p.reply_to_id ?? null],
   );
   return rows[0].id;
 }
