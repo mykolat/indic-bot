@@ -6,6 +6,7 @@ import type {
   DbNewsAnalysis, DbMacroSnapshot, DbMacroAnalysis, DbSwarmPersona,
   DbEpisodicMemory, DbTradeStory, DbMemoryReview, DbError,
   DbTokenUsage, DbWebhookSignal, DbIndicatorSnapshot, DbMarketSnapshot,
+  DbSlTpAdjustment,
 } from './types.js';
 
 function q(): pg.Pool {
@@ -314,6 +315,7 @@ export async function getMarketSnapshotsSince(pair: string, sinceMinutes: number
 // --- Open Position Contexts ---
 
 export interface OpenPositionContext {
+  id: number;
   pair: string;
   side: string;
   fill_price: number;
@@ -360,7 +362,7 @@ export async function getOpenPositionContexts(pairs: string[]): Promise<OpenPosi
   const placeholders = pairs.map((_, i) => `$${i + 1}`).join(',');
   const { rows } = await q().query(
     `SELECT DISTINCT ON (te.pair)
-            te.pair, te.side, te.fill_price, te.sl_price, te.tp_price,
+            te.id, te.pair, te.side, te.fill_price, te.sl_price, te.tp_price,
             te.entry_thesis, te.leverage, te.size_usd, te.opened_at
      FROM trade_executions te
      LEFT JOIN trade_closes tc ON tc.execution_id = te.id
@@ -372,4 +374,22 @@ export async function getOpenPositionContexts(pairs: string[]): Promise<OpenPosi
     pairs,
   );
   return rows;
+}
+
+// --- SL/TP Adjustments ---
+
+export async function insertSlTpAdjustment(a: Omit<DbSlTpAdjustment, 'id' | 'created_at'>): Promise<number> {
+  const { rows } = await q().query(
+    `INSERT INTO sl_tp_adjustments (cycle_id, execution_id, pair, side, old_sl, new_sl, old_tp, new_tp, reasoning)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    [a.cycle_id, a.execution_id, a.pair, a.side, a.old_sl, a.new_sl, a.old_tp, a.new_tp, a.reasoning],
+  );
+  return rows[0].id;
+}
+
+export async function updateExecutionSlTp(executionId: number, slPrice: number, tpPrice: number): Promise<void> {
+  await q().query(
+    `UPDATE trade_executions SET sl_price = $1, tp_price = $2 WHERE id = $3`,
+    [slPrice, tpPrice, executionId],
+  );
 }

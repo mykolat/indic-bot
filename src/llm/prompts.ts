@@ -77,13 +77,16 @@ CONSTRAINTS:
 - Minimum take-profit: ${config.minTakeProfitPct}%
 - This is LIVE money. Be selective.
 - Do NOT scalp. Target swing moves.
+- For open positions: use ADJUST to move SL/TP levels. SL can only tighten (protect more). When position is profitable, lock gains by moving SL closer to or above entry.
+- ADJUST example: position +8% ROI, momentum fading → set stop_loss_pct to -3 (locks 3% profit) and take_profit_pct to 9
+- Negative stop_loss_pct = profit lock (SL beyond entry in profitable direction)
 
 Respond ONLY with valid JSON:
 {
   "decisions": [
     {
       "pair": "BTCUSDT",
-      "action": "LONG" | "SHORT" | "CLOSE" | "HOLD",
+      "action": "LONG" | "SHORT" | "CLOSE" | "HOLD" | "ADJUST",
       "size_pct": <0-${config.maxPositionPct}>,
       "leverage": <1-${config.maxLeverage}>,
       "stop_loss_pct": <1-${config.maxStopLossPct}>,
@@ -527,6 +530,10 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
           prompt += `    SL: $${slPrice.toFixed(2)} (${slDist}% away) ${slHit ? 'HIT' : 'NOT hit'} | TP: $${tpPrice.toFixed(2)} (${tpDist}% away)\n`;
           prompt += `    Entry thesis: ${ctx.entry_thesis}\n`;
           prompt += `    >>> DO NOT close this position unless SL is hit or thesis is invalidated <<<\n`;
+          const marginRoi = pos.unrealizedPnlPct;
+          if (marginRoi > 3) {
+            prompt += `    Margin ROI: ${marginRoi > 0 ? '+' : ''}${marginRoi.toFixed(1)}% — consider ADJUST to lock profit\n`;
+          }
         }
       }
     }

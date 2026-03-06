@@ -860,7 +860,9 @@ export class TradingLoop {
 
               // Save trade close to DB
               if (cycleId) {
+                const posCtxForClose = positionContexts.find(c => c.pair === decision.pair);
                 insertTradeClose({
+                  execution_id: posCtxForClose?.id,
                   pair: decision.pair,
                   exit_reason: 'LLM_CLOSE',
                   pnl_usd: parseFloat(pnlUsd.toFixed(2)),

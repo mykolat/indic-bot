@@ -140,6 +140,55 @@ export class OrderExecutor {
     }
   }
 
+  async adjustSlTp(params: {
+    pair: string;
+    side: 'LONG' | 'SHORT';
+    newSlPrice: number;
+    newTpPrice: number;
+  }): Promise<OrderResult> {
+    const { pair, side, newSlPrice, newTpPrice } = params;
+    const closeSide = side === 'LONG' ? 'SELL' : 'BUY';
+
+    try {
+      // 1. Cancel all existing algo orders for this pair
+      try {
+        await this.client.cancelAllAlgoOpenOrders({ symbol: pair });
+      } catch {
+        // May have no algo orders — continue
+      }
+
+      // 2. Place new SL (mandatory — fail = abort adjustment)
+      await this.client.submitNewAlgoOrder({
+        symbol: pair,
+        side: closeSide,
+        algoType: 'CONDITIONAL',
+        type: 'STOP_MARKET',
+        triggerPrice: String(this.roundPrice(newSlPrice)),
+        closePosition: 'true',
+      });
+
+      // 3. Place new TP (best-effort)
+      try {
+        await this.client.submitNewAlgoOrder({
+          symbol: pair,
+          side: closeSide,
+          algoType: 'CONDITIONAL',
+          type: 'TAKE_PROFIT_MARKET',
+          triggerPrice: String(this.roundPrice(newTpPrice)),
+          closePosition: 'true',
+        });
+      } catch (tpErr: any) {
+        console.error(`[Orders] TP adjustment failed for ${pair}: ${tpErr.message}`);
+      }
+
+      console.log(`[Orders] Adjusted ${pair} ${side}: SL→$${newSlPrice.toFixed(4)}, TP→$${newTpPrice.toFixed(4)}`);
+      return { success: true, slPrice: newSlPrice, tpPrice: newTpPrice };
+    } catch (err: any) {
+      console.error(`[Orders] SL adjustment FAILED for ${pair}: ${err.message}`);
+      return { success: false, error: `Adjust SL failed: ${err.message}` };
+    }
+  }
+
   private roundQuantity(qty: number, pair: string): number {
     const decimals = this.stepDecimals.get(pair)
       ?? (pair.includes('BTC') ? 3 : pair.includes('ETH') ? 2 : 1);

@@ -1,6 +1,6 @@
 export interface TradeDecision {
   pair: string;
-  action: 'LONG' | 'SHORT' | 'CLOSE' | 'HOLD' | 'FETCH_NEWS';
+  action: 'LONG' | 'SHORT' | 'CLOSE' | 'HOLD' | 'FETCH_NEWS' | 'ADJUST';
   size_pct: number;
   leverage: number;
   stop_loss_pct: number;
@@ -51,11 +51,51 @@ export interface ValidationContext {
   fearGreedLeverageCap?: number;
 }
 
+export interface AdjustContext {
+  currentSlPrice: number;
+  currentTpPrice: number;
+  entryPrice: number;
+  side: 'LONG' | 'SHORT';
+}
+
 export class RiskManager {
   constructor(private config: RiskConfig) { }
 
-  validate(decision: TradeDecision, portfolio: PortfolioState, ctx?: ValidationContext): ValidationResult {
+  validate(decision: TradeDecision, portfolio: PortfolioState, ctx?: ValidationContext, adjustCtx?: AdjustContext): ValidationResult {
     if (decision.action === 'HOLD' || decision.action === 'CLOSE' || decision.action === 'FETCH_NEWS') {
+      return { approved: true };
+    }
+
+    if (decision.action === 'ADJUST') {
+      if (!adjustCtx) {
+        return { approved: false, reason: 'ADJUST requires position context' };
+      }
+      const { currentSlPrice, entryPrice, side } = adjustCtx;
+      // Calculate new SL price from pct
+      // Positive stop_loss_pct = SL in loss zone, Negative = profit lock
+      const newSlPrice = side === 'LONG'
+        ? entryPrice * (1 - decision.stop_loss_pct / 100)
+        : entryPrice * (1 + decision.stop_loss_pct / 100);
+
+      // Ratchet: SL can only improve
+      if (side === 'LONG' && newSlPrice < currentSlPrice) {
+        return { approved: false, reason: `Ratchet violation: new SL $${newSlPrice.toFixed(4)} < current $${currentSlPrice.toFixed(4)}` };
+      }
+      if (side === 'SHORT' && newSlPrice > currentSlPrice) {
+        return { approved: false, reason: `Ratchet violation: new SL $${newSlPrice.toFixed(4)} > current $${currentSlPrice.toFixed(4)}` };
+      }
+
+      // Breakeven lock: if PnL >= 5%, SL must be at or beyond entry
+      const pos = portfolio.positions.find(p => p.pair === decision.pair);
+      if (pos && pos.unrealizedPnlPct >= 5) {
+        if (side === 'LONG' && newSlPrice < entryPrice) {
+          return { approved: false, reason: `Breakeven lock: PnL ${pos.unrealizedPnlPct.toFixed(1)}% >= 5% but SL below entry` };
+        }
+        if (side === 'SHORT' && newSlPrice > entryPrice) {
+          return { approved: false, reason: `Breakeven lock: PnL ${pos.unrealizedPnlPct.toFixed(1)}% >= 5% but SL above entry` };
+        }
+      }
+
       return { approved: true };
     }
 

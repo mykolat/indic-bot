@@ -201,6 +201,49 @@ describe('OrderExecutor', () => {
     expect(result.success).toBe(true);
   });
 
+  describe('adjustSlTp', () => {
+    it('cancels old algo orders and places new SL/TP', async () => {
+      const result = await executor.adjustSlTp({
+        pair: 'ADAUSDT',
+        side: 'SHORT',
+        newSlPrice: 0.265,
+        newTpPrice: 0.250,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockClient.cancelAllAlgoOpenOrders).toHaveBeenCalledOnce();
+      expect(mockClient.cancelAllAlgoOpenOrders).toHaveBeenCalledWith({ symbol: 'ADAUSDT' });
+      expect(mockClient.submitNewAlgoOrder).toHaveBeenCalledTimes(2);
+
+      const slCall = mockClient.submitNewAlgoOrder.mock.calls[0][0];
+      expect(slCall.side).toBe('BUY'); // SHORT → close side is BUY
+      expect(slCall.type).toBe('STOP_MARKET');
+      expect(slCall.closePosition).toBe('true');
+
+      const tpCall = mockClient.submitNewAlgoOrder.mock.calls[1][0];
+      expect(tpCall.side).toBe('BUY');
+      expect(tpCall.type).toBe('TAKE_PROFIT_MARKET');
+      expect(tpCall.closePosition).toBe('true');
+
+      expect(result.slPrice).toBe(0.265);
+      expect(result.tpPrice).toBe(0.250);
+    });
+
+    it('returns failure if new SL placement fails', async () => {
+      mockClient.submitNewAlgoOrder.mockRejectedValueOnce(new Error('SL rejected by exchange'));
+
+      const result = await executor.adjustSlTp({
+        pair: 'ADAUSDT',
+        side: 'LONG',
+        newSlPrice: 0.260,
+        newTpPrice: 0.280,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Adjust SL failed');
+    });
+  });
+
   it('returns error on API failure', async () => {
     mockClient.submitNewOrder.mockRejectedValue(new Error('Insufficient margin'));
 
