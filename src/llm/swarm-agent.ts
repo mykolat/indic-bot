@@ -2,6 +2,7 @@ import type { LLMClient } from './client.js';
 import type { TradeDecision } from '../risk/manager.js';
 import { buildUserPrompt, type EnrichedPromptData, buildExpertSystemPrompt, buildCritiquePrompt, buildRevisePrompt, type SwarmPersona, type ExpertSummary } from './prompts.js';
 import { insertSwarmPersona, insertLlmConversation } from '../db/repository.js';
+import { buildSwarmFingerprint, hasChanged } from './swarm-fingerprint.js';
 
 export interface ExpertOutput {
   persona: string;
@@ -181,10 +182,33 @@ You MUST respond with valid JSON:
 export class SwarmAgent {
   sessionId: string | undefined;
   cycleId: number | undefined;
+  private lastFingerprint: string = '';
+  private lastDecisions: TradeDecision[] = [];
+  private lastDebateAt: number = 0;
+  private static readonly DEBATE_TTL_MS = 30 * 60_000; // 30 minutes
 
   constructor(private llm: LLMClient, private grokLlm?: any, private sourceHealth?: any) { }
 
   async getConsensus(data: EnrichedPromptData): Promise<TradeDecision[]> {
+    // Fingerprint-based dedup: skip debate if market state unchanged
+    const fp = buildSwarmFingerprint({
+      positions: data.portfolio.positions.map(p => ({
+        pair: p.pair,
+        side: p.side,
+        unrealizedPnlPct: p.unrealizedPnlPct,
+      })),
+      regime: data.regime ?? '',
+      volumeRatio: data.snapshots[0]?.volumeRatio ?? 0,
+      fearGreedValue: data.fearGreed?.value ?? 50,
+    });
+
+    const cacheExpired = Date.now() - this.lastDebateAt > SwarmAgent.DEBATE_TTL_MS;
+
+    if (!hasChanged(this.lastFingerprint, fp) && this.lastDecisions.length > 0 && !cacheExpired) {
+      console.log('[Swarm] Fingerprint unchanged — reusing previous consensus');
+      return this.lastDecisions;
+    }
+
     const userPrompt = buildUserPrompt(data);
 
     console.log('[Swarm] Multi-Agent Debate: RiskMgr, MarketStructure, Devil + Judge');
@@ -210,6 +234,7 @@ export class SwarmAgent {
     const results = await Promise.allSettled(expertCalls);
     const rawTexts: string[] = [];
     const expertOutputs: (ExpertOutput | null)[] = [];
+    const pendingPersonas: Array<{ persona: string; model: string; raw_response: string; vote?: string; confidence?: number; reasoning?: string }> = [];
 
     for (let i = 0; i < results.length; i++) {
       const res = results[i];
@@ -219,14 +244,14 @@ export class SwarmAgent {
         if (personas[i] === 'narrative_expert') this.sourceHealth?.recordSuccess('grok-narrative');
         if (this.sessionId) {
           const eo = expertOutputs[expertOutputs.length - 1];
-          insertSwarmPersona({
+          pendingPersonas.push({
             persona: personas[i],
             model: personas[i] === 'narrative_expert' ? 'grok' : 'codex',
             raw_response: res.value,
             vote: eo?.position,
             confidence: eo?.confidence,
             reasoning: eo?.thesis || res.value.slice(0, 500),
-          }).catch(() => {});
+          });
         }
       } else {
         console.warn(`[Swarm] Sub-agent ${personas[i]} failed:`, res.reason);
@@ -328,6 +353,11 @@ export class SwarmAgent {
           system_prompt: judgeSystem,
           user_prompt: userPrompt,
           raw_response: rawConsensus,
+        }).then((convId) => {
+          // Insert all pending personas with judge's conversation_id
+          for (const pp of pendingPersonas) {
+            insertSwarmPersona({ ...pp, conversation_id: convId }).catch(() => {});
+          }
         }).catch(() => {});
       }
     } catch (e) {
@@ -357,7 +387,11 @@ export class SwarmAgent {
       if (typeof ncm === 'number' && Number.isFinite(ncm) && ncm >= 1 && ncm <= 30) {
         this.llm.lastNextCheckMinutes = ncm;
       }
-      return parsed.decisions || [];
+      const decisions = parsed.decisions || [];
+      this.lastFingerprint = fp;
+      this.lastDecisions = decisions;
+      this.lastDebateAt = Date.now();
+      return decisions;
     } catch (e) {
       console.error('[Swarm] Consensus JSON invalid', e);
       return [];
