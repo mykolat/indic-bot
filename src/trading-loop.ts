@@ -428,20 +428,30 @@ export class TradingLoop {
         }
       }
 
-      // Calculate regime for BTCUSDT (as proxy for market)
-      let btcSnap = snapshots.find(s => s.pair === 'BTCUSDT') || snapshots[0];
+      // Calculate regime per pair (BTC as global fallback)
+      const pairRegimes = new Map<string, { regime: MarketRegime; confidence: number; profile: FilterProfile }>();
       let marketRegime: MarketRegime = MarketRegime.Range;
       let regimeConfidence = 0;
       let activeProfile: FilterProfile | undefined;
 
-      if (btcSnap) {
-        const btcInd = indicators.get(btcSnap.pair);
-        if (btcInd) {
-          const res = classifyRegime(btcInd, parseFloat(btcSnap.markPrice), fearGreed);
-          marketRegime = res.regime;
-          regimeConfidence = res.confidence;
-          activeProfile = getFilterProfile(marketRegime);
+      for (const snap of snapshots) {
+        const ind = indicators.get(snap.pair);
+        if (ind) {
+          const res = classifyRegime(ind, parseFloat(snap.markPrice), fearGreed);
+          pairRegimes.set(snap.pair, {
+            regime: res.regime,
+            confidence: res.confidence,
+            profile: getFilterProfile(res.regime),
+          });
         }
+      }
+      // Global regime = BTC or first available
+      const btcSnap = snapshots.find(s => s.pair === 'BTCUSDT') || snapshots[0];
+      const btcRegime = pairRegimes.get(btcSnap?.pair ?? '');
+      if (btcRegime) {
+        marketRegime = btcRegime.regime;
+        regimeConfidence = btcRegime.confidence;
+        activeProfile = btcRegime.profile;
       }
 
       // 5. Drain TradingView signals
@@ -514,21 +524,28 @@ export class TradingLoop {
 
       // Pre-flight check: calculate soft filter warnings instead of skipping
       let filterWarning: string | undefined = undefined;
-      const btcInd = indicators.get(btcSnap?.pair ?? '');
 
-      let confluenceResult: { score: number; factors: string[] } | undefined;
-      if (btcInd && btcSnap) {
-        const hasNewsCatalyst = !!(newsAnalysis && Array.isArray((newsAnalysis as any).top_signals) && (newsAnalysis as any).top_signals.some((s: any) => s.importance >= 7));
-        confluenceResult = computeConfluence({
-          trend: btcInd.trend,
-          volumeRatio: btcInd.volumeRatio,
-          vwap: btcInd.vwap || 0,
-          markPrice: parseFloat(btcSnap.markPrice),
-          rsi: btcInd.rsi,
-          rsiRange: activeProfile ? [activeProfile.rsiRange?.[0] ?? 30, activeProfile.rsiRange?.[1] ?? 70] : [30, 70],
-          hasNewsCatalyst,
-        });
+      // Per-pair confluence
+      const pairConfluence = new Map<string, { score: number; factors: string[] }>();
+      const btcInd = indicators.get(btcSnap?.pair ?? '');
+      for (const snap of snapshots) {
+        const ind = indicators.get(snap.pair);
+        const pairProfile = pairRegimes.get(snap.pair)?.profile;
+        if (ind) {
+          const hasNewsCatalyst = !!(newsAnalysis && Array.isArray((newsAnalysis as any).top_signals) && (newsAnalysis as any).top_signals.some((s: any) => s.importance >= 7));
+          pairConfluence.set(snap.pair, computeConfluence({
+            trend: ind.trend,
+            volumeRatio: ind.volumeRatio,
+            vwap: ind.vwap || 0,
+            markPrice: parseFloat(snap.markPrice),
+            rsi: ind.rsi,
+            rsiRange: pairProfile ? [pairProfile.rsiRange?.[0] ?? 30, pairProfile.rsiRange?.[1] ?? 70] : [30, 70],
+            hasNewsCatalyst,
+          }));
+        }
       }
+      // BTC confluence for backwards compat (filter warnings, performance log)
+      let confluenceResult = pairConfluence.get(btcSnap?.pair ?? '');
 
       if (activeProfile && btcInd && portfolio.positions.length === 0 && confluenceResult) {
         if (btcInd.volumeRatio < activeProfile.volumeMin) {
@@ -558,6 +575,8 @@ export class TradingLoop {
         staticSoul: this.getStaticSoul(),
         memoryContent,
         regime: marketRegime,
+        pairRegimes: Object.fromEntries([...pairRegimes.entries()].map(([k, v]) => [k, { regime: v.regime, confidence: v.confidence }])),
+        pairConfluence: Object.fromEntries(pairConfluence),
         layer1Reports, // NEW INJECTION
         ragContext,
         filterWarning,
@@ -1013,9 +1032,11 @@ export class TradingLoop {
             continue;
           }
           // Apply Leverage Multiplier per Filter Profile BEFORE order execution
-          if (activeProfile && (decision.action === 'LONG' || decision.action === 'SHORT')) {
-            decision.leverage = Math.max(1, Math.round(decision.leverage * activeProfile.leverageMultiplier));
-            console.log(`[Regime] Adjusted leverage for ${decision.pair} to ${decision.leverage}x based on ${marketRegime} profile`);
+          const decisionProfile = pairRegimes.get(decision.pair)?.profile ?? activeProfile;
+          if (decisionProfile && (decision.action === 'LONG' || decision.action === 'SHORT')) {
+            decision.leverage = Math.max(1, Math.round(decision.leverage * decisionProfile.leverageMultiplier));
+            const decisionRegime = pairRegimes.get(decision.pair)?.regime ?? marketRegime;
+            console.log(`[Regime] Adjusted leverage for ${decision.pair} to ${decision.leverage}x based on ${decisionRegime} profile`);
           }
 
           const result = await orders.execute(decision, portfolio.balanceUsd);

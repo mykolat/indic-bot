@@ -137,6 +137,8 @@ export interface EnrichedPromptData {
   staticSoul?: string;
   memoryContent?: string;
   regime?: string;
+  pairRegimes?: Record<string, { regime: string; confidence: number }>;
+  pairConfluence?: Record<string, { score: number; factors: string[] }>;
   layer1Reports?: import('./agents.js').Layer1Outputs;
   filterWarning?: string;
   ragContext?: string;
@@ -240,6 +242,15 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     else if (data.regime === 'breakout') prompt += '>>> REGIME: Breakout. Price is expanding rapidly. Trade momentum in direction of the break. Wider stops.\n\n';
     else prompt += '>>> REGIME: Unknown. Standard aggressive crypto futures trader.\n\n';
     prompt += `NOTE: If your narrative reading strongly contradicts this regime, use the 'regime_override' field to change it.\n\n`;
+  }
+
+  if (data.pairRegimes && Object.keys(data.pairRegimes).length > 1) {
+    prompt += '\n### PER-PAIR REGIME & CONFLUENCE\n';
+    for (const [pair, r] of Object.entries(data.pairRegimes)) {
+      const conf = data.pairConfluence?.[pair];
+      prompt += `${pair}: ${r.regime} (${r.confidence}%) | Confluence: ${conf?.score ?? '?'}/5 [${conf?.factors?.join(',') ?? ''}]\n`;
+    }
+    prompt += '\n';
   }
 
   // Soul — static identity
