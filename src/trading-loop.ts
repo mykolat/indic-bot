@@ -3,7 +3,6 @@ import type { OrderExecutor } from './binance/orders.js';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { runLayer1Experts } from './llm/agents.js';
-import { MemoryKeeper } from './memory/memory-keeper.js';
 import type { LLMClient } from './llm/client.js';
 import type { RiskManager, TradeDecision, PortfolioState } from './risk/manager.js';
 import type { SignalBuffer } from './webhook/signal-buffer.js';
@@ -27,6 +26,8 @@ import type { DecisionJournal, JournalEntry } from './logging/decision-journal.j
 import type { TradeStoryLogger } from './logging/trade-story.js';
 import type { CryptoNews } from './news/types.js';
 import type { SwarmAgent } from './llm/swarm-agent.js';
+import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getMarketSnapshotsSince, getRecentDecisions } from './db/repository.js';
+import { buildWatchdogSummary } from './watchdog-summary.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -76,6 +77,7 @@ interface TradingLoopDeps {
   };
   decisionJournal?: DecisionJournal;
   tradeStoryLogger?: TradeStoryLogger;
+  sessionId?: string;
 }
 
 export class TradingLoop {
@@ -88,6 +90,7 @@ export class TradingLoop {
   private lastMacroAnalysis: MacroAnalysis | undefined;
   private binanceCircuitBreaker = new CircuitBreaker(3);
   private staticSoulCache: string | null = null;
+  private _lastPositionCount = 0;
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
@@ -95,6 +98,10 @@ export class TradingLoop {
 
   isShutdown(): boolean {
     return this._shutdown;
+  }
+
+  hasOpenPositions(): boolean {
+    return this._lastPositionCount > 0;
   }
 
   private getStaticSoul(): string | undefined {
@@ -181,6 +188,7 @@ export class TradingLoop {
         logger.logError('PORTFOLIO_FETCH_FAILED', err.message ?? 'unknown');
         return;
       }
+      this._lastPositionCount = portfolio.positions.length;
       this.deps.memory.setStartBalance(portfolio.balanceUsd);
       const startBalance = this.deps.memory.getStartBalance()!;
       let hwm = this.deps.memory.getHighWaterMark();
@@ -396,8 +404,7 @@ export class TradingLoop {
       const signals = signalBuffer.drain();
 
       // 6. LAYER 1: Distill data via experts
-      const memoryKeeper = this.deps.memoryKeeper ?? new MemoryKeeper(process.env.DATA_DIR || './tmp');
-      const latestMemoryData = memoryKeeper.read();
+      const latestMemoryData = this.deps.memoryKeeper?.read() ?? '';
 
       let layer1Reports = { newsReport: '', macroReport: '', memoryReport: '' };
       try {
@@ -427,13 +434,47 @@ export class TradingLoop {
         ragContext = await this.deps.episodicAgent.getRelevantContext(currentStateStr);
       }
 
+      // Fetch SL/TP + entry thesis for open positions from DB
+      let positionContexts: import('./db/repository.js').OpenPositionContext[] = [];
+      if (this.deps.sessionId && portfolio.positions.length > 0) {
+        try {
+          positionContexts = await getOpenPositionContexts(portfolio.positions.map(p => p.pair));
+        } catch (e: any) {
+          console.error('[Loop] Failed to fetch position contexts:', e.message);
+        }
+      }
+
+      // Fetch recent decisions for LLM context (avoid repeating failures)
+      let recentDecisions: import('./db/repository.js').RecentDecision[] = [];
+      try {
+        recentDecisions = await getRecentDecisions(3);
+      } catch { /* DB optional */ }
+
+      // Build watchdog summary from recent market snapshots
+      let watchdogSummary: string | undefined;
+      if (this.deps.sessionId) {
+        try {
+          const summaryLines: string[] = [];
+          for (const pair of this.deps.pairs) {
+            const snaps = await getMarketSnapshotsSince(pair, 10);
+            const posCtx = positionContexts.find(c => c.pair === pair);
+            summaryLines.push(buildWatchdogSummary(pair, snaps, posCtx));
+          }
+          if (summaryLines.some(l => !l.endsWith('no data since last Brain cycle'))) {
+            watchdogSummary = summaryLines.join('\n');
+          }
+        } catch (e: any) {
+          console.error('[Loop] Watchdog summary failed:', e.message);
+        }
+      }
+
       // Pre-flight check: calculate soft filter warnings instead of skipping
       let filterWarning: string | undefined = undefined;
       const btcInd = indicators.get(btcSnap?.pair ?? '');
 
       let confluenceResult: { score: number; factors: string[] } | undefined;
       if (btcInd && btcSnap) {
-        const hasNewsCatalyst = !!(newsAnalysis && Array.isArray(newsAnalysis) && newsAnalysis.some((n: any) => n.importance >= 7));
+        const hasNewsCatalyst = !!(newsAnalysis && Array.isArray((newsAnalysis as any).top_signals) && (newsAnalysis as any).top_signals.some((s: any) => s.importance >= 7));
         confluenceResult = computeConfluence({
           trend: btcInd.trend,
           volumeRatio: btcInd.volumeRatio,
@@ -476,6 +517,9 @@ export class TradingLoop {
         layer1Reports, // NEW INJECTION
         ragContext,
         filterWarning,
+        positionContexts,
+        watchdogSummary,
+        recentDecisions,
       };
 
       let decisions: TradeDecision[] = [];
@@ -501,7 +545,6 @@ export class TradingLoop {
         if (useSwarm && this.deps.swarmAgent) {
           console.log(`[Loop] High Volatility (Vol=${btcInd?.volumeRatio.toFixed(1)}x) -> Engaging SWARM CONSENSUS`);
           decisions = await this.deps.swarmAgent.getConsensus(promptData);
-          llm.lastNextCheckMinutes = (promptData as any).next_check_minutes || 5;
         } else {
           decisions = await llm.analyze(promptData);
         }
@@ -570,6 +613,63 @@ export class TradingLoop {
       // Safety guard: in Layer 2/3, filter out any LONG/SHORT decisions
       if (currentLayer >= 2) {
         decisions = decisions.filter(d => d.action === 'HOLD' || d.action === 'CLOSE');
+      }
+
+      // Insert cycle into observability DB
+      let cycleId: number | undefined;
+      if (this.deps.sessionId) {
+        try {
+          cycleId = await insertCycle({
+            session_id: this.deps.sessionId,
+            cycle_number: this.cycleCount,
+            balance: portfolio.balanceUsd,
+            session_pnl: sessionPnl,
+            open_positions: portfolio.positions.map(p => ({ pair: p.pair, side: p.side, sizeUsd: p.sizeUsd, pnlPct: p.unrealizedPnlPct })),
+            volume_ratio: btcInd?.volumeRatio,
+            confluence_score: confluenceResult?.score,
+            confluence_factors: confluenceResult?.factors,
+            regime: marketRegime,
+            regime_confidence: regimeConfidence,
+            fear_greed_value: fearGreed?.value,
+            layer: currentLayer,
+            filter_warning: filterWarning,
+          });
+          logger.cycleId = cycleId ?? null;
+          // Pass cycleId to LLM clients for conversation tracking
+          if (cycleId) {
+            this.deps.llm.cycleId = cycleId;
+            if (this.deps.fallbackLlm) (this.deps.fallbackLlm as any).cycleId = cycleId;
+            if (this.deps.swarmAgent) (this.deps.swarmAgent as any).cycleId = cycleId;
+          }
+        } catch (err: any) {
+          console.error('[DB] Failed to insert cycle:', err.message);
+        }
+      }
+
+      // Save indicator snapshots to DB
+      if (cycleId) {
+        for (const [pair, ind] of indicators.entries()) {
+          insertIndicatorSnapshot({
+            cycle_id: cycleId, pair, timeframe: '1h',
+            rsi: ind.rsi, ema_short: ind.ema20, ema_long: ind.ema50,
+            macd: ind.macd, macd_signal: ind.macdSignal, macd_histogram: ind.macdHistogram,
+            adx: ind.adx, atr: ind.atr,
+            vwap: ind.vwap,
+            bb_upper: ind.bollingerUpper, bb_lower: ind.bollingerLower, bb_width: ind.bollingerBandwidth,
+            volume_ratio: ind.volumeRatio, trend: ind.trend,
+          }).catch(e => console.error('[DB] indicator snapshot error:', e.message));
+        }
+        for (const [pair, ind] of indicators4h.entries()) {
+          insertIndicatorSnapshot({
+            cycle_id: cycleId, pair, timeframe: '4h',
+            rsi: ind.rsi, ema_short: ind.ema20, ema_long: ind.ema50,
+            macd: ind.macd, macd_signal: ind.macdSignal, macd_histogram: ind.macdHistogram,
+            adx: ind.adx, atr: ind.atr,
+            vwap: ind.vwap,
+            bb_upper: ind.bollingerUpper, bb_lower: ind.bollingerLower, bb_width: ind.bollingerBandwidth,
+            volume_ratio: ind.volumeRatio, trend: ind.trend,
+          }).catch(e => console.error('[DB] indicator snapshot error:', e.message));
+        }
       }
 
       // 5. Process each decision
@@ -685,6 +785,39 @@ export class TradingLoop {
           fearGreedLeverageCap: this.deps.tradingConfig.fearGreedLeverageCap,
         };
         const validation = riskManager.validate(decision, portfolio, validationCtx);
+
+        // Save trade decision + risk validation to DB
+        let decisionId: number | undefined;
+        if (cycleId) {
+          try {
+            decisionId = await insertTradeDecision({
+              cycle_id: cycleId,
+              pair: decision.pair,
+              action: decision.action,
+              size_pct: decision.size_pct,
+              leverage: decision.leverage,
+              stop_loss_pct: decision.stop_loss_pct,
+              take_profit_pct: decision.take_profit_pct,
+              confidence: decision.confidence,
+              reasoning: decision.reasoning,
+              regime: marketRegime,
+              regime_confidence: regimeConfidence,
+              regime_override: decision.regime_override,
+              volume_ratio: btcInd?.volumeRatio,
+              confluence_score: confluenceResult?.score,
+              confluence_factors: confluenceResult?.factors,
+            });
+            insertRiskValidation({
+              decision_id: decisionId,
+              passed: validation.approved,
+              rejection_reason: validation.reason,
+              shutdown_triggered: validation.shutdown,
+            }).catch(() => {});
+          } catch (e: any) {
+            console.error('[DB] decision insert error:', e.message);
+          }
+        }
+
         if (!validation.approved) {
           logger.logDecision({ type: 'RISK_REJECTED', pair: decision.pair, reason: validation.reason });
           this.deps.memoryKeeper?.addRejection({
@@ -704,6 +837,14 @@ export class TradingLoop {
         if (decision.action === 'CLOSE') {
           const pos = portfolio.positions.find((p) => p.pair === decision.pair);
           if (pos) {
+            // Min hold time: don't close positions held < 10 minutes
+            // NaN guard: undefined heldHours → 0 (block close)
+            const minHoldMinutes = 10;
+            const heldMinutes = pos.heldHours ? pos.heldHours * 60 : 0;
+            if (heldMinutes < minHoldMinutes) {
+              console.log(`[HoldLock] Blocking CLOSE on ${decision.pair} — held ${heldMinutes.toFixed(0)}m < ${minHoldMinutes}m minimum`);
+              continue;
+            }
             const result = await orders.close(decision.pair, pos.side);
             if (result.success) {
               const pnlUsd = pos.unrealizedPnlPct * (pos.sizeUsd / pos.leverage) / 100;
@@ -716,6 +857,19 @@ export class TradingLoop {
                 pnlPct: pos.unrealizedPnlPct,
                 closedAt: new Date().toISOString(),
               });
+
+              // Save trade close to DB
+              if (cycleId) {
+                insertTradeClose({
+                  pair: decision.pair,
+                  exit_reason: 'LLM_CLOSE',
+                  pnl_usd: parseFloat(pnlUsd.toFixed(2)),
+                  pnl_pct: pos.unrealizedPnlPct,
+                  held_hours: pos.heldHours,
+                  order_id: result.orderId,
+                  close_decision_id: decisionId,
+                }).catch(e => console.error('[DB] close insert error:', e.message));
+              }
 
               if (this.deps.tradeStoryLogger) {
                 this.deps.tradeStoryLogger.log({
@@ -759,6 +913,26 @@ export class TradingLoop {
               leverage: decision.leverage,
               orderId: result.orderId,
             });
+
+            // Save trade execution to DB
+            if (cycleId && decisionId) {
+              insertTradeExecution({
+                decision_id: decisionId,
+                pair: decision.pair,
+                side: decision.action === 'LONG' ? 'BUY' : 'SELL',
+                action: decision.action,
+                leverage: decision.leverage,
+                order_id: result.orderId,
+                size_usd: (decision.size_pct / 100) * portfolio.balanceUsd,
+                fill_price: result.fillPrice,
+                sl_price: result.slPrice,
+                tp_price: result.tpPrice,
+                quantity: result.quantity,
+                entry_price: result.fillPrice,
+                entry_thesis: decision.reasoning,
+              }).catch(e => console.error('[DB] execution insert error:', e.message));
+            }
+
             this.deps.memory.setLastOrderResult(
               `${decision.pair} ${decision.action} filled — SL/TP set`
             );

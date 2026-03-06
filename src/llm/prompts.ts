@@ -145,6 +145,14 @@ export interface EnrichedPromptData {
     fill_price: number;
   }>;
   watchdogSummary?: string;
+  recentDecisions?: Array<{
+    pair: string;
+    action: string;
+    confidence: number;
+    reasoning: string;
+    execution_result?: string;
+    created_at: string;
+  }>;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -208,6 +216,17 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += `Last order: ${data.lastOrderResult}\n`;
   }
   prompt += '\n';
+
+  if (data.recentDecisions?.length) {
+    prompt += '## Recent Decisions (your last actions)\n';
+    for (const d of data.recentDecisions) {
+      const ago = Math.round((Date.now() - new Date(d.created_at).getTime()) / 60000);
+      const result = d.execution_result || 'not executed';
+      prompt += `  ${ago}m ago: ${d.pair} ${d.action} (conf ${d.confidence}) → ${result}\n`;
+      prompt += `    Reason: ${d.reasoning.slice(0, 150)}\n`;
+    }
+    prompt += '\n';
+  }
 
   if (data.regime) {
     prompt += `## Market Regime Persona & Override\n`;

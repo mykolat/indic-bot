@@ -32,6 +32,27 @@ describe('buildUserPrompt', () => {
         expect(prompt).toContain('DO NOT close this position unless SL is hit');
     });
 
+    it('includes recent decisions in prompt', () => {
+        const data: EnrichedPromptData = {
+            snapshots: [],
+            indicators: new Map(),
+            portfolio: { balanceUsd: 178, availableUsd: 178, sessionPnl: -6, positions: [] },
+            signals: [], news: [],
+            fearGreed: { value: 18, label: 'Extreme Fear' },
+            recentDecisions: [{
+                pair: 'ADAUSDT', action: 'SHORT', confidence: 58,
+                reasoning: 'ADA bearish alignment on 1h and 4h',
+                execution_result: 'ORDER_FAIL: Precision is over the maximum',
+                created_at: new Date(Date.now() - 600000).toISOString(),
+            }],
+        };
+
+        const prompt = buildUserPrompt(data);
+        expect(prompt).toContain('Recent Decisions');
+        expect(prompt).toContain('ADAUSDT SHORT');
+        expect(prompt).toContain('ORDER_FAIL');
+    });
+
     it('handles string sl_price/tp_price from DB without crashing', () => {
         const data: EnrichedPromptData = {
             snapshots: [{ pair: 'ADAUSDT', markPrice: '0.27', volume24h: 1000, priceChangePercent: -2, candles1h: [], candles15m: [], fundingRate: '0.0001', openInterest: '1000', longShortRatio: 1.0, orderBookBidPct: 50, orderBookAskPct: 50 }] as any,
