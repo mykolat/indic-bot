@@ -21,9 +21,15 @@ export interface OrderResult {
 
 export class OrderExecutor {
   private stepDecimals: Map<string, number>;
+  private priceDecimals: Map<string, number>;
 
-  constructor(private client: any, stepDecimals?: Map<string, number>) {
+  constructor(
+    private client: any,
+    stepDecimals?: Map<string, number>,
+    priceDecimals?: Map<string, number>,
+  ) {
     this.stepDecimals = stepDecimals ?? new Map();
+    this.priceDecimals = priceDecimals ?? new Map();
   }
 
   async execute(decision: TradeDecision, balanceUsd: number): Promise<OrderResult> {
@@ -75,7 +81,7 @@ export class OrderExecutor {
           side: closeSide,
           algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          triggerPrice: String(this.roundPrice(stopPrice)),
+          triggerPrice: this.formatPrice(stopPrice, decision.pair),
           closePosition: 'true',
         });
       } catch (slErr: any) {
@@ -104,7 +110,7 @@ export class OrderExecutor {
           side: closeSide,
           algoType: 'CONDITIONAL',
           type: 'TAKE_PROFIT_MARKET',
-          triggerPrice: String(this.roundPrice(tpPrice)),
+          triggerPrice: this.formatPrice(tpPrice, decision.pair),
           closePosition: 'true',
         });
       } catch (tpErr: any) {
@@ -172,7 +178,7 @@ export class OrderExecutor {
         side: closeSide,
         algoType: 'CONDITIONAL',
         type: 'STOP_MARKET',
-        triggerPrice: String(this.roundPrice(newSlPrice)),
+        triggerPrice: this.formatPrice(newSlPrice, pair),
         closePosition: 'true',
       });
 
@@ -183,7 +189,7 @@ export class OrderExecutor {
           side: closeSide,
           algoType: 'CONDITIONAL',
           type: 'TAKE_PROFIT_MARKET',
-          triggerPrice: String(this.roundPrice(newTpPrice)),
+          triggerPrice: this.formatPrice(newTpPrice, pair),
           closePosition: 'true',
         });
       } catch (tpErr: any) {
@@ -204,7 +210,10 @@ export class OrderExecutor {
     return Math.floor(qty * 10 ** decimals) / 10 ** decimals;
   }
 
-  private roundPrice(price: number): number {
-    return Math.round(price * 100) / 100;
+  private formatPrice(price: number, pair: string): string {
+    const decimals = this.priceDecimals.get(pair) ?? 2;
+    const factor = 10 ** decimals;
+    const rounded = Math.round(price * factor) / factor;
+    return decimals > 0 ? rounded.toFixed(decimals) : String(rounded);
   }
 }

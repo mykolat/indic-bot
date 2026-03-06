@@ -276,4 +276,82 @@ describe('OrderExecutor', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Insufficient margin');
   });
+
+  describe('roundPrice per-pair precision', () => {
+    it('rounds DOGEUSDT SL/TP to 5dp (tickSize 0.00001)', async () => {
+      const priceDecimals = new Map([['DOGEUSDT', 5]]);
+      const stepDecimals = new Map([['DOGEUSDT', 0]]);
+      const exec = new OrderExecutor(mockClient, stepDecimals, priceDecimals);
+
+      mockClient.getSymbolPriceTicker.mockResolvedValue({ price: '0.17432' });
+      mockClient.submitNewOrder.mockResolvedValue({
+        orderId: 1, fills: [{ price: '0.17432', qty: '100' }],
+      });
+      mockClient.submitNewAlgoOrder.mockResolvedValue({});
+
+      const decision: TradeDecision = {
+        pair: 'DOGEUSDT', action: 'LONG', size_pct: 10,
+        leverage: 5, stop_loss_pct: 2, take_profit_pct: 5, reasoning: 'test',
+      };
+
+      await exec.execute(decision, 100);
+
+      const slPrice = mockClient.submitNewAlgoOrder.mock.calls[0][0].triggerPrice;
+      // 0.17432 * 0.98 = 0.1708336 → should round to 5dp: 0.17083
+      expect(slPrice).toBe('0.17083');
+
+      const tpPrice = mockClient.submitNewAlgoOrder.mock.calls[1][0].triggerPrice;
+      // 0.17432 * 1.05 = 0.183036 → should round to 5dp: 0.18304
+      expect(tpPrice).toBe('0.18304');
+    });
+
+    it('rounds ADAUSDT SL/TP to 4dp (tickSize 0.0001)', async () => {
+      const priceDecimals = new Map([['ADAUSDT', 4]]);
+      const stepDecimals = new Map([['ADAUSDT', 0]]);
+      const exec = new OrderExecutor(mockClient, stepDecimals, priceDecimals);
+
+      mockClient.getSymbolPriceTicker.mockResolvedValue({ price: '0.7523' });
+      mockClient.submitNewOrder.mockResolvedValue({
+        orderId: 1, fills: [{ price: '0.7523', qty: '50' }],
+      });
+      mockClient.submitNewAlgoOrder.mockResolvedValue({});
+
+      const decision: TradeDecision = {
+        pair: 'ADAUSDT', action: 'SHORT', size_pct: 10,
+        leverage: 5, stop_loss_pct: 2, take_profit_pct: 5, reasoning: 'test',
+      };
+
+      await exec.execute(decision, 100);
+
+      const slPrice = mockClient.submitNewAlgoOrder.mock.calls[0][0].triggerPrice;
+      // SHORT SL: 0.7523 * 1.02 = 0.767346 → 4dp: 0.7673
+      expect(slPrice).toBe('0.7673');
+
+      const tpPrice = mockClient.submitNewAlgoOrder.mock.calls[1][0].triggerPrice;
+      // SHORT TP: 0.7523 * 0.95 = 0.714685 → 4dp: 0.7147
+      expect(tpPrice).toBe('0.7147');
+    });
+
+    it('falls back to 2dp when pair not in priceDecimals map', async () => {
+      const priceDecimals = new Map<string, number>(); // empty
+      const exec = new OrderExecutor(mockClient, new Map(), priceDecimals);
+
+      mockClient.getSymbolPriceTicker.mockResolvedValue({ price: '50000' });
+      mockClient.submitNewOrder.mockResolvedValue({
+        orderId: 1, fills: [{ price: '50000', qty: '0.001' }],
+      });
+      mockClient.submitNewAlgoOrder.mockResolvedValue({});
+
+      const decision: TradeDecision = {
+        pair: 'BTCUSDT', action: 'LONG', size_pct: 10,
+        leverage: 5, stop_loss_pct: 2, take_profit_pct: 5, reasoning: 'test',
+      };
+
+      await exec.execute(decision, 1000);
+
+      const slPrice = mockClient.submitNewAlgoOrder.mock.calls[0][0].triggerPrice;
+      // 50000 * 0.98 = 49000 → 2dp fallback: "49000.00"
+      expect(slPrice).toBe('49000.00');
+    });
+  });
 });
