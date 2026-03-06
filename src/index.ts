@@ -35,6 +35,7 @@ import { DecisionJournal } from './logging/decision-journal.js';
 import { TradeStoryLogger } from './logging/trade-story.js';
 import { FlashCrashScanner } from './news/flash-crash.js';
 import { GrokClient } from './llm/grok-client.js';
+import { runGrokHealthCheck } from './utils/grok-startup.js';
 import { initPool, closePool } from './db/connection.js';
 import { insertSession, insertMarketSnapshot, getLatestMarketSnapshot } from './db/repository.js';
 import { Watchdog } from './watchdog.js';
@@ -179,7 +180,7 @@ async function main() {
   const rssFetcher = new RssNewsFetcher();
 
   // Instantiate Grok Grounder if API key is provided
-  const grokGrounder = process.env.XAI_API_KEY ? new GrokGrounder(process.env.XAI_API_KEY) : undefined;
+  const grokGrounder = config.xaiApiKey ? new GrokGrounder(config.xaiApiKey, sourceHealth) : undefined;
   if (grokGrounder) console.log('[Grok] xAI Grounder enabled for claim verification');
   else console.log('[Grok] No XAI_API_KEY — claim verification disabled');
 
@@ -189,15 +190,19 @@ async function main() {
     console.log(`Webhook server listening on :${config.webhook.port}`);
   });
 
-  const grokClient = process.env.XAI_API_KEY ? new GrokClient(process.env.XAI_API_KEY) : undefined;
+  const grokClient = config.xaiApiKey ? new GrokClient(config.xaiApiKey) : undefined;
+  if (grokClient) {
+    const healthy = await runGrokHealthCheck(grokClient);
+    if (!healthy) console.error('[Grok] WARNING: xAI API key invalid — Grok features will fail');
+  }
   const enableSwarm = process.env.ENABLE_SWARM !== 'false';
-  const swarmAgent = enableSwarm ? new SwarmAgent(llm, grokClient) : undefined;
+  const swarmAgent = enableSwarm ? new SwarmAgent(llm, grokClient, sourceHealth) : undefined;
   if (swarmAgent) console.log('[Swarm] SwarmAgent enabled (disable with ENABLE_SWARM=false)');
   if (swarmAgent && sessionId) {
     swarmAgent.sessionId = sessionId;
   }
 
-  const flashCrashScanner = grokClient ? new FlashCrashScanner(grokClient) : undefined;
+  const flashCrashScanner = grokClient ? new FlashCrashScanner(grokClient, sourceHealth) : undefined;
   if (flashCrashScanner) console.log('[FlashCrash] Scanner enabled (Grok)');
 
   const decisionJournal = new DecisionJournal('logs/decisions-journal.jsonl');
