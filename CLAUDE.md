@@ -169,7 +169,7 @@ pm2 flush indic-bot
 
 ### Observability Database (`src/db/`)
 
-**Supabase PostgreSQL** — unified telemetry store. 19 tables covering the full chain: prompt → decision → execution → P&L. Enabled via `SUPABASE_PASS` or `DATABASE_URL` env var.
+**Supabase PostgreSQL** — unified telemetry store. 19 tables covering the full chain: prompt → decision → execution → P&L. Enabled via `DATABASE_URL` env var.
 
 - `connection.ts` — PG pool via `pg` npm, `initPool()` / `closePool()`
 - `types.ts` — TypeScript interfaces matching all 19 tables
@@ -184,7 +184,7 @@ pm2 flush indic-bot
 
 **Key design:** `cycle_id` is the spine — every table links to a cycle. `conversation → decision → execution → close` provides full trade lifecycle traceability. JSONL files continue as backup (dual-write).
 
-**Requires:** `SUPABASE_PASS` env var (builds connection URL automatically) or `DATABASE_URL` for custom PG. Bot runs fine without either (graceful fallback, JSONL only).
+**Requires:** `DATABASE_URL` env var. Bot runs fine without it (graceful fallback, JSONL only).
 
 ## Infrastructure
 
@@ -208,7 +208,7 @@ pm2 flush indic-bot
 - **`NewsFetcher` interface** (`src/news/news-fetcher.ts`) — swap news sources without touching TradingLoop.
 - **Grok features** require `XAI_API_KEY` env var for FlashCrashScanner, DevilsAdvocate, SwarmAgent narrative_expert, GrokGrounder.
 - **Apify caching** — news fetchers check latest Apify dataset age before triggering new actor runs to avoid unnecessary costs.
-- **DB is required** — Watchdog writes market snapshots, Brain reads position contexts + watchdog summaries. Requires `SUPABASE_PASS` or `DATABASE_URL`. All DB writes are fire-and-forget with `.catch(() => {})`. Never crashes the bot.
+- **DB is required** — Watchdog writes market snapshots, Brain reads position contexts + watchdog summaries. Requires `DATABASE_URL`. All DB writes are fire-and-forget with `.catch(() => {})`. Never crashes the bot.
 - **`pg` npm** — direct PG connection pool (not Supabase JS client). Dashboard reads via Supabase REST API.
 
 **Fetch timeouts** (`src/utils/fetch-timeout.ts`): AbortController-based timeouts for all external API calls (15s Apify, 10s CoinGecko, 5s Fear&Greed).

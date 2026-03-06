@@ -84,10 +84,7 @@ export function loadConfig(): Config {
       secret: process.env.WEBHOOK_SECRET,
     },
     database: {
-      url: process.env.DATABASE_URL
-        || (process.env.SUPABASE_PASS
-          ? `postgresql://postgres.kyuyqfbjeopyysxeltxl:${process.env.SUPABASE_PASS}@aws-1-eu-central-1.pooler.supabase.com:6543/postgres`
-          : undefined),
+      url: process.env.DATABASE_URL,
     },
     apifyToken: process.env.APIFY_API_TOKEN,
     xaiApiKey: process.env.XAI_API_KEY,
