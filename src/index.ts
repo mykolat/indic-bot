@@ -278,6 +278,8 @@ async function main() {
       onAnomaly: (pair, type, detail) => {
         console.log(`[Watchdog] ANOMALY ${pair} ${type}: ${detail}`);
         logger.logError('WATCHDOG_ANOMALY', `${pair} ${type}: ${detail}`);
+        console.log(`[Watchdog] Waking Brain for anomaly: ${pair} ${type}`);
+        loop.runOnce().catch(err => console.error('[Watchdog] Brain wake failed:', err.message));
       },
     });
     watchdog.start(60_000);
