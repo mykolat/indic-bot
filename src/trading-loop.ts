@@ -128,9 +128,15 @@ export class TradingLoop {
 
     // Circuit breaker: skip cycle if Binance has been failing consecutively
     if (this.binanceCircuitBreaker.isOpen()) {
-      console.log(`[Loop] Binance circuit breaker open (${this.binanceCircuitBreaker.failureCount} consecutive failures) — skipping cycle`);
-      logger.logError('CIRCUIT_BREAKER_OPEN', `Skipping cycle — ${this.binanceCircuitBreaker.failureCount} consecutive Binance failures`);
+      const state = this.binanceCircuitBreaker.state;
+      console.log(`[Loop] Binance circuit breaker ${state} (${this.binanceCircuitBreaker.failureCount} consecutive failures) — skipping cycle`);
+      logger.logError('CIRCUIT_BREAKER_OPEN', `Skipping cycle — ${this.binanceCircuitBreaker.failureCount} consecutive Binance failures (${state})`);
       return;
+    }
+
+    // Log when probing after half-open recovery
+    if (this.binanceCircuitBreaker.state === 'half-open') {
+      console.log(`[Loop] Circuit breaker half-open — probing Binance with this cycle`);
     }
 
     if (this.deps.flashCrashScanner) {
