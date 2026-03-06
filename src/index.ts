@@ -35,10 +35,29 @@ import { DecisionJournal } from './logging/decision-journal.js';
 import { TradeStoryLogger } from './logging/trade-story.js';
 import { FlashCrashScanner } from './news/flash-crash.js';
 import { GrokClient } from './llm/grok-client.js';
+import { initPool, closePool } from './db/connection.js';
+import { insertSession, insertMarketSnapshot, getLatestMarketSnapshot } from './db/repository.js';
+import { Watchdog } from './watchdog.js';
 
 async function main() {
   const config = loadConfig();
   const logger = new Logger('logs');
+
+  // Initialize database if configured
+  let sessionId: string | undefined;
+  if (config.database.url) {
+    initPool(config.database.url);
+    console.log('[DB] PostgreSQL pool initialized');
+    try {
+      const yamlConfigSnapshot = { ...config.trading, pairs: config.trading.pairs };
+      sessionId = await insertSession({ start_balance: 0, config: yamlConfigSnapshot });
+      console.log(`[DB] Session started: ${sessionId}`);
+    } catch (err: any) {
+      console.error('[DB] Failed to create session:', err.message);
+    }
+  } else {
+    console.log('[DB] No DATABASE_URL — running without observability DB');
+  }
 
   const memory = new SessionMemory();
   const memState = memory.load();
@@ -57,7 +76,27 @@ async function main() {
   // Initialize components
   const binanceClient = createBinanceClient(config.binance);
   const marketData = new MarketDataFetcher(binanceClient);
-  const orders = new OrderExecutor(binanceClient);
+
+  // Load exchange info for quantity precision
+  let stepDecimals = new Map<string, number>();
+  try {
+    const info = await binanceClient.getExchangeInfo();
+    for (const sym of info.symbols) {
+      if (config.trading.pairs.includes(sym.symbol)) {
+        const lotFilter = sym.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+        if (lotFilter?.stepSize) {
+          const step = parseFloat(lotFilter.stepSize);
+          const dec = step >= 1 ? 0 : Math.round(-Math.log10(step));
+          stepDecimals.set(sym.symbol, dec);
+        }
+      }
+    }
+    console.log(`[Binance] Loaded stepSize for ${stepDecimals.size} pairs`);
+  } catch (e: any) {
+    console.warn(`[Binance] Failed to load exchangeInfo: ${e.message} — using defaults`);
+  }
+
+  const orders = new OrderExecutor(binanceClient, stepDecimals);
 
   // OpenAI auth: OAuth (default) or API key fallback
   let accessToken: string;
@@ -80,10 +119,16 @@ async function main() {
     fearGreedLeverageCap: config.trading.fearGreedLeverageCap,
   };
   const llm = new LLMClient(accessToken, config.openai.model, promptConfig);
+  if (sessionId) {
+    llm.sessionId = sessionId;
+  }
 
   const fallbackLlm = config.openai.apiKeyFallback
     ? new FallbackLLMClient(config.openai.apiKeyFallback, config.openai.fallbackModel)
     : undefined;
+  if (fallbackLlm && sessionId) {
+    fallbackLlm.sessionId = sessionId;
+  }
   if (fallbackLlm) {
     console.log(`[Fallback] Layer 2 enabled — ${config.openai.fallbackModel} (OPENAI_API_KEY_FALLBACK)`);
   } else {
@@ -92,6 +137,9 @@ async function main() {
 
   const memoryKeeper = new MemoryKeeper(join(process.env.HOME || '.', '.indic-bot'));
   const memoryReview = new MemoryReviewAgent({ llm, memoryKeeper });
+  if (sessionId) {
+    memoryReview.sessionId = sessionId;
+  }
   console.log('[Memory] MemoryKeeper + MemoryReview initialized');
 
   const newsCache = new NewsCache();
@@ -139,7 +187,12 @@ async function main() {
   });
 
   const grokClient = process.env.XAI_API_KEY ? new GrokClient(process.env.XAI_API_KEY) : undefined;
-  const swarmAgent = new SwarmAgent(llm, grokClient);
+  const enableSwarm = process.env.ENABLE_SWARM !== 'false';
+  const swarmAgent = enableSwarm ? new SwarmAgent(llm, grokClient) : undefined;
+  if (swarmAgent) console.log('[Swarm] SwarmAgent enabled (disable with ENABLE_SWARM=false)');
+  if (swarmAgent && sessionId) {
+    swarmAgent.sessionId = sessionId;
+  }
 
   const flashCrashScanner = grokClient ? new FlashCrashScanner(grokClient) : undefined;
   if (flashCrashScanner) console.log('[FlashCrash] Scanner enabled (Grok)');
@@ -198,7 +251,26 @@ async function main() {
     flashCrashScanner,
     decisionJournal,
     tradeStoryLogger,
+    sessionId,
   });
+
+  // Start Watchdog (1-min snapshots into DB)
+  let watchdog: Watchdog | undefined;
+  if (sessionId) {
+    watchdog = new Watchdog({
+      pairs: config.trading.pairs,
+      marketData,
+      sessionId,
+      insertSnapshot: insertMarketSnapshot,
+      getLatestSnapshot: getLatestMarketSnapshot,
+      onAnomaly: (pair, type, detail) => {
+        console.log(`[Watchdog] ANOMALY ${pair} ${type}: ${detail}`);
+        logger.logError('WATCHDOG_ANOMALY', `${pair} ${type}: ${detail}`);
+      },
+    });
+    watchdog.start(60_000);
+    console.log('[Watchdog] Started — 1-min market snapshots');
+  }
 
   // Run loop
   console.log('Starting trading loop...\n');
@@ -223,14 +295,29 @@ async function main() {
     const nextCheckMinutes = await loop.runOnce();
 
     // Dynamic interval: LLM suggests next check, fallback to config default
+    const minBrainMs = 10 * 60_000; // 10 min minimum for Brain without positions
+    const hasPositions = loop.hasOpenPositions?.() ?? false;
+    const effectiveMin = hasPositions ? defaultIntervalMs : minBrainMs;
     const nextMs = nextCheckMinutes
-      ? Math.max(nextCheckMinutes * 60_000, defaultIntervalMs)
-      : defaultIntervalMs;
+      ? Math.max(nextCheckMinutes * 60_000, effectiveMin)
+      : effectiveMin;
     setTimeout(runCycle, nextMs);
   };
 
   // Run first cycle immediately
   await runCycle();
+
+  // Graceful shutdown
+  process.on('SIGTERM', async () => {
+    console.log('[Bot] SIGTERM received — shutting down...');
+    watchdog?.stop();
+    if (sessionId) {
+      const { endSession } = await import('./db/repository.js');
+      await endSession(sessionId);
+    }
+    await closePool();
+    process.exit(0);
+  });
 }
 
 main().catch((err) => {

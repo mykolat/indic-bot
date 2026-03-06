@@ -5,10 +5,17 @@ export interface OrderResult {
   orderId?: number;
   error?: string;
   fillPrice?: number;
+  slPrice?: number;
+  tpPrice?: number;
+  quantity?: number;
 }
 
 export class OrderExecutor {
-  constructor(private client: any) { }
+  private stepDecimals: Map<string, number>;
+
+  constructor(private client: any, stepDecimals?: Map<string, number>) {
+    this.stepDecimals = stepDecimals ?? new Map();
+  }
 
   async execute(decision: TradeDecision, balanceUsd: number): Promise<OrderResult> {
     try {
@@ -54,11 +61,12 @@ export class OrderExecutor {
 
       // Stop-Loss (MANDATORY — fail = cancel trade)
       try {
-        await this.client.submitNewOrder({
+        await this.client.submitNewAlgoOrder({
           symbol: decision.pair,
           side: closeSide,
+          algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          stopPrice: String(this.roundPrice(stopPrice)),
+          triggerPrice: String(this.roundPrice(stopPrice)),
           closePosition: 'true',
         });
       } catch (slErr: any) {
@@ -82,18 +90,19 @@ export class OrderExecutor {
       }
 
       try {
-        await this.client.submitNewOrder({
+        await this.client.submitNewAlgoOrder({
           symbol: decision.pair,
           side: closeSide,
+          algoType: 'CONDITIONAL',
           type: 'TAKE_PROFIT_MARKET',
-          stopPrice: String(this.roundPrice(tpPrice)),
+          triggerPrice: String(this.roundPrice(tpPrice)),
           closePosition: 'true',
         });
       } catch (tpErr: any) {
         console.error(`[Orders] TP placement failed for ${decision.pair}: ${tpErr.message}`);
       }
 
-      return { success: true, orderId: order.orderId };
+      return { success: true, orderId: order.orderId, fillPrice, slPrice: stopPrice, tpPrice, quantity };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -102,6 +111,13 @@ export class OrderExecutor {
   async close(pair: string, side: 'LONG' | 'SHORT'): Promise<OrderResult> {
     try {
       const closeSide = side === 'LONG' ? 'SELL' : 'BUY';
+
+      // Cancel orphaned algo orders (SL/TP) to prevent them firing on future positions
+      try {
+        await this.client.cancelAllAlgoOpenOrders({ symbol: pair });
+      } catch {
+        // Ignore — may have no algo orders to cancel
+      }
 
       // Fetch exact position size from Binance to avoid precision errors
       const positions = await this.client.getPositions({ symbol: pair });
@@ -125,7 +141,8 @@ export class OrderExecutor {
   }
 
   private roundQuantity(qty: number, pair: string): number {
-    const decimals = pair.includes('BTC') ? 3 : pair.includes('ETH') ? 2 : 1;
+    const decimals = this.stepDecimals.get(pair)
+      ?? (pair.includes('BTC') ? 3 : pair.includes('ETH') ? 2 : 1);
     return Math.floor(qty * 10 ** decimals) / 10 ** decimals;
   }
 

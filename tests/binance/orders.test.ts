@@ -16,6 +16,11 @@ describe('OrderExecutor', () => {
         side: 'BUY',
         type: 'MARKET',
       }),
+      submitNewAlgoOrder: vi.fn().mockResolvedValue({
+        algoId: 'algo_789',
+        success: true,
+      }),
+      cancelAllAlgoOpenOrders: vi.fn().mockResolvedValue({ code: '000000' }),
       getSymbolPriceTicker: vi.fn().mockResolvedValue({ symbol: 'BTCUSDT', price: '50000.00' }),
       getPositions: vi.fn().mockResolvedValue([
         { symbol: 'BTCUSDT', positionAmt: '0.001' },
@@ -24,7 +29,7 @@ describe('OrderExecutor', () => {
     executor = new OrderExecutor(mockClient);
   });
 
-  it('opens a LONG position with market order + stop-loss + take-profit', async () => {
+  it('opens a LONG position with market order + algo stop-loss + algo take-profit', async () => {
     const decision: TradeDecision = {
       pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
       leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
@@ -33,18 +38,21 @@ describe('OrderExecutor', () => {
     const result = await executor.execute(decision, 10);
 
     expect(mockClient.setLeverage).toHaveBeenCalledWith({ symbol: 'BTCUSDT', leverage: 10 });
-    expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(3);
+    expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(1); // entry only
+    expect(mockClient.submitNewAlgoOrder).toHaveBeenCalledTimes(2); // SL + TP
     expect(result.success).toBe(true);
 
-    const stopCall = mockClient.submitNewOrder.mock.calls[1][0];
+    const stopCall = mockClient.submitNewAlgoOrder.mock.calls[0][0];
+    expect(stopCall.algoType).toBe('CONDITIONAL');
     expect(stopCall.type).toBe('STOP_MARKET');
+    expect(stopCall.triggerPrice).toBeDefined();
     expect(stopCall.closePosition).toBe('true');
-    expect(stopCall.reduceOnly).toBeUndefined();
 
-    const tpCall = mockClient.submitNewOrder.mock.calls[2][0];
+    const tpCall = mockClient.submitNewAlgoOrder.mock.calls[1][0];
+    expect(tpCall.algoType).toBe('CONDITIONAL');
     expect(tpCall.type).toBe('TAKE_PROFIT_MARKET');
+    expect(tpCall.triggerPrice).toBeDefined();
     expect(tpCall.closePosition).toBe('true');
-    expect(tpCall.reduceOnly).toBeUndefined();
   });
 
   it('stop price is below entry for LONG, above for SHORT', async () => {
@@ -53,18 +61,18 @@ describe('OrderExecutor', () => {
       leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
     };
     await executor.execute(longDecision, 10);
-    const stopCall = mockClient.submitNewOrder.mock.calls[1][0];
-    expect(parseFloat(stopCall.stopPrice)).toBeLessThan(50000);
+    const stopCall = mockClient.submitNewAlgoOrder.mock.calls[0][0];
+    expect(parseFloat(stopCall.triggerPrice)).toBeLessThan(50000);
 
-    mockClient.submitNewOrder.mockClear();
+    mockClient.submitNewAlgoOrder.mockClear();
 
     const shortDecision: TradeDecision = {
       pair: 'BTCUSDT', action: 'SHORT', size_pct: 20,
       leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
     };
     await executor.execute(shortDecision, 10);
-    const shortStopCall = mockClient.submitNewOrder.mock.calls[1][0];
-    expect(parseFloat(shortStopCall.stopPrice)).toBeGreaterThan(50000);
+    const shortStopCall = mockClient.submitNewAlgoOrder.mock.calls[0][0];
+    expect(parseFloat(shortStopCall.triggerPrice)).toBeGreaterThan(50000);
   });
 
   it('take-profit price is above entry for LONG', async () => {
@@ -73,8 +81,8 @@ describe('OrderExecutor', () => {
       leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
     };
     await executor.execute(decision, 10);
-    const tpCall = mockClient.submitNewOrder.mock.calls[2][0];
-    expect(parseFloat(tpCall.stopPrice)).toBeGreaterThan(50000);
+    const tpCall = mockClient.submitNewAlgoOrder.mock.calls[1][0];
+    expect(parseFloat(tpCall.triggerPrice)).toBeGreaterThan(50000);
   });
 
   it('opens a SHORT position', async () => {
@@ -89,8 +97,9 @@ describe('OrderExecutor', () => {
     expect(result.success).toBe(true);
   });
 
-  it('closes a position', async () => {
+  it('closes a position and cancels algo orders', async () => {
     const result = await executor.close('BTCUSDT', 'LONG');
+    expect(mockClient.cancelAllAlgoOpenOrders).toHaveBeenCalledWith({ symbol: 'BTCUSDT' });
     expect(mockClient.getPositions).toHaveBeenCalledWith({ symbol: 'BTCUSDT' });
     expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(1);
     const call = mockClient.submitNewOrder.mock.calls[0][0];
@@ -98,14 +107,15 @@ describe('OrderExecutor', () => {
     expect(result.success).toBe(true);
   });
 
-  it('closes position if SL placement fails', async () => {
-    let callCount = 0;
-    mockClient.submitNewOrder = vi.fn().mockImplementation(async (params: any) => {
-      callCount++;
-      if (callCount === 1) return { orderId: 1 }; // entry OK
-      if (callCount === 2) throw new Error('SL rejected'); // SL fails
-      return { orderId: 3 }; // close position
-    });
+  it('close succeeds even if cancelAllAlgoOpenOrders fails', async () => {
+    mockClient.cancelAllAlgoOpenOrders.mockRejectedValue(new Error('No algo orders'));
+
+    const result = await executor.close('BTCUSDT', 'LONG');
+    expect(result.success).toBe(true);
+  });
+
+  it('closes position if SL algo placement fails', async () => {
+    mockClient.submitNewAlgoOrder = vi.fn().mockRejectedValueOnce(new Error('SL rejected'));
     mockClient.getPositions = vi.fn().mockResolvedValue([
       { symbol: 'BTCUSDT', positionAmt: '0.001' },
     ]);
@@ -119,18 +129,16 @@ describe('OrderExecutor', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('SL');
-    // Should have called submitNewOrder 3 times: entry, SL (fail), close
-    expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(3);
+    // entry (submitNewOrder) + close (submitNewOrder) = 2
+    expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(2);
+    // SL attempt (submitNewAlgoOrder) = 1
+    expect(mockClient.submitNewAlgoOrder).toHaveBeenCalledTimes(1);
   });
 
   it('succeeds if only TP fails (SL is set)', async () => {
-    let callCount = 0;
-    mockClient.submitNewOrder = vi.fn().mockImplementation(async () => {
-      callCount++;
-      if (callCount === 1) return { orderId: 1 }; // entry
-      if (callCount === 2) return { orderId: 2 }; // SL OK
-      throw new Error('TP rejected'); // TP fails
-    });
+    mockClient.submitNewAlgoOrder = vi.fn()
+      .mockResolvedValueOnce({ algoId: 'sl_ok' }) // SL OK
+      .mockRejectedValueOnce(new Error('TP rejected')); // TP fails
 
     const decision: TradeDecision = {
       pair: 'BTCUSDT', action: 'LONG', size_pct: 10,
@@ -140,6 +148,57 @@ describe('OrderExecutor', () => {
     const result = await executor.execute(decision, 10000);
 
     expect(result.success).toBe(true); // TP failure is non-fatal
+  });
+
+  it('execute returns fillPrice, slPrice, tpPrice on success', async () => {
+    const decision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'LONG' as const, size_pct: 10, leverage: 5,
+      stop_loss_pct: 2, take_profit_pct: 5, reasoning: 'test', confidence: 80,
+    };
+
+    mockClient.getSymbolPriceTicker.mockResolvedValue({ price: '70000' });
+    mockClient.setLeverage.mockResolvedValue({});
+    mockClient.submitNewOrder.mockResolvedValue({
+      orderId: 123,
+      fills: [{ price: '70000', qty: '0.01' }],
+    });
+    mockClient.submitNewAlgoOrder.mockResolvedValue({});
+
+    const result = await executor.execute(decision, 1000);
+
+    expect(result.success).toBe(true);
+    expect(result.fillPrice).toBeCloseTo(70000);
+    expect(result.slPrice).toBeCloseTo(70000 * 0.98);
+    expect(result.tpPrice).toBeCloseTo(70000 * 1.05);
+    expect(result.quantity).toBeGreaterThan(0);
+  });
+
+  it('rounds quantity to pair stepSize (ADA stepSize=1 → integer)', async () => {
+    mockClient.getSymbolPriceTicker.mockResolvedValue({ price: '0.27' });
+    mockClient.submitNewOrder.mockResolvedValue({ orderId: 999, fills: [{ price: '0.27', qty: '155' }] });
+    mockClient.submitNewAlgoOrder.mockResolvedValue({});
+
+    const executor2 = new OrderExecutor(mockClient, new Map([['ADAUSDT', 0]]));
+    const decision: TradeDecision = {
+      pair: 'ADAUSDT', action: 'SHORT', size_pct: 12,
+      leverage: 5, stop_loss_pct: 2.2, take_profit_pct: 5.8, reasoning: 'test',
+    };
+
+    const result = await executor2.execute(decision, 178);
+    const qty = parseFloat(mockClient.submitNewOrder.mock.calls[0][0].quantity);
+    expect(qty).toBe(Math.floor(qty)); // must be integer for ADA
+    expect(result.success).toBe(true);
+  });
+
+  it('falls back to hardcoded precision if stepSize map empty', async () => {
+    const executor2 = new OrderExecutor(mockClient);
+    const decision: TradeDecision = {
+      pair: 'SOLUSDT', action: 'LONG', size_pct: 20,
+      leverage: 5, stop_loss_pct: 2, take_profit_pct: 5, reasoning: 'test',
+    };
+
+    const result = await executor2.execute(decision, 100);
+    expect(result.success).toBe(true);
   });
 
   it('returns error on API failure', async () => {
