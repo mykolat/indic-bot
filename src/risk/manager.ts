@@ -18,6 +18,8 @@ export interface Position {
   entryPrice: number;        // from Binance p.entryPrice
   unrealizedPnlPct: number;  // signed % of margin (e.g. -2.4 or +8.1)
   heldHours: number;         // hours since position opened
+  marginUsd?: number;        // notional / leverage
+  unrealizedPnlUsd?: number; // raw unrealized profit in USD
 }
 
 export interface PortfolioState {
@@ -26,6 +28,10 @@ export interface PortfolioState {
   positions: Position[];
   sessionPnl: number;
   drawdownPct: number;
+  marginBalanceUsd?: number;
+  totalUnrealizedPnlUsd?: number;
+  bnbBalance?: number;
+  totalAccountValueUsd?: number;
 }
 
 export interface ValidationResult {

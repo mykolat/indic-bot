@@ -35,6 +35,10 @@ describe('MarketDataFetcher', () => {
       getBalance: vi.fn().mockResolvedValue([
         { asset: 'USDT', balance: '10.00', availableBalance: '10.00' },
       ]),
+      getAccountInformation: vi.fn().mockResolvedValue({
+        totalMarginBalance: '10',
+        totalUnrealizedProfit: '0',
+      }),
     };
     fetcher = new MarketDataFetcher(mockClient);
   });
@@ -73,5 +77,116 @@ describe('MarketDataFetcher', () => {
     expect(snapshot.orderBookBidPct).toBeGreaterThan(0);
     expect(snapshot.orderBookAskPct).toBeGreaterThan(0);
     expect(snapshot.orderBookBidPct + snapshot.orderBookAskPct).toBeCloseTo(100, 0);
+  });
+});
+
+describe('MarketDataFetcher.getQuickSnapshot', () => {
+  it('fetches only price, OI, funding, lsRatio, orderBook — no candles', async () => {
+    const mockClient = {
+      getMarkPrice: vi.fn().mockResolvedValue({ markPrice: '70000' }),
+      getOpenInterest: vi.fn().mockResolvedValue({ openInterest: '50000' }),
+      getFundingRateHistory: vi.fn().mockResolvedValue([{ fundingRate: '0.0001', fundingTime: Date.now() }]),
+      getTopTradersLongShortAccountRatio: vi.fn().mockResolvedValue([{ longShortRatio: '1.2' }]),
+      getOrderBook: vi.fn().mockResolvedValue({
+        bids: [['70000', '10']],
+        asks: [['70100', '8']],
+      }),
+      getKlines: vi.fn(),
+    };
+
+    const fetcher = new MarketDataFetcher(mockClient);
+    const snap = await fetcher.getQuickSnapshot('BTCUSDT');
+
+    expect(snap.pair).toBe('BTCUSDT');
+    expect(snap.markPrice).toBe('70000');
+    expect(snap.openInterest).toBe('50000');
+    expect(snap.fundingRate).toBe('0.0001');
+    expect(snap.longShortRatio).toBeCloseTo(1.2);
+    expect(snap.orderBookBidPct).toBeGreaterThan(50); // 10 vs 8
+    expect(mockClient.getKlines).not.toHaveBeenCalled();
+  });
+
+  it('handles API failures gracefully with defaults', async () => {
+    const mockClient = {
+      getMarkPrice: vi.fn().mockRejectedValue(new Error('timeout')),
+      getOpenInterest: vi.fn().mockRejectedValue(new Error('timeout')),
+      getFundingRateHistory: vi.fn().mockRejectedValue(new Error('timeout')),
+      getTopTradersLongShortAccountRatio: vi.fn().mockRejectedValue(new Error('timeout')),
+      getOrderBook: vi.fn().mockRejectedValue(new Error('timeout')),
+    };
+
+    const fetcher = new MarketDataFetcher(mockClient);
+    const snap = await fetcher.getQuickSnapshot('BTCUSDT');
+
+    expect(snap.markPrice).toBe('0');
+    expect(snap.openInterest).toBe('0');
+    expect(snap.longShortRatio).toBeNull();
+    expect(snap.orderBookBidPct).toBe(50);
+  });
+});
+
+describe('getPortfolioState extended fields', () => {
+  it('includes marginUsd and unrealizedPnlUsd per position', async () => {
+    const mockClient = {
+      getBalance: vi.fn().mockResolvedValue([
+        { asset: 'USDT', balance: '1000', availableBalance: '800' },
+      ]),
+      getPositions: vi.fn().mockResolvedValue([
+        { symbol: 'BTCUSDT', positionAmt: '0.01', notional: '500', leverage: '10', entryPrice: '50000', unRealizedProfit: '25', updateTime: String(Date.now() - 3600000) },
+      ]),
+      getAccountInformation: vi.fn().mockResolvedValue({
+        totalMarginBalance: '1050',
+        totalUnrealizedProfit: '25',
+      }),
+      getMarkPrice: vi.fn().mockResolvedValue({ markPrice: '0' }),
+    };
+    const fetcher = new MarketDataFetcher(mockClient);
+    const state = await fetcher.getPortfolioState();
+
+    expect(state.marginBalanceUsd).toBe(1050);
+    expect(state.totalUnrealizedPnlUsd).toBe(25);
+    expect(state.positions[0].marginUsd).toBeDefined();
+    expect(state.positions[0].unrealizedPnlUsd).toBe(25);
+  });
+
+  it('includes bnbBalance', async () => {
+    const mockClient = {
+      getBalance: vi.fn().mockResolvedValue([
+        { asset: 'USDT', balance: '1000', availableBalance: '800' },
+        { asset: 'BNB', balance: '0.5', availableBalance: '0.5' },
+      ]),
+      getPositions: vi.fn().mockResolvedValue([]),
+      getAccountInformation: vi.fn().mockResolvedValue({ totalMarginBalance: '1000', totalUnrealizedProfit: '0' }),
+      getMarkPrice: vi.fn().mockResolvedValue({ markPrice: '600' }),
+    };
+    const fetcher = new MarketDataFetcher(mockClient);
+    const state = await fetcher.getPortfolioState();
+
+    expect(state.bnbBalance).toBe(0.5);
+    expect(state.totalAccountValueUsd).toBeGreaterThan(1000);
+  });
+});
+
+describe('getTodayRealizedPnl', () => {
+  it('sums today realized PnL from income', async () => {
+    const mockClient = {
+      getIncome: vi.fn().mockResolvedValue([
+        { income: '15.5' },
+        { income: '-3.2' },
+        { income: '8.0' },
+      ]),
+    };
+    const fetcher = new MarketDataFetcher(mockClient);
+    const pnl = await fetcher.getTodayRealizedPnl();
+    expect(pnl).toBeCloseTo(20.3, 1);
+  });
+
+  it('returns 0 on error', async () => {
+    const mockClient = {
+      getIncome: vi.fn().mockRejectedValue(new Error('API error')),
+    };
+    const fetcher = new MarketDataFetcher(mockClient);
+    const pnl = await fetcher.getTodayRealizedPnl();
+    expect(pnl).toBe(0);
   });
 });

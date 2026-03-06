@@ -173,14 +173,20 @@ export class MarketDataFetcher {
   }
 
   async getPortfolioState(): Promise<PortfolioState> {
-    const [balances, positions] = await Promise.all([
+    const [balances, positions, accountInfo] = await Promise.all([
       this.client.getBalance(),
       this.client.getPositions(),
+      this.client.getAccountInformation().catch(() => null),
     ]);
 
     const usdtBalance = balances.find((b: any) => b.asset === 'USDT');
+    const bnbBalanceEntry = balances.find((b: any) => b.asset === 'BNB');
     const balanceUsd = usdtBalance ? parseFloat(usdtBalance.balance || usdtBalance.walletBalance || '0') : 0;
-    const availableUsd = usdtBalance ? parseFloat(usdtBalance.availableBalance) : 0;
+    const availableUsd = usdtBalance ? parseFloat(usdtBalance.availableBalance || '0') : 0;
+    const bnbBalance = bnbBalanceEntry ? parseFloat(bnbBalanceEntry.balance || bnbBalanceEntry.walletBalance || '0') : 0;
+
+    const marginBalanceUsd = accountInfo ? parseFloat(accountInfo.totalMarginBalance || '0') : undefined;
+    const totalUnrealizedPnlUsd = accountInfo ? parseFloat(accountInfo.totalUnrealizedProfit || '0') : undefined;
 
     const openPositions: Position[] = positions
       .filter((p: any) => parseFloat(p.positionAmt) !== 0)
@@ -203,8 +209,19 @@ export class MarketDataFetcher {
           entryPrice: parseFloat(p.entryPrice || '0'),
           unrealizedPnlPct: parseFloat(unrealizedPnlPct.toFixed(2)),
           heldHours: parseFloat(heldHours.toFixed(1)),
+          marginUsd: parseFloat(margin.toFixed(2)),
+          unrealizedPnlUsd: parseFloat(unrealizedProfit.toFixed(2)),
         };
       });
+
+    let totalAccountValueUsd = balanceUsd;
+    for (const b of balances) {
+      if (b.asset === 'USDT' || parseFloat(b.balance || b.walletBalance || '0') === 0) continue;
+      try {
+        const ticker = await this.client.getMarkPrice({ symbol: `${b.asset}USDT` });
+        totalAccountValueUsd += parseFloat(b.balance || b.walletBalance || '0') * parseFloat(ticker.markPrice);
+      } catch { /* skip non-USDT assets without price */ }
+    }
 
     return {
       balanceUsd,
@@ -212,7 +229,26 @@ export class MarketDataFetcher {
       positions: openPositions,
       sessionPnl: 0,
       drawdownPct: 0,
+      marginBalanceUsd,
+      totalUnrealizedPnlUsd,
+      bnbBalance,
+      totalAccountValueUsd: parseFloat(totalAccountValueUsd.toFixed(2)),
     };
+  }
+
+  async getTodayRealizedPnl(): Promise<number> {
+    try {
+      const now = new Date();
+      const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const income = await this.client.getIncome({
+        incomeType: 'REALIZED_PNL',
+        startTime: todayUtc.getTime(),
+        limit: 1000,
+      });
+      return (income as any[]).reduce((sum, i) => sum + parseFloat(i.income || '0'), 0);
+    } catch {
+      return 0;
+    }
   }
 
   async getRecentCandles(pair: string, interval: string = '1m', limit: number = 5): Promise<CandleData[]> {
