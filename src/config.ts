@@ -19,6 +19,9 @@ export interface Config {
     port: number;
     secret: string | undefined;
   };
+  database: {
+    url: string | undefined;
+  };
   apifyToken: string | undefined;
   xaiApiKey: string | undefined;
   trading: {
@@ -79,6 +82,12 @@ export function loadConfig(): Config {
     webhook: {
       port: w.port ?? 3000,
       secret: process.env.WEBHOOK_SECRET,
+    },
+    database: {
+      url: process.env.DATABASE_URL
+        || (process.env.SUPABASE_PASS
+          ? `postgresql://postgres:${process.env.SUPABASE_PASS}@db.kyuyqfbjeopyysxeltxl.supabase.co:5432/postgres`
+          : undefined),
     },
     apifyToken: process.env.APIFY_API_TOKEN,
     xaiApiKey: process.env.XAI_API_KEY,
