@@ -69,6 +69,8 @@ interface TradingLoopDeps {
   memoryKeeper?: import('./memory/memory-keeper.js').MemoryKeeper;
   memoryReview?: import('./memory/memory-review.js').MemoryReviewAgent;
   episodicAgent?: import('./llm/episodic-agent.js').EpisodicAgent;
+  episodicStore?: import('./memory/episodic-store.js').EpisodicStore;
+  embeddingClient?: import('./llm/embedding-client.js').EmbeddingClient;
   rssFetcher?: NewsFetcher;
   grokGrounder?: import('./news/grok-grounder.js').GrokGrounder;
   sourceHealth?: import('./news/source-health.js').SourceHealthMonitor;
@@ -95,6 +97,40 @@ export class TradingLoop {
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
+  }
+
+  private saveEpisode(
+    pair: string,
+    side: string,
+    regime: string,
+    indicators: Map<string, import('./indicators/technical.js').Indicators>,
+    heldHours: number,
+    pnlPct: number,
+    reasoning: string,
+  ): void {
+    if (!this.deps.episodicStore || !this.deps.embeddingClient) return;
+    const ind = indicators.get(pair);
+    const summary = [
+      `Pair: ${pair}. Direction: ${side}.`,
+      `Regime: ${regime}.`,
+      `RSI: ${ind?.rsi?.toFixed(0) ?? '?'}. Volume: ${ind?.volumeRatio?.toFixed(1) ?? '?'}x.`,
+      `ADX: ${ind?.adx?.toFixed(0) ?? '?'}. Trend: ${ind?.trend ?? 'unknown'}.`,
+      `Held: ${heldHours.toFixed(1)}h. PnL: ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%.`,
+      `Reasoning: ${reasoning}`,
+    ].join(' ');
+
+    this.deps.embeddingClient.getEmbedding(summary)
+      .then(embedding => {
+        this.deps.episodicStore!.addEpisode({
+          id: `${pair}-${Date.now()}`,
+          timestamp: Date.now(),
+          textSummary: summary,
+          embedding,
+          resultPnl: pnlPct,
+        });
+        console.log(`[EpisodicRAG] Saved episode for ${pair} (PnL: ${pnlPct.toFixed(1)}%)`);
+      })
+      .catch(err => console.error('[EpisodicRAG] Failed:', err.message));
   }
 
   isShutdown(): boolean {
@@ -260,6 +296,7 @@ export class TradingLoop {
                 lesson: 'Auto-exit triggered to limit time risk.'
               });
             }
+            this.saveEpisode(pos.pair, pos.side, 'unknown', new Map(), pos.heldHours, pos.unrealizedPnlPct, closeReason);
           }
         }
       }
@@ -908,6 +945,7 @@ export class TradingLoop {
                   lesson: 'LLM managed exit'
                 });
               }
+              this.saveEpisode(decision.pair, pos.side, marketRegime, indicators, pos.heldHours, pos.unrealizedPnlPct, decision.reasoning);
             } else {
               logger.logError('ORDER_FAIL', result.error || 'Unknown error');
             }

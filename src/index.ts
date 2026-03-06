@@ -209,9 +209,11 @@ async function main() {
   const tradeStoryLogger = new TradeStoryLogger('logs/trade-stories.jsonl');
 
   let episodicAgent: EpisodicAgent | undefined;
+  let embeddingClient: EmbeddingClient | undefined;
+  let episodicStore: EpisodicStore | undefined;
   if (process.env.OPENAI_API_KEY_FALLBACK) {
-    const embeddingClient = new EmbeddingClient(process.env.OPENAI_API_KEY_FALLBACK);
-    const episodicStore = new EpisodicStore(join(process.env.DATA_DIR || './tmp', 'memory-graph.json'));
+    embeddingClient = new EmbeddingClient(process.env.OPENAI_API_KEY_FALLBACK);
+    episodicStore = new EpisodicStore(join(process.env.DATA_DIR || './tmp', 'memory-graph.json'));
     episodicAgent = new EpisodicAgent(embeddingClient, episodicStore);
     console.log('[Memory] Episodic RAG enabled (Graph DB)');
   } else {
@@ -225,6 +227,8 @@ async function main() {
     llm,
     swarmAgent,
     episodicAgent,
+    episodicStore,
+    embeddingClient,
     orders,
     riskManager,
     signalBuffer,
