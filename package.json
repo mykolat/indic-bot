@@ -14,7 +14,8 @@
     "audit:remote": "bash scripts/remote-audit.sh",
     "soul:insight": "tsx scripts/soul-insight.ts",
     "deploy": "bash scripts/deploy.sh",
-    "audit:md": "tsx scripts/audit-md.ts"
+    "audit:md": "tsx scripts/audit-md.ts",
+    "audit:db": "tsx scripts/audit-db.ts"
   },
   "keywords": [],
   "author": "",
