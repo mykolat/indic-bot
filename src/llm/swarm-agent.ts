@@ -182,7 +182,7 @@ export class SwarmAgent {
   sessionId: string | undefined;
   cycleId: number | undefined;
 
-  constructor(private llm: LLMClient, private grokLlm?: any) { }
+  constructor(private llm: LLMClient, private grokLlm?: any, private sourceHealth?: any) { }
 
   async getConsensus(data: EnrichedPromptData): Promise<TradeDecision[]> {
     const userPrompt = buildUserPrompt(data);
@@ -218,6 +218,7 @@ export class SwarmAgent {
       if (res.status === 'fulfilled') {
         rawTexts.push(res.value);
         expertOutputs.push(parseExpertOutput(res.value, personas[i]));
+        if (personas[i] === 'narrative_expert') this.sourceHealth?.recordSuccess('grok-narrative');
         if (this.sessionId) {
           const eo = expertOutputs[expertOutputs.length - 1];
           insertSwarmPersona({
@@ -231,6 +232,7 @@ export class SwarmAgent {
         }
       } else {
         console.warn(`[Swarm] Sub-agent ${personas[i]} failed:`, res.reason);
+        if (personas[i] === 'narrative_expert') this.sourceHealth?.recordFailure('grok-narrative', res.reason?.message ?? String(res.reason));
         rawTexts.push('');
         expertOutputs.push(null);
       }
