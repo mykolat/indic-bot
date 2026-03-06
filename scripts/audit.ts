@@ -48,6 +48,11 @@ const open = positions.filter((p: any) => parseFloat(p.positionAmt) !== 0);
 if (open.length === 0) {
   console.log('  No open positions.');
 } else {
+  let algoOrders: any[] = [];
+  try {
+    algoOrders = await client.getOpenAlgoOrders() as any[];
+  } catch { /* no algo orders */ }
+
   for (const p of open as any[]) {
     const side = parseFloat(p.positionAmt) > 0 ? 'LONG' : 'SHORT';
     const notional = Math.abs(parseFloat(p.notional));
@@ -64,6 +69,13 @@ if (open.length === 0) {
     row('  Notional', `$${notional.toFixed(2)}`);
     row('  Unrealized PnL', `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`);
     row('  Liquidation', `$${liqPrice.toFixed(2)}`);
+
+    const posAlgos = algoOrders.filter((o: any) => o.symbol === p.symbol);
+    const sl = posAlgos.find((o: any) => o.orderType === 'STOP_MARKET');
+    const tp = posAlgos.find((o: any) => o.orderType === 'TAKE_PROFIT_MARKET');
+    if (sl) row('  Stop-Loss', `$${parseFloat(sl.triggerPrice).toFixed(2)}`);
+    if (tp) row('  Take-Profit', `$${parseFloat(tp.triggerPrice).toFixed(2)}`);
+    if (!sl && !tp) row('  SL/TP', '⚠ No algo orders found');
   }
 }
 
@@ -174,6 +186,20 @@ try {
   row('Volume Req', `Must be > ${profile.volumeMin}x`);
   row('Confluence Req', `Must have >= ${profile.confluenceMin} factors`);
   row('Leverage Multiplier', `${profile.leverageMultiplier}x`);
+
+  // Show recent volume & confluence from performance logs
+  const recentPerf = perf.slice(-10).filter((p: any) => p.volumeRatio != null);
+  if (recentPerf.length > 0) {
+    console.log('\n  Recent volume & confluence (last cycles):');
+    for (const p of recentPerf) {
+      const ts = p.timestamp?.slice(11, 19) || '?';
+      const vol = p.volumeRatio?.toFixed(2) ?? '?';
+      const conf = p.confluence ?? '?';
+      const factors = p.confluenceFactors?.join(', ') || '-';
+      const reg = p.regime || '?';
+      console.log(`    ${ts}  vol=${vol}x  conf=${conf}/5 [${factors}]  regime=${reg}`);
+    }
+  }
 } catch (e: any) {
   console.log(`  Error loading Market Regime: ${e.message}`);
 }

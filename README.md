@@ -45,7 +45,7 @@ BINANCE_API_SECRET=
 BINANCE_TESTNET=true
 
 # LLM (uses OAuth by default, or provide key)
-OPENAI_MODEL=gpt-5.3-codex
+OPENAI_MODEL=gpt-5.4
 # OPENAI_API_KEY=sk-...
 
 # Optional news feed

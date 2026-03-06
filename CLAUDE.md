@@ -31,7 +31,16 @@ pm2 flush indic-bot
 
 **Entry point**: `src/index.ts` wires all components and starts the trading loop + Express webhook server.
 
-**Main loop** (`src/trading-loop.ts` → `TradingLoop.runOnce()`):
+**Dual-Loop Architecture:**
+
+**Watchdog** (`src/watchdog.ts` — 1 min, algorithmic):
+- Fetches lightweight market data (price, OI, funding, order book) via `getQuickSnapshot()` — no candles
+- Diffs against last DB snapshot — writes only when changed
+- Anomaly detection: price spike >2%/min, OI spike >10%
+- No LLM calls — pure algorithmic monitoring
+- Writes to `market_snapshots` table
+
+**Brain** (`src/trading-loop.ts` → `TradingLoop.runOnce()`) — min 10 min schedule (no positions) or config default (with positions):
 1. **Flash Crash Guard** — `FlashCrashScanner` (Grok) checks for market panic; if PANIC → abort cycle
 2. Fetch market snapshots for all pairs in parallel (`Promise.allSettled`)
 3. Get portfolio state + compute real sessionPnl from Binance balance delta
@@ -39,9 +48,11 @@ pm2 flush indic-bot
 5. Auto-exit stale positions (>8h <1% P&L) and max-hold (>24h)
 6. Refresh news cache if stale (CryptoPanic + RSS) + macro data (every 3h)
 7. **Graph RAG** — `EpisodicAgent` retrieves similar past episodes from `EpisodicStore`
-8. **Swarm or Single LLM** — if BTC volumeRatio > 1.5, `SwarmAgent` runs multi-persona consensus; otherwise single `LLMClient.analyze()`
-9. For each decision: churn cooldown → `DevilsAdvocate` veto check → `RiskManager.validate()` → `OrderExecutor.execute()`
-10. Log performance snapshot; every ~20 cycles trigger `MemoryReviewAgent`
+8. **Position Context** — SL/TP prices + entry thesis from DB visible in prompt; min hold time (10 min) prevents premature closes
+9. **Watchdog Summary** — aggregated market data from DB since last Brain cycle
+10. **Swarm or Single LLM** — if BTC volumeRatio > 1.5, `SwarmAgent` runs Multi-Agent Debate (5 personas + judge); otherwise single `LLMClient.analyze()`
+11. For each decision: min hold time check → churn cooldown → `RiskManager.validate()` → `OrderExecutor.execute()`
+12. Log performance snapshot; every ~20 cycles trigger `MemoryReviewAgent`
 
 **Config split** — two files, two purposes:
 - `.env` — secrets only (API keys). Never read directly; always via `loadConfig()`. Never modify or log.
@@ -56,10 +67,14 @@ pm2 flush indic-bot
 - `prompts.ts` — `buildSystemPrompt()` with comprehensive strategy. `buildEnrichedPrompt()` assembles all data + interpreted narratives.
 - `cot-schema.ts` — `MandatoryCoTChecklist` interface + `validateCoTChecklist()` enforcing structured reasoning fields (macro_risk_score, liquidation_sweep, order_book_imbalance, etc.)
 
-**Swarm Consensus** (`swarm-agent.ts`):
-- `SwarmAgent.getConsensus()` — parallel calls to 3 personas (permabull, permabear, paranoid_risk_manager) + optional 4th `narrative_expert` via Grok
-- Computes weighted consensus from all persona votes
+**Swarm Multi-Agent Debate** (`swarm-agent.ts`):
+- `SwarmAgent.getConsensus()` — Multi-Agent Debate with 5 personas: `risk_manager`, `bull_thesis`, `bear_thesis`, `market_structure`, `devils_advocate` + optional `narrative_expert` via Grok
+- Each expert outputs structured JSON (thesis, arguments, probability_of_success 0-100%, key_risks, confidence)
+- 3-stage pipeline: generate → critique → revise (revise only for high-stakes: >3% PnL or >30% balance)
+- Weighted judge aggregates by probability × confidence; Devil's Advocate risks get extra weight
+- Uses `buildExpertSystemPrompt()` (lightweight, no decisions format) — NOT `buildSystemPrompt()`
 - Triggered when BTC volumeRatio > 1.5
+- LLM calls: 6-7 (Phase 1) / 11-12 (Phase 2 critique) / 16-17 (Phase 3 revise)
 
 **Layer 1 Experts** (`agents.ts`):
 - `runLayer1Experts()` — 3 parallel LLM calls each cycle (NewsExpert, MacroExpert, MemoryExpert)
@@ -88,10 +103,6 @@ pm2 flush indic-bot
 - Hard guardrails: 4h trend confirmation, F&G leverage cap, session loss scaling, duplicate position check
 - Shutdown trigger: `sessionPnl <= -(maxLossPct% × balance)` or `-(maxLossUsd)` if pct=0
 - HOLD, CLOSE, FETCH_NEWS bypass all checks
-
-**DevilsAdvocate** (`devils-advocate.ts`):
-- Grok-powered pre-trade veto agent; searches X/Twitter for reasons NOT to enter trade
-- Returns `{ veto: boolean, reason?: string }`
 
 ### News & Macro System (`src/news/`)
 
@@ -164,8 +175,8 @@ pm2 flush indic-bot
 - `types.ts` — TypeScript interfaces matching all 19 tables
 - `repository.ts` — typed insert/query methods for every table + pgvector search
 
-**Tables (19):**
-- **Core:** `sessions`, `cycles`, `trade_decisions`, `trade_executions`, `trade_closes`, `risk_validations`
+**Tables (20):**
+- **Core:** `sessions`, `cycles`, `trade_decisions`, `trade_executions` (incl. `entry_thesis`), `trade_closes`, `risk_validations`, `market_snapshots`
 - **LLM:** `llm_conversations`, `swarm_personas`, `token_usage`
 - **Intelligence:** `news_articles`, `news_analyses`, `macro_snapshots`, `macro_analyses`
 - **Memory:** `episodic_memories` (pgvector), `trade_stories`, `memory_reviews`
@@ -197,7 +208,7 @@ pm2 flush indic-bot
 - **`NewsFetcher` interface** (`src/news/news-fetcher.ts`) — swap news sources without touching TradingLoop.
 - **Grok features** require `XAI_API_KEY` env var for FlashCrashScanner, DevilsAdvocate, SwarmAgent narrative_expert, GrokGrounder.
 - **Apify caching** — news fetchers check latest Apify dataset age before triggering new actor runs to avoid unnecessary costs.
-- **DB is optional** — bot works without `DATABASE_URL`/`SUPABASE_PASS`. All DB writes are fire-and-forget with `.catch(() => {})`. Never crashes the bot.
+- **DB is required** — Watchdog writes market snapshots, Brain reads position contexts + watchdog summaries. Requires `SUPABASE_PASS` or `DATABASE_URL`. All DB writes are fire-and-forget with `.catch(() => {})`. Never crashes the bot.
 - **`pg` npm** — direct PG connection pool (not Supabase JS client). Dashboard reads via Supabase REST API.
 
 **Fetch timeouts** (`src/utils/fetch-timeout.ts`): AbortController-based timeouts for all external API calls (15s Apify, 10s CoinGecko, 5s Fear&Greed).
@@ -208,8 +219,8 @@ pm2 flush indic-bot
 - ~~Shark Mode~~ — **DONE**. 5 regimes, filter profiles, regime classifier. See `src/market/`.
 - ~~Swarm Consensus~~ — **DONE**. Multi-persona parallel analysis. See `src/llm/swarm-agent.ts`.
 - ~~Graph RAG~~ — **DONE**. Episodic memory with embeddings. See `src/llm/episodic-agent.ts`.
-- ~~Grok Integration~~ — **DONE**. FlashCrashScanner, GrokGrounder, SwarmAgent narrative_expert wired. Note: `DevilsAdvocate` class exists at `src/risk/devils-advocate.ts` but is **not yet wired** into `TradingLoop` or `src/index.ts`.
+- ~~Grok Integration~~ — **DONE**. FlashCrashScanner, GrokGrounder, SwarmAgent narrative_expert wired. Devil's advocate functionality provided by SwarmAgent `devils_advocate` persona.
 - ~~Command Center Phase 1~~ — **DONE**. `RssNewsFetcher` and `GrokGrounder` both wired in `TradingLoop` (`rssFetcher`, `grokGrounder` deps). See `src/news/rss-fetcher.ts`, `src/news/grok-grounder.ts`, `docs/plans/2026-03-05-command-center-phase1-plan.md`.
 - `npm run audit:debug` — JSON mode for AI-driven self-healing audit. Debug scripts exist (`scripts/debug-decisions.ts`, `debug-orders.ts`, `debug-positions.ts`, `debug-trades.ts`) but the `audit:debug` npm command is **not yet added** to `package.json`. See `docs/plans/2026-03-04-audit-design.md`.
-- DevilsAdvocate pre-trade veto — class implemented at `src/risk/devils-advocate.ts` but **not yet wired** into `TradingLoop`. CLAUDE.md architecture section incorrectly lists it as active in the decision loop.
+- ~~DevilsAdvocate pre-trade veto~~ — **Removed**. Standalone class deleted; functionality covered by SwarmAgent `devils_advocate` persona.
 - ~~Observability DB~~ — **DONE**. 19 tables in Supabase PostgreSQL + pgvector. See `src/db/` and `docs/plans/2026-03-05-observability-db-design.md`.

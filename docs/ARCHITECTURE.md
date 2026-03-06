@@ -29,61 +29,87 @@ Data Layer (Market & Intelligence)
   ├─ Fear & Greed Index (alternative.me API)
   └─ Episodic Memory (EpisodicStore + EmbeddingClient for Graph RAG)
        │
-       ▼
-Grok Intelligence Guards (pre-cycle + pre-trade)
-  ├─ FlashCrashScanner (cycle start: PANIC/IGNORE guard)
-  ├─ DevilsAdvocate (pre-trade veto via X/Twitter search)
-  └─ GrokGrounder (fact-checks high-importance news)
-       │
-       ▼
-Prompt Builder & Context Injection
-  ├─ System constraints (strategy rules, confluence checklist)
-  ├─ Distilled Layer 1 Info (News & Macro summaries from Layer 1 Experts)
-  └─ Historical Trade Graph Context (similar past setups via EpisodicAgent)
-       │
-       ▼
-Intelligence Layer (Multi-Agent Swarm & Core)
-  ├─ Layer 1 Swarm Consensus (activated when BTC volumeRatio > 1.5)
-  │    ├─ Permabull Persona
-  │    ├─ Permabear Persona
-  │    ├─ Paranoid Risk Manager Persona
-  │    └─ Narrative Expert (GrokClient — optional 4th persona)
-  ├─ Layer 1 Single Agent (Core — normal operation)
-  ├─ Layer 2 FallbackLLM (gpt-4o-mini via OPENAI_API_KEY_FALLBACK — HOLD/CLOSE only)
-  └─ Layer 3 Rule-based (Emergency SL/TP; close all if sessionPnlPct < -5%)
-       │
-       ▼
-Risk Manager (src/risk/manager.ts)
-  ├─ Confidence check (min 55)
-  ├─ Leverage / position size limits & 4h trend confirmation
-  ├─ Fear & Greed cap / Session loss scaling
-  └─ Duplicate position & Max loss shutdown guardrails
-       │
-       ▼
-Order Executor (src/binance/orders.ts)
-  ├─ MARKET entry → STOP_MARKET SL → TAKE_PROFIT_MARKET TP
-  └─ CLOSE = MARKET reduceOnly with exact position size
-       │
-       ▼
-Observability (Dual-Write)
-  ├─ JSONL log files (logs/ directory — primary backup)
-  └─ Supabase PostgreSQL (src/db/ — 19 tables, optional, fire-and-forget)
+       ├───────────────────────────────────────────────────┐
+       ▼                                                   ▼
+Watchdog (1 min, algorithmic, src/watchdog.ts)        Brain (10-60 min, src/trading-loop.ts)
+  ├─ Fetch market data per pair                         │
+  ├─ Diff vs last DB snapshot                           ▼
+  ├─ Write to market_snapshots if changed          Grok Intelligence Guards (pre-cycle + pre-trade)
+  ├─ Anomaly detection (price/OI spikes)             ├─ FlashCrashScanner (PANIC → close all + abort)
+  └─ Writes to Supabase market_snapshots             ├─ DevilsAdvocate (pre-trade veto via X/Twitter)
+                                                     └─ GrokGrounder (fact-checks high-importance news)
+                                                          │
+                                                          ▼
+                                                    Prompt Builder & Context Injection
+                                                      ├─ System constraints (strategy rules, confluence)
+                                                      ├─ Distilled Layer 1 Info (News, Macro, Memory experts)
+                                                      ├─ Historical Trade Graph Context (EpisodicAgent RAG)
+                                                      ├─ Position Context from DB (SL/TP prices, entry thesis)
+                                                      └─ Watchdog Summary from DB (price/OI movement, SL status)
+                                                          │
+                                                          ▼
+                                                    Intelligence Layer (Multi-Agent Swarm & Core)
+                                                      ├─ Layer 1 Swarm Consensus (BTC volRatio > 1.5)
+                                                      │    ├─ Permabull, Permabear, Paranoid Risk Manager
+                                                      │    └─ Narrative Expert (GrokClient — optional)
+                                                      ├─ Layer 1 Single Agent (Core — normal operation)
+                                                      ├─ Layer 2 FallbackLLM (gpt-4o-mini — HOLD/CLOSE only)
+                                                      └─ Layer 3 Rule-based (close all if sessionPnlPct < -5%)
+                                                          │
+                                                          ▼
+                                                    Risk Manager + Min Hold Time
+                                                      ├─ Min hold time (10 min — blocks premature CLOSE)
+                                                      ├─ Confidence check (min 55)
+                                                      ├─ Leverage / position size / 4h trend confirmation
+                                                      ├─ Fear & Greed cap / Session loss scaling
+                                                      └─ Duplicate position & Max loss shutdown
+                                                          │
+                                                          ▼
+                                                    Order Executor (src/binance/orders.ts)
+                                                      ├─ MARKET entry → STOP_MARKET SL → TAKE_PROFIT_MARKET TP
+                                                      ├─ Returns fillPrice, slPrice, tpPrice → stored in DB
+                                                      └─ CLOSE = MARKET reduceOnly with exact position size
+                                                          │
+                                                          ▼
+                                                    Observability (Dual-Write)
+                                                      ├─ JSONL log files (logs/ directory — primary backup)
+                                                      └─ Supabase PostgreSQL (src/db/ — 20 tables)
 ```
 
-## Data Flow Per Cycle
+## Dual-Loop Architecture
 
-1. **Flash Crash Guard**: `FlashCrashScanner` (Grok) checks for market panic. If PANIC → abort cycle.
+The bot operates two independent loops in the same process:
+
+### Watchdog (1 min, algorithmic — `src/watchdog.ts`)
+
+- Fetches market data for all pairs every 60s via `Promise.allSettled`
+- Diffs against last DB snapshot per pair — writes only when data changed (price, OI, funding, candle, order book)
+- Anomaly detection: price spike >2%/min, OI spike >10% — logs warning
+- No LLM calls — pure algorithmic monitoring
+- Writes to `market_snapshots` table in Supabase
+
+### Brain (10-60 min, LLM — `src/trading-loop.ts`)
+
+The Brain is the original TradingLoop with enhanced context. Schedule: min 10 min without positions, config default with positions. LLM can suggest `next_check_minutes` (capped 1-30).
+
+**Data Flow Per Brain Cycle:**
+
+1. **Flash Crash Guard**: `FlashCrashScanner` (Grok) checks for market panic. If PANIC → close all positions and abort cycle.
 2. **Fetch**: Market snapshots for all pairs in parallel (`Promise.allSettled`).
 3. **Portfolio**: Get portfolio state; compute real `sessionPnl` from Binance balance delta.
 4. **Compute**: Technical indicators (1h + 4h).
 5. **Auto-exit**: Close stale positions (>8h with <1% P&L) and max-hold (>24h).
 6. **News & Macro Refresh**: Refresh news cache if stale (CryptoPanic + RSS); refresh macro data every 3h.
-7. **Memory Retrieval**: `EpisodicAgent` embeds current state, queries `EpisodicStore` via cosine similarity (threshold 0.7) to find past similar setups (Graph RAG).
-8. **LLM Execution (Swarm or Single)**:
-   - If BTC volumeRatio > 1.5: `SwarmAgent` runs 3 parallel personas + optional Grok narrative expert; computes weighted consensus.
-   - Otherwise: single `LLMClient.analyze()`.
-9. **Validate & Execute**: For each decision — churn cooldown → `RiskManager.validate()` → `OrderExecutor.execute()`. (`DevilsAdvocate` veto is implemented but not yet wired here.)
-10. **Log & Reflect**: Log performance snapshot; every ~20 cycles trigger `MemoryReviewAgent`.
+7. **Position Context**: Query `trade_executions` for open positions' SL/TP prices, entry thesis from DB.
+8. **Watchdog Summary**: Aggregate recent `market_snapshots` from DB — price movement, OI trend, SL/TP hit status.
+9. **Memory Retrieval**: `EpisodicAgent` embeds current state, queries `EpisodicStore` via cosine similarity (threshold 0.7) to find past similar setups (Graph RAG).
+10. **LLM Execution (Swarm or Single)**:
+    - If BTC volumeRatio > 1.5: `SwarmAgent` runs 3 parallel personas + optional Grok narrative expert; computes weighted consensus.
+    - Otherwise: single `LLMClient.analyze()`.
+    - LLM prompt includes: SL/TP levels + hit status, entry thesis, watchdog summary.
+11. **Min Hold Time**: CLOSE decisions blocked if position held < 10 minutes.
+12. **Validate & Execute**: For each decision — churn cooldown → `RiskManager.validate()` → `OrderExecutor.execute()`. Execution stores `fill_price`, `sl_price`, `tp_price`, `entry_thesis` in DB.
+13. **Log & Reflect**: Log performance snapshot; every ~20 cycles trigger `MemoryReviewAgent`.
 
 ## Risk Management
 
@@ -207,11 +233,11 @@ The bot maintains a persistent hybrid identity and memory system that spans flat
 
 ## Observability Database
 
-Supabase PostgreSQL unified telemetry store with 19 tables covering the full chain: prompt → decision → execution → P&L.
+Supabase PostgreSQL unified telemetry store with 20 tables covering the full chain: market snapshot → prompt → decision → execution → P&L.
 
 Files: `src/db/connection.ts`, `src/db/types.ts`, `src/db/repository.ts`
 
-### Table Groups (19 total)
+### Table Groups (20 total)
 
 | Group | Tables |
 |-------|--------|
@@ -220,13 +246,16 @@ Files: `src/db/connection.ts`, `src/db/types.ts`, `src/db/repository.ts`
 | Intelligence | `news_articles`, `news_analyses`, `macro_snapshots`, `macro_analyses` |
 | Memory | `episodic_memories` (pgvector), `trade_stories`, `memory_reviews` |
 | Observability | `errors`, `webhook_signals`, `indicator_snapshots` |
+| Watchdog | `market_snapshots` (diff-only writes, 7-day retention) |
 
 ### Key Design
 
-- `cycle_id` is the spine — every table links to a cycle.
+- `cycle_id` is the spine — every Brain cycle table links to a cycle.
+- `market_snapshots` is independent of cycles — written by Watchdog every minute when data changes.
+- `trade_executions` stores `fill_price`, `sl_price`, `tp_price`, `entry_thesis` — enables position context in LLM prompt.
 - Full trade lifecycle: `conversation → decision → execution → close`.
 - **Dual-write**: JSONL log files continue as backup alongside DB writes.
-- **DB is optional**: Bot runs fine without `DATABASE_URL`/`SUPABASE_PASS`. All DB writes are fire-and-forget with `.catch(() => {})`. Never crashes the bot.
+- **DB is required**: Watchdog and position context depend on DB. All DB writes are fire-and-forget with `.catch(() => {})`. Never crashes the bot.
 
 ## Logging
 
