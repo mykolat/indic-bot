@@ -502,7 +502,8 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
 
   // Portfolio
   prompt += '## Portfolio\n';
-  prompt += `Balance: $${data.portfolio.balanceUsd.toFixed(2)}\n`;
+  prompt += `Wallet Balance: $${data.portfolio.balanceUsd.toFixed(2)}\n`;
+  prompt += `Available (free): $${(data.portfolio.availableUsd ?? data.portfolio.balanceUsd).toFixed(2)}\n`;
   prompt += `Session PnL: $${data.portfolio.sessionPnl.toFixed(2)}\n`;
 
   if (data.portfolio.positions.length > 0) {

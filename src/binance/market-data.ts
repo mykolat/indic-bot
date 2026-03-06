@@ -38,6 +38,17 @@ export interface MarketSnapshot {
   liquidityProfile?: LiquidityProfile;
 }
 
+export interface QuickSnapshot {
+  pair: string;
+  markPrice: string;
+  openInterest: string;
+  fundingRate: string;
+  longShortRatio: number | null;
+  orderBookBidPct: number;
+  orderBookAskPct: number;
+  imbalancePct?: number;
+}
+
 export class MarketDataFetcher {
   constructor(private client: any) { }
 
@@ -115,6 +126,52 @@ export class MarketDataFetcher {
     };
   }
 
+  async getQuickSnapshot(pair: string): Promise<QuickSnapshot> {
+    const [markPriceData, oiData, fundingData, lsData, orderBook] =
+      await Promise.allSettled([
+        this.client.getMarkPrice({ symbol: pair }),
+        this.client.getOpenInterest({ symbol: pair }),
+        this.client.getFundingRateHistory({ symbol: pair, limit: 1 }),
+        this.client.getTopTradersLongShortAccountRatio({ symbol: pair, period: '5m', limit: 1 }),
+        this.client.getOrderBook({ symbol: pair, limit: 20 }),
+      ]);
+
+    const markPrice = markPriceData.status === 'fulfilled'
+      ? markPriceData.value.markPrice : '0';
+    const oi = oiData.status === 'fulfilled'
+      ? oiData.value.openInterest : '0';
+    const funding = fundingData.status === 'fulfilled' && fundingData.value[0]
+      ? fundingData.value[0].fundingRate : '0';
+    const lsRatio = lsData.status === 'fulfilled' && lsData.value[0]
+      ? parseFloat(lsData.value[0].longShortRatio) : null;
+
+    let bidPct = 50, askPct = 50;
+    let imbalancePct: number | undefined;
+    if (orderBook.status === 'fulfilled') {
+      const bids = orderBook.value.bids || [];
+      const asks = orderBook.value.asks || [];
+      const bidVol = bids.reduce((s: number, b: string[]) => s + parseFloat(b[1] || '0'), 0);
+      const askVol = asks.reduce((s: number, a: string[]) => s + parseFloat(a[1] || '0'), 0);
+      const total = bidVol + askVol;
+      if (total > 0) {
+        bidPct = Math.round((bidVol / total) * 100);
+        askPct = 100 - bidPct;
+        imbalancePct = Math.round(((bidVol - askVol) / total) * 100);
+      }
+    }
+
+    return {
+      pair,
+      markPrice,
+      openInterest: oi,
+      fundingRate: funding,
+      longShortRatio: lsRatio,
+      orderBookBidPct: bidPct,
+      orderBookAskPct: askPct,
+      imbalancePct,
+    };
+  }
+
   async getPortfolioState(): Promise<PortfolioState> {
     const [balances, positions] = await Promise.all([
       this.client.getBalance(),
@@ -122,7 +179,8 @@ export class MarketDataFetcher {
     ]);
 
     const usdtBalance = balances.find((b: any) => b.asset === 'USDT');
-    const balanceUsd = usdtBalance ? parseFloat(usdtBalance.availableBalance) : 0;
+    const balanceUsd = usdtBalance ? parseFloat(usdtBalance.balance || usdtBalance.walletBalance || '0') : 0;
+    const availableUsd = usdtBalance ? parseFloat(usdtBalance.availableBalance) : 0;
 
     const openPositions: Position[] = positions
       .filter((p: any) => parseFloat(p.positionAmt) !== 0)
@@ -150,6 +208,7 @@ export class MarketDataFetcher {
 
     return {
       balanceUsd,
+      availableUsd,
       positions: openPositions,
       sessionPnl: 0,
       drawdownPct: 0,

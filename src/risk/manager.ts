@@ -21,7 +21,8 @@ export interface Position {
 }
 
 export interface PortfolioState {
-  balanceUsd: number;
+  balanceUsd: number;      // walletBalance (total, incl. margin locked)
+  availableUsd: number;    // availableBalance (free to use)
   positions: Position[];
   sessionPnl: number;
   drawdownPct: number;
