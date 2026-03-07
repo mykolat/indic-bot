@@ -1,7 +1,89 @@
+import { useEffect, useState } from 'react';
+import { supabase } from '../lib/supabase';
+
+function MarketDataStats() {
+  const [stats24h, setStats24h] = useState<any>(null);
+  const [stats7d, setStats7d] = useState<any>(null);
+
+  useEffect(() => {
+    const compute = async (since: string) => {
+      const [cycles, closes] = await Promise.all([
+        supabase.from('cycles').select('regime, volume_ratio, fear_greed_value, confluence_score').gte('created_at', since),
+        supabase.from('trade_closes').select('pnl_usd, exit_reason').gte('closed_at', since),
+      ]);
+      const c = cycles.data ?? [];
+      const cl = closes.data ?? [];
+
+      const regimeCounts: Record<string, number> = {};
+      let totalVR = 0, totalFG = 0, vrCount = 0, fgCount = 0;
+      for (const cy of c) {
+        const r = cy.regime || 'Unknown';
+        regimeCounts[r] = (regimeCounts[r] ?? 0) + 1;
+        if (cy.volume_ratio != null) { totalVR += Number(cy.volume_ratio); vrCount++; }
+        if (cy.fear_greed_value != null) { totalFG += Number(cy.fear_greed_value); fgCount++; }
+      }
+      const topRegime = Object.entries(regimeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
+      const wins = cl.filter(x => Number(x.pnl_usd) > 0).length;
+      const totalPnl = cl.reduce((s, x) => s + Number(x.pnl_usd), 0);
+      return {
+        cycles: c.length,
+        trades: cl.length,
+        wins,
+        winRate: cl.length > 0 ? Math.round((wins / cl.length) * 100) : null,
+        totalPnl,
+        avgVR: vrCount > 0 ? (totalVR / vrCount).toFixed(2) : '—',
+        avgFG: fgCount > 0 ? Math.round(totalFG / fgCount) : null,
+        topRegime,
+      };
+    };
+
+    const now = new Date();
+    const since24h = new Date(now.getTime() - 24 * 3600_000).toISOString();
+    const since7d = new Date(now.getTime() - 7 * 24 * 3600_000).toISOString();
+    Promise.all([compute(since24h), compute(since7d)]).then(([s24, s7]) => {
+      setStats24h(s24);
+      setStats7d(s7);
+    });
+  }, []);
+
+  const Row = ({ label, v24, v7 }: { label: string; v24: any; v7: any }) => (
+    <tr className="border-b border-border/40 text-xs text-zinc-400">
+      <td className="py-2 pr-4 text-zinc-500">{label}</td>
+      <td className="py-2 pr-4 font-mono text-zinc-200">{v24 ?? '—'}</td>
+      <td className="py-2 font-mono text-zinc-200">{v7 ?? '—'}</td>
+    </tr>
+  );
+
+  return (
+    <section className="bg-surface-1 rounded-xl border border-border p-6">
+      <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-4">Market Data Stats</h2>
+      <table className="w-full">
+        <thead>
+          <tr className="text-zinc-600 text-xs uppercase tracking-wide text-left border-b border-border">
+            <th className="pb-2 pr-4">Metric</th>
+            <th className="pb-2 pr-4">Last 24h</th>
+            <th className="pb-2">Last 7d</th>
+          </tr>
+        </thead>
+        <tbody>
+          <Row label="Brain cycles" v24={stats24h?.cycles} v7={stats7d?.cycles} />
+          <Row label="Trades closed" v24={stats24h?.trades} v7={stats7d?.trades} />
+          <Row label="Win rate" v24={stats24h?.winRate != null ? `${stats24h.winRate}%` : '—'} v7={stats7d?.winRate != null ? `${stats7d.winRate}%` : '—'} />
+          <Row label="Total PnL" v24={stats24h?.totalPnl != null ? `$${stats24h.totalPnl.toFixed(2)}` : '—'} v7={stats7d?.totalPnl != null ? `$${stats7d.totalPnl.toFixed(2)}` : '—'} />
+          <Row label="Avg volume ratio" v24={stats24h?.avgVR != null ? `${stats24h.avgVR}x` : '—'} v7={stats7d?.avgVR != null ? `${stats7d.avgVR}x` : '—'} />
+          <Row label="Avg Fear & Greed" v24={stats24h?.avgFG} v7={stats7d?.avgFG} />
+          <Row label="Dominant regime" v24={stats24h?.topRegime} v7={stats7d?.topRegime} />
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 export function Wiki() {
   return (
     <div className="space-y-8 max-w-4xl">
       <h1 className="text-lg font-semibold text-zinc-200">Wiki</h1>
+      <MarketDataStats />
 
       {/* Market Sessions */}
       <section className="bg-surface-1 rounded-xl border border-border p-6">
