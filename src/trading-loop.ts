@@ -27,11 +27,13 @@ import type { DecisionJournal, JournalEntry } from './logging/decision-journal.j
 import type { TradeStoryLogger } from './logging/trade-story.js';
 import type { CryptoNews } from './news/types.js';
 import type { SwarmAgent } from './llm/swarm-agent.js';
-import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp } from './db/repository.js';
+import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp, getRecentLiquidations } from './db/repository.js';
 import type { AdjustContext } from './risk/manager.js';
 import { buildWatchdogSummary } from './watchdog-summary.js';
 import { buildDiversityContext, type PairDecisionEntry } from './market/pair-diversity.js';
 import type { Watchdog, Tp1Target } from './watchdog.js';
+import { buildNewsMarketFusion, formatFusionBlock } from './news/news-market-fusion.js';
+import type { GroundingResult } from './news/grok-grounder.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -107,6 +109,7 @@ export class TradingLoop {
   private binanceCircuitBreaker = new CircuitBreaker(3);
   private regimeHysteresis = new RegimeHysteresis(3);
   private staticSoulCache: string | null = null;
+  private lastNewsMarketFusion?: string;
   private _lastPositionCount = 0;
   private pairDecisionHistory: PairDecisionEntry[] = [];
 
@@ -158,6 +161,67 @@ export class TradingLoop {
 
   hasOpenPositions(): boolean {
     return this._lastPositionCount > 0;
+  }
+
+  private async runGroundingAndFusion(
+    analysis: import('./news/news-cache.js').NewsAnalysis,
+  ): Promise<void> {
+    const groundingMap = new Map<string, GroundingResult>();
+
+    if (this.deps.grokGrounder && analysis.top_signals?.length) {
+      const cfg = this.deps.groundingConfig ?? { minImportance: 7, maxPerCycle: 2 };
+      const toGround = analysis.top_signals
+        .filter(s => s.needs_grounding && s.importance >= cfg.minImportance)
+        .slice(0, cfg.maxPerCycle);
+
+      const verifiedEntries: Array<{ claim: string; verified: boolean | null | undefined; confidence: number | undefined; summary: string | undefined; timestamp: string }> = [];
+      for (const signal of toGround) {
+        const gResult = await this.deps.grokGrounder.verify(signal.catalyst);
+        if (gResult.summary) {
+          signal.reasoning += ` [Grok: ${gResult.summary.slice(0, 150)}]`;
+        }
+        if (this.deps.sourceHealth) {
+          this.deps.sourceHealth.recordGrokUsage(gResult.tokensUsed);
+        }
+        groundingMap.set(signal.catalyst, gResult);
+        verifiedEntries.push({
+          claim: gResult.claim,
+          verified: gResult.verified,
+          confidence: gResult.confidence,
+          summary: gResult.summary,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      if (verifiedEntries.length > 0 && this.deps.memoryKeeper) {
+        this.deps.memoryKeeper.writeVerifiedIntel(verifiedEntries);
+      }
+    }
+
+    // Build news-market fusion
+    if (analysis.top_signals?.length) {
+      try {
+        const pairSnaps = new Map<string, import('./db/types.js').DbMarketSnapshot[]>();
+        for (const pair of this.deps.pairs) {
+          const snaps = await getMarketSnapshotsSince(pair, 15);
+          if (snaps.length > 0) pairSnaps.set(pair, snaps);
+        }
+        const entries = buildNewsMarketFusion(
+          analysis.top_signals,
+          groundingMap,
+          pairSnaps,
+          new Date().toISOString(),
+        );
+        if (entries.length > 0) {
+          this.lastNewsMarketFusion = formatFusionBlock(entries);
+          console.log(`[NewsMarketFusion] ${entries.length} events correlated`);
+        } else {
+          this.lastNewsMarketFusion = undefined;
+        }
+      } catch (e: any) {
+        console.error('[NewsMarketFusion] Error:', e.message);
+      }
+    }
   }
 
   private getStaticSoul(): string | undefined {
@@ -432,35 +496,7 @@ export class TradingLoop {
 
           const analysis = await this.deps.newsAnalyst.analyze(uniqueItems);
 
-          // Grounding: verify high-importance claims via Grok
-          if (this.deps.grokGrounder && analysis.top_signals?.length) {
-            const cfg = this.deps.groundingConfig ?? { minImportance: 7, maxPerCycle: 2 };
-            const toGround = analysis.top_signals
-              .filter(s => s.needs_grounding && s.importance >= cfg.minImportance)
-              .slice(0, cfg.maxPerCycle);
-
-            const verifiedEntries: Array<{ claim: string; verified: boolean | null | undefined; confidence: number | undefined; summary: string | undefined; timestamp: string }> = [];
-            for (const signal of toGround) {
-              const gResult = await this.deps.grokGrounder.verify(signal.catalyst);
-              if (gResult.summary) {
-                signal.reasoning += ` [Grok: ${gResult.summary.slice(0, 150)}]`;
-              }
-              if (this.deps.sourceHealth) {
-                this.deps.sourceHealth.recordGrokUsage(gResult.tokensUsed);
-              }
-              verifiedEntries.push({
-                claim: gResult.claim,
-                verified: gResult.verified,
-                confidence: gResult.confidence,
-                summary: gResult.summary,
-                timestamp: new Date().toISOString(),
-              });
-            }
-
-            if (verifiedEntries.length > 0 && this.deps.memoryKeeper) {
-              this.deps.memoryKeeper.writeVerifiedIntel(verifiedEntries);
-            }
-          }
+          await this.runGroundingAndFusion(analysis);
 
           const cacheState = {
             items: uniqueItems,
@@ -540,10 +576,9 @@ export class TradingLoop {
       // 6. LAYER 1: Distill data via experts
       const latestMemoryData = this.deps.memoryKeeper?.read() ?? '';
 
-      let layer1Reports = { newsReport: '', macroReport: '', memoryReport: '' };
+      let layer1Reports = { macroReport: '', memoryReport: '' };
       try {
         layer1Reports = await runLayer1Experts(this.deps.llm, {
-          newsData: JSON.stringify(newsAnalysis),
           macroData: JSON.stringify(this.lastMacroAnalysis),
           memoryData: latestMemoryData
         });
@@ -601,6 +636,15 @@ export class TradingLoop {
           console.error('[Loop] Watchdog summary failed:', e.message);
         }
       }
+
+      // Fetch recent liquidations
+      let liquidations: import('./db/types.js').DbLiquidation[] = [];
+      try {
+        for (const pair of this.deps.pairs) {
+          const pairLiqs = await getRecentLiquidations(pair, 15);
+          liquidations.push(...pairLiqs);
+        }
+      } catch { /* DB optional */ }
 
       // Pre-flight check: calculate soft filter warnings instead of skipping
       let filterWarning: string | undefined = undefined;
@@ -689,6 +733,8 @@ export class TradingLoop {
         pairDiversityContext: diversityContext,
         todayRealizedPnl,
         envelope,
+        liquidations: liquidations.length > 0 ? liquidations : undefined,
+        newsMarketFusion: this.lastNewsMarketFusion,
       };
 
       let decisions: TradeDecision[] = [];
@@ -815,11 +861,16 @@ export class TradingLoop {
 
       // Apply regime_override if LLM suggested one
       for (const d of decisions) {
-        if ((d as any).regime_override && Object.values(MarketRegime).includes((d as any).regime_override)) {
-          console.log(`[Loop] LLM regime override: ${marketRegime} → ${(d as any).regime_override}`);
-          marketRegime = (d as any).regime_override as MarketRegime;
-          activeProfile = getFilterProfile(marketRegime);
-          break;
+        const rawOverride = (d as any).regime_override;
+        if (rawOverride) {
+          // Match case-insensitively: LLM may return 'capitulation' but enum is 'Capitulation'
+          const matched = Object.values(MarketRegime).find(v => v.toLowerCase() === String(rawOverride).toLowerCase());
+          if (matched) {
+            console.log(`[Loop] LLM regime override: ${marketRegime} → ${matched}`);
+            marketRegime = matched;
+            activeProfile = getFilterProfile(marketRegime);
+            break;
+          }
         }
       }
 
@@ -897,35 +948,7 @@ export class TradingLoop {
 
             const analysis = await this.deps.newsAnalyst.analyze(items);
 
-            // Grounding: verify high-importance claims via Grok
-            if (this.deps.grokGrounder && analysis.top_signals?.length) {
-              const cfg = this.deps.groundingConfig ?? { minImportance: 7, maxPerCycle: 2 };
-              const toGround = analysis.top_signals
-                .filter(s => s.needs_grounding && s.importance >= cfg.minImportance)
-                .slice(0, cfg.maxPerCycle);
-
-              const verifiedEntries: Array<{ claim: string; verified: boolean | null | undefined; confidence: number | undefined; summary: string | undefined; timestamp: string }> = [];
-              for (const signal of toGround) {
-                const gResult = await this.deps.grokGrounder.verify(signal.catalyst);
-                if (gResult.summary) {
-                  signal.reasoning += ` [Grok: ${gResult.summary.slice(0, 150)}]`;
-                }
-                if (this.deps.sourceHealth) {
-                  this.deps.sourceHealth.recordGrokUsage(gResult.tokensUsed);
-                }
-                verifiedEntries.push({
-                  claim: gResult.claim,
-                  verified: gResult.verified,
-                  confidence: gResult.confidence,
-                  summary: gResult.summary,
-                  timestamp: new Date().toISOString(),
-                });
-              }
-
-              if (verifiedEntries.length > 0 && this.deps.memoryKeeper) {
-                this.deps.memoryKeeper.writeVerifiedIntel(verifiedEntries);
-              }
-            }
+              await this.runGroundingAndFusion(analysis);
 
             const cacheState = {
               items,
@@ -1218,6 +1241,13 @@ export class TradingLoop {
 
             // Save trade execution to DB
             if (cycleId && decisionId) {
+              const pairRegime = pairRegimes.get(decision.pair);
+              const entryRegime = pairRegime?.regime ?? marketRegime ?? 'Range';
+              const entryConfidence = pairRegime?.confidence ?? regimeConfidence ?? 0;
+              const entryConfluence = pairConfluence.get(decision.pair)?.score ?? confluenceResult?.score;
+              const entryVolumeRatio = btcInd?.volumeRatio ?? null;
+              const entryFearGreed = fearGreed?.value ?? null;
+              console.log(`[DB] Execution metadata: regime=${entryRegime} conf=${entryConfidence} fg=${entryFearGreed} vol=${entryVolumeRatio} confluence=${entryConfluence}`);
               insertTradeExecution({
                 decision_id: decisionId,
                 pair: decision.pair,
@@ -1232,16 +1262,16 @@ export class TradingLoop {
                 quantity: result.quantity,
                 entry_price: result.fillPrice,
                 entry_thesis: decision.reasoning,
-                strategy_type: (pairRegimes.get(decision.pair)?.regime ?? marketRegime) === MarketRegime.Scalping ? 'scalping' : 'swing',
+                strategy_type: entryRegime === MarketRegime.Scalping ? 'scalping' : 'swing',
                 commission_usd: result.commissionUsd,
                 commission_asset: result.commissionAsset,
-                regime_at_entry: pairRegimes.get(decision.pair)?.regime ?? marketRegime,
-                regime_confidence_at_entry: pairRegimes.get(decision.pair)?.confidence ?? regimeConfidence,
-                filter_profile_at_entry: pairRegimes.get(decision.pair)?.regime ?? marketRegime,
-                confluence_at_entry: pairConfluence.get(decision.pair)?.score,
+                regime_at_entry: entryRegime,
+                regime_confidence_at_entry: entryConfidence,
+                filter_profile_at_entry: entryRegime,
+                confluence_at_entry: entryConfluence,
                 was_swarm: currentLayer === 1 && useSwarm,
-                volume_ratio_at_entry: btcInd?.volumeRatio,
-                fear_greed_at_entry: fearGreed?.value,
+                volume_ratio_at_entry: entryVolumeRatio,
+                fear_greed_at_entry: entryFearGreed,
               }).catch(e => console.error('[DB] execution insert error:', e.message));
             }
 
