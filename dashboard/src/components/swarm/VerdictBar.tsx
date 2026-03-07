@@ -70,21 +70,21 @@ export function VerdictBar({ rawResponse, isIntermediate }: VerdictBarProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {isIntermediate && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-900/30 text-amber-400 font-mono">CONTINUE</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/30 text-amber-400 font-mono">CONTINUE</span>
             )}
-            <span className="text-2xl font-mono font-bold" style={{ color }}>{v.action}</span>
-            {v.pair && <span className="text-lg font-mono text-zinc-300">{v.pair}</span>}
+            <span className="text-[32px] font-mono font-bold" style={{ color }}>{v.action}</span>
+            {v.pair && <span className="text-xl font-mono text-zinc-300">{v.pair}</span>}
             {v.confidence != null && v.confidence > 0 && (
-              <span className="text-sm font-mono text-zinc-500">conf:{v.confidence}</span>
+              <span className="text-base font-mono text-zinc-500">conf:{v.confidence}</span>
             )}
           </div>
           {v.nextCheck && (
-            <span className="text-[10px] text-zinc-600 font-mono">next: {v.nextCheck} min</span>
+            <span className="text-sm text-zinc-600 font-mono">next: {v.nextCheck} min</span>
           )}
         </div>
 
         {showParams && (
-          <div className="flex gap-4 mt-2 text-xs font-mono text-zinc-500">
+          <div className="flex gap-4 mt-2 text-sm font-mono text-zinc-500">
             {v.leverage ? <span>Lev: {v.leverage}x</span> : null}
             {v.sizePct ? <span>Size: {v.sizePct}%</span> : null}
             {v.stopLoss ? <span>SL: {v.stopLoss}%</span> : null}
@@ -93,10 +93,10 @@ export function VerdictBar({ rawResponse, isIntermediate }: VerdictBarProps) {
         )}
 
         {v.reasoning && (
-          <p className="text-sm text-zinc-400 mt-2 leading-relaxed">{v.reasoning}</p>
+          <p className="text-base text-zinc-400 mt-2 leading-relaxed">{v.reasoning}</p>
         )}
         {v.verdict && !v.reasoning && (
-          <p className="text-xs text-zinc-500 mt-1 font-mono">{v.verdict.replace(/_/g, ' ')}</p>
+          <p className="text-sm text-zinc-500 mt-1 font-mono">{v.verdict.replace(/_/g, ' ')}</p>
         )}
       </div>
     </div>
