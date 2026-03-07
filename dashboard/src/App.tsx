@@ -7,6 +7,7 @@ import { Market } from './pages/Market';
 import { LlmCosts } from './pages/LlmCosts';
 import { Swarm } from './pages/Swarm';
 import { Chat } from './pages/Chat';
+import { Wiki } from './pages/Wiki';
 
 const primaryNav = [
   { to: '/', label: 'Dashboard' },
@@ -19,6 +20,7 @@ const secondaryNav = [
   { to: '/decisions', label: 'Decisions' },
   { to: '/costs', label: 'LLM Costs' },
   { to: '/chat', label: 'Chat' },
+  { to: '/wiki', label: 'Wiki' },
 ];
 
 function MoreMenu() {
@@ -98,6 +100,7 @@ export default function App() {
             <Route path="/costs" element={<LlmCosts />} />
             <Route path="/swarm" element={<Swarm />} />
             <Route path="/chat" element={<Chat />} />
+            <Route path="/wiki" element={<Wiki />} />
           </Routes>
         </main>
       </div>
