@@ -78,15 +78,15 @@ export function Overview() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
           <h3 className="text-sm font-semibold text-zinc-300 mb-2">Daily PnL</h3>
           <DailyPnlBar data={pnl.dailyPnl} />
         </div>
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
           <h3 className="text-sm font-semibold text-zinc-300 mb-2">Cumulative PnL</h3>
           <EquityCurve data={pnl.cumulative} />
         </div>
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
           <h3 className="text-sm font-semibold text-zinc-300 mb-2">Balance</h3>
           <BalanceArea data={balance.data} />
         </div>
@@ -100,7 +100,7 @@ export function Overview() {
       </div>
 
       {funnel.data && (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
           <h3 className="text-sm font-semibold text-zinc-300 mb-3">Decision Pipeline</h3>
           <FunnelBar steps={[
             { label: 'Cycles', count: funnel.data.totalCycles, color: '#71717a' },
@@ -113,12 +113,12 @@ export function Overview() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800">
-          <div className="p-3 border-b border-zinc-800 text-sm font-semibold text-zinc-300">Open Positions</div>
+        <div className="bg-surface-1 rounded-xl border border-border">
+          <div className="p-3 border-b border-border text-sm font-semibold text-zinc-300">Open Positions</div>
           <PositionTable positions={positions} />
         </div>
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800">
-          <div className="p-3 border-b border-zinc-800 text-sm font-semibold text-zinc-300">Recent Errors (2h)</div>
+        <div className="bg-surface-1 rounded-xl border border-border">
+          <div className="p-3 border-b border-border text-sm font-semibold text-zinc-300">Recent Errors (2h)</div>
           <ErrorFeed errors={errors} />
         </div>
       </div>

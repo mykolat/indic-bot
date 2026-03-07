@@ -16,7 +16,7 @@ export function PositionTable({ positions }: { positions: Position[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-zinc-400 border-b border-zinc-800">
+          <tr className="text-zinc-400 border-b border-border">
             <th className="text-left p-2">Pair</th>
             <th className="text-left p-2">Side</th>
             <th className="text-right p-2">Entry</th>
@@ -29,7 +29,7 @@ export function PositionTable({ positions }: { positions: Position[] }) {
         </thead>
         <tbody>
           {positions.map((p) => (
-            <tr key={p.pair + p.opened_at} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
+            <tr key={p.pair + p.opened_at} className="border-b border-border/50 hover:bg-surface-2/30">
               <td className="p-2 font-mono">{p.pair}</td>
               <td className={`p-2 ${p.side === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
                 {p.side === 'BUY' ? 'LONG' : 'SHORT'}

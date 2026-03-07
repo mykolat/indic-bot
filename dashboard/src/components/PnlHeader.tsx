@@ -17,7 +17,9 @@ export function PnlHeader({
   totalProfit, totalLoss, onRangeChange, selectedRange,
 }: PnlHeaderProps) {
   return (
-    <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+    <div className="bg-surface-1 rounded-xl border border-border p-5 relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-accent-dim to-transparent pointer-events-none" />
+      <div className="relative">
       <div className="mb-4">
         <div className="text-zinc-400 text-sm mb-1">Today's PnL</div>
         <div className="flex items-baseline gap-3">
@@ -52,7 +54,7 @@ export function PnlHeader({
             key={r}
             onClick={() => onRangeChange(r)}
             className={`text-xs px-3 py-1 rounded ${
-              selectedRange === r ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'
+              selectedRange === r ? 'bg-surface-3 text-white' : 'text-zinc-400 hover:text-white'
             }`}
           >
             {r}
@@ -60,7 +62,7 @@ export function PnlHeader({
         ))}
       </div>
 
-      <div className="border-t border-zinc-800 pt-3 space-y-1 text-sm">
+      <div className="border-t border-border pt-3 space-y-1 text-sm">
         <div className="flex justify-between">
           <span className="text-zinc-400">Total Profit</span>
           <span className="text-green-400 font-mono">{totalProfit.toFixed(2)} USD</span>
@@ -75,6 +77,7 @@ export function PnlHeader({
             {(totalProfit - totalLoss).toFixed(2)} USD
           </span>
         </div>
+      </div>
       </div>
     </div>
   );

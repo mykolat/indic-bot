@@ -11,7 +11,7 @@ export function FunnelBar({ steps }: { steps: FunnelStep[] }) {
       {steps.map((step, i) => (
         <div key={i} className="flex items-center gap-3">
           <span className="text-xs text-zinc-400 w-32 text-right shrink-0">{step.label}</span>
-          <div className="flex-1 h-6 bg-zinc-800 rounded overflow-hidden">
+          <div className="flex-1 h-6 bg-surface-2 rounded overflow-hidden">
             <div
               className="h-full rounded transition-all"
               style={{ width: `${(step.count / max) * 100}%`, backgroundColor: step.color }}
