@@ -1,6 +1,8 @@
 trading:
   pairs: [BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT, DOGEUSDT, ADAUSDT, AVAXUSDT, LINKUSDT, NEARUSDT, SUIUSDT, PEPEUSDT, LTCUSDT, APTUSDT]
+  minLeverage: 5
   maxLeverage: 25
+  minPositionPct: 30
   maxPositionPct: 60
   maxExposurePct: 150
   maxStopLossPct: 5
@@ -13,12 +15,14 @@ trading:
   minConfidence: 55
   churnCooldownMs: 900000
   loopIntervalMs: 60000
-  newsRefreshIntervalH: 0.33
+  newsRefreshIntervalH: 0.5
   newsMaxItems: 100
   stalePositionHours: 8
   maxHoldHours: 24
   fearGreedLeverageCap: 10
   weekendLeverageMultiplier: 0.5
+  useLimitEntry: false        # Enable at balance > $5K
+  limitEntryTimeoutMs: 3000   # Wait time before market fallback
 
 positionManagement:
   enabled: true

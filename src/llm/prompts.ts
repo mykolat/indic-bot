@@ -25,6 +25,8 @@ export function buildSystemPrompt(config: {
   pairs?: string[];
   minConfidence?: number;
   fearGreedLeverageCap?: number;
+  minLeverage?: number;
+  staticSoul?: string;
 }): string {
   return `You are an aggressive crypto futures trader managing a LIVE account with real money.
 Trading pairs: ${config.pairs?.join(', ') ?? 'BTCUSDT, ETHUSDT, SOLUSDT'}
@@ -73,7 +75,9 @@ RISK SCALING (enforced by system, your awareness helps):
 - If confidence < ${config.minConfidence ?? 55}: System will reject your trade
 
 CONSTRAINTS:
+- Minimum leverage: ${config.minLeverage ?? 1}x (floor — low balance demands capital efficiency)
 - Max leverage: ${config.maxLeverage}x
+- Minimum position size: 30% of balance per trade (floor — make every trade count)
 - Max position size: ${config.maxPositionPct}% of balance per trade
 - Stop-loss MANDATORY (1-${config.maxStopLossPct}%)
 - Minimum take-profit: ${config.minTakeProfitPct}%
@@ -110,7 +114,7 @@ next_check_minutes guide: How soon to re-analyze. Consider:
 
 confidence guide: <30 = very uncertain, 30-55 = weak, 55-70 = moderate, 70-85 = strong, >85 = very strong
 Always include a decision for every pair. HOLD = do nothing.
-If you need fresher news: { "pair": "_meta", "action": "FETCH_NEWS", ... }`;
+If you need fresher news: { "pair": "_meta", "action": "FETCH_NEWS", ... }${config.staticSoul ? `\n\n## System Soul\n${config.staticSoul}` : ''}`;
 }
 
 // Backward-compatible constant for tests
@@ -262,11 +266,6 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += '\n';
   }
 
-  // Soul — static identity
-  if (data.staticSoul) {
-    prompt += `## Original System Soul\n${data.staticSoul}\n\n`;
-  }
-
   // Memory — dynamic reflections
   if (data.memoryContent) {
     prompt += `## Dynamic Memory (Current Reflections)\n${data.memoryContent}\n\n`;
@@ -279,7 +278,6 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
   // Layer 1 Experts Distillation
   if (data.layer1Reports) {
     prompt += `## Expert Analysis Reports\n`;
-    prompt += `News Expert:\n${data.layer1Reports.newsReport}\n\n`;
     prompt += `Macro Expert:\n${data.layer1Reports.macroReport}\n\n`;
     prompt += `Memory Expert:\n${data.layer1Reports.memoryReport}\n\n`;
   }
@@ -317,15 +315,34 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
 
   prompt += `## Technical Analysis\n\n`;
 
+  const openPairs = new Set(data.portfolio.positions.map(p => p.pair));
+
   for (const snap of data.snapshots) {
     const ind = data.indicators.get(snap.pair);
-    const lastCandle1h = snap.candles1h[snap.candles1h.length - 1];
+    const ind4h = data.indicators4h?.get(snap.pair);
+    const currentPrice = parseFloat(snap.markPrice);
     const price24hAgo = snap.candles1h.length >= 24
       ? parseFloat(snap.candles1h[snap.candles1h.length - 24].close)
       : null;
-    const currentPrice = parseFloat(snap.markPrice);
     const change24h = price24hAgo ? ((currentPrice - price24hAgo) / price24hAgo * 100).toFixed(1) : 'N/A';
 
+    // Compact format for idle pairs (no position + low volume)
+    const isCompact = ind && !openPairs.has(snap.pair) && ind.volumeRatio < 1.0;
+
+    if (isCompact) {
+      const vwapDelta = ind.vwap ? ((currentPrice - ind.vwap) / ind.vwap * 100).toFixed(1) : '?';
+      const trend4h = ind4h ? ind4h.trend : '?';
+      const fundingLabel = snap.fundingHistory?.length
+        ? (snap.fundingHistory[snap.fundingHistory.length - 1].rate > snap.fundingHistory[0].rate ? 'rising' : snap.fundingHistory[snap.fundingHistory.length - 1].rate < snap.fundingHistory[0].rate ? 'falling' : 'flat')
+        : 'n/a';
+      const oiDelta = snap.openInterestDelta;
+      const oiLabel = oiDelta !== undefined && Math.abs(oiDelta) > 0.5 ? `${oiDelta >= 0 ? '+' : ''}${oiDelta.toFixed(1)}%` : 'flat';
+      prompt += `### ${snap.pair} [IDLE — vol ${ind.volumeRatio.toFixed(1)}x]\n`;
+      prompt += `$${currentPrice} (${change24h}%) | 1h:${ind.trend} 4h:${trend4h} | RSI ${ind.rsi.toFixed(0)}/${ind4h?.rsi.toFixed(0) ?? '?'} | Vol ${ind.volumeRatio.toFixed(2)}x | VWAP ${vwapDelta}% | F:${fundingLabel} OI:${oiLabel}\n\n`;
+      continue;
+    }
+
+    // Full format for active pairs
     prompt += `### ${snap.pair}\n`;
     prompt += `Price: $${currentPrice} | 24h: ${change24h}%\n`;
 
@@ -359,7 +376,6 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     }
 
     // 4h indicators
-    const ind4h = data.indicators4h?.get(snap.pair);
     if (ind4h) {
       prompt += `4h Trend: ${ind4h.trend} | RSI(14) 4h: ${ind4h.rsi.toFixed(1)} | EMA20 4h: $${ind4h.ema20.toFixed(2)} | ATR 4h: $${ind4h.atr.toFixed(2)}\n`;
     }
@@ -419,6 +435,7 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     const recentCloses = snap.candles1h.slice(-10).map(c => c.close).join(', ');
     prompt += `Recent 1h closes: ${recentCloses}\n`;
 
+    const lastCandle1h = snap.candles1h[snap.candles1h.length - 1];
     if (lastCandle1h) {
       prompt += `Last 1h: O=${lastCandle1h.open} H=${lastCandle1h.high} L=${lastCandle1h.low} C=${lastCandle1h.close} V=${lastCandle1h.volume}\n`;
     }

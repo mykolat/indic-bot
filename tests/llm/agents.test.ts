@@ -6,30 +6,26 @@ describe('runLayer1Experts', () => {
         const mockLlmClient = { call: vi.fn().mockResolvedValue('{"score": 7}') };
 
         const results = await runLayer1Experts(mockLlmClient as any, {
-            newsData: '...',
             macroData: '...',
             memoryData: 'We lost heavily in choppy markets yesterday.'
         });
 
-        expect(results).toHaveProperty('newsReport');
         expect(results).toHaveProperty('macroReport');
         expect(results).toHaveProperty('memoryReport');
-        expect(mockLlmClient.call).toHaveBeenCalledTimes(3);
+        expect(mockLlmClient.call).toHaveBeenCalledTimes(2);
     });
 
     it('returns partial results when one expert fails', async () => {
         const mockLlmClient = {
             call: vi.fn()
-                .mockResolvedValueOnce('news ok')
                 .mockRejectedValueOnce(new Error('macro timeout'))
                 .mockResolvedValueOnce('memory ok')
         };
 
         const results = await runLayer1Experts(mockLlmClient as any, {
-            newsData: '...', macroData: '...', memoryData: '...'
+            macroData: '...', memoryData: '...'
         });
 
-        expect(results.newsReport).toBe('news ok');
         expect(results.macroReport).toBe('');
         expect(results.memoryReport).toBe('memory ok');
     });
@@ -40,10 +36,9 @@ describe('runLayer1Experts', () => {
         };
 
         const results = await runLayer1Experts(mockLlmClient as any, {
-            newsData: '...', macroData: '...', memoryData: '...'
+            macroData: '...', memoryData: '...'
         });
 
-        expect(results.newsReport).toBe('');
         expect(results.macroReport).toBe('');
         expect(results.memoryReport).toBe('');
     });

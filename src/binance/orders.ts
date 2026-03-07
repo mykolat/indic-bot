@@ -21,17 +21,25 @@ export interface OrderResult {
   commissionAsset?: string;
 }
 
+export interface EntryOptions {
+  useLimitEntry?: boolean;
+  limitEntryTimeoutMs?: number;
+}
+
 export class OrderExecutor {
   private stepDecimals: Map<string, number>;
   private priceDecimals: Map<string, number>;
+  private entryOptions: EntryOptions;
 
   constructor(
     private client: any,
     stepDecimals?: Map<string, number>,
     priceDecimals?: Map<string, number>,
+    entryOptions?: EntryOptions,
   ) {
     this.stepDecimals = stepDecimals ?? new Map();
     this.priceDecimals = priceDecimals ?? new Map();
+    this.entryOptions = entryOptions ?? {};
   }
 
   async execute(decision: TradeDecision, balanceUsd: number): Promise<OrderResult> {
@@ -46,12 +54,29 @@ export class OrderExecutor {
       const positionUsd = (decision.size_pct / 100) * balanceUsd * decision.leverage;
       const quantity = this.roundQuantity(positionUsd / price, decision.pair);
 
-      const order = await this.client.submitNewOrder({
-        symbol: decision.pair,
-        side,
-        type: 'MARKET',
-        quantity: String(quantity),
-      });
+      let order: any;
+
+      // Attempt LIMIT entry if enabled
+      if (this.entryOptions.useLimitEntry) {
+        try {
+          const attempt = await this.attemptLimitEntry(decision.pair, side, quantity);
+          if (attempt.filled) {
+            order = attempt.order;
+          }
+        } catch (err: any) {
+          console.error(`[Orders] LIMIT attempt failed: ${err.message}, using MARKET`);
+        }
+      }
+
+      // MARKET fallback (or default path)
+      if (!order) {
+        order = await this.client.submitNewOrder({
+          symbol: decision.pair,
+          side,
+          type: 'MARKET',
+          quantity: String(quantity),
+        });
+      }
 
       let fillPrice = price; // fallback
       let commissionUsd = 0;
@@ -269,6 +294,40 @@ export class OrderExecutor {
       console.error(`[Orders] Breakeven SL FAILED for ${pair}: ${err.message}`);
       return { success: false, error: err.message };
     }
+  }
+
+  private async attemptLimitEntry(
+    pair: string, side: string, quantity: number,
+  ): Promise<{ filled: boolean; order?: any }> {
+    const book = await this.client.getOrderBook({ symbol: pair, limit: 5 });
+    const limitPrice = side === 'BUY'
+      ? parseFloat(book.bids[0][0])   // best bid for LONG
+      : parseFloat(book.asks[0][0]);  // best ask for SHORT
+
+    const order = await this.client.submitNewOrder({
+      symbol: pair,
+      side,
+      type: 'LIMIT',
+      timeInForce: 'GTC',
+      quantity: String(quantity),
+      price: this.formatPrice(limitPrice, pair),
+    });
+
+    if (order.status === 'FILLED') {
+      return { filled: true, order };
+    }
+
+    const timeout = this.entryOptions.limitEntryTimeoutMs ?? 3000;
+    if (timeout > 0) await new Promise(r => setTimeout(r, timeout));
+
+    const status = await this.client.getOrder({ symbol: pair, orderId: order.orderId });
+    if (status.status === 'FILLED') {
+      return { filled: true, order: status };
+    }
+
+    await this.client.cancelOrder({ symbol: pair, orderId: order.orderId }).catch(() => {});
+    console.log(`[Orders] LIMIT not filled for ${pair}, falling back to MARKET`);
+    return { filled: false };
   }
 
   private roundQuantity(qty: number, pair: string): number {

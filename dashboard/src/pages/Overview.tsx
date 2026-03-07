@@ -8,6 +8,7 @@ import { FunnelBar } from '../components/charts/FunnelBar';
 import { StatCard } from '../components/StatCard';
 import { PositionTable } from '../components/PositionTable';
 import { ErrorFeed } from '../components/ErrorFeed';
+import { CycleSummary } from '../components/CycleSummary';
 import { usePnlData } from '../hooks/usePnlData';
 import { useFunnelData } from '../hooks/useFunnelData';
 import { useBalanceHistory } from '../hooks/useBalanceHistory';
@@ -83,7 +84,9 @@ export function Overview() {
     <div className="space-y-6">
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-bold">Overview</h1>
-        {cycleAge !== null && <span className="text-xs text-zinc-500">Last cycle: {cycleAge}m ago</span>}
+        {cycleAge !== null && cycle?.id && (
+          <CycleSummary cycleId={cycle.id} cycleAge={cycleAge} />
+        )}
       </div>
 
       <PnlHeader

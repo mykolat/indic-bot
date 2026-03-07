@@ -1,3 +1,5 @@
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import 'dotenv/config';
 if (process.env.GLOBAL_AGENT_HTTPS_PROXY) {
   const { bootstrap } = await import('global-agent');
@@ -100,7 +102,10 @@ async function main() {
     console.warn(`[Binance] Failed to load exchangeInfo: ${e.message} — using defaults`);
   }
 
-  const orders = new OrderExecutor(binanceClient, stepDecimals, priceDecimals);
+  const orders = new OrderExecutor(binanceClient, stepDecimals, priceDecimals, {
+    useLimitEntry: config.trading.useLimitEntry,
+    limitEntryTimeoutMs: config.trading.limitEntryTimeoutMs,
+  });
 
   // OpenAI auth: OAuth (default) or API key fallback
   let accessToken: string;
@@ -112,6 +117,9 @@ async function main() {
     accessToken = await getOpenAIAccessToken();
   }
 
+  const soulPath = join(process.env.DATA_DIR || './data', 'soul.md');
+  const staticSoul = existsSync(soulPath) ? readFileSync(soulPath, 'utf8') : undefined;
+
   const promptConfig = {
     targetReturnPct: config.trading.targetReturnPct,
     minTakeProfitPct: config.trading.minTakeProfitPct,
@@ -121,6 +129,8 @@ async function main() {
     pairs: config.trading.pairs,
     minConfidence: config.trading.minConfidence,
     fearGreedLeverageCap: config.trading.fearGreedLeverageCap,
+    minLeverage: config.trading.minLeverage,
+    staticSoul,
   };
   const llm = new LLMClient(accessToken, config.openai.model, promptConfig);
   if (sessionId) {
@@ -150,7 +160,9 @@ async function main() {
   const newsAnalyst = new NewsAnalystAgent(llm);
 
   const riskManager = new RiskManager({
+    minLeverage: config.trading.minLeverage,
     maxLeverage: config.trading.maxLeverage,
+    minPositionPct: config.trading.minPositionPct,
     maxPositionPct: config.trading.maxPositionPct,
     maxExposurePct: config.trading.maxExposurePct,
     maxStopLossPct: config.trading.maxStopLossPct,

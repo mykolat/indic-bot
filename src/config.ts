@@ -26,7 +26,9 @@ export interface Config {
   xaiApiKey: string | undefined;
   trading: {
     pairs: string[];
+    minLeverage: number;
     maxLeverage: number;
+    minPositionPct: number;
     loopIntervalMs: number;
     maxLossUsd: number;
     maxLossPct: number;
@@ -47,6 +49,8 @@ export interface Config {
     maxHoldHours: number;
     fearGreedLeverageCap: number;
     weekendLeverageMultiplier: number;
+    useLimitEntry: boolean;
+    limitEntryTimeoutMs: number;
   };
   positionManagement: {
     enabled: boolean;
@@ -102,7 +106,9 @@ export function loadConfig(): Config {
     xaiApiKey: process.env.XAI_API_KEY,
     trading: {
       pairs: t.pairs ?? ['BTCUSDT'],
+      minLeverage: t.minLeverage ?? 1,
       maxLeverage: t.maxLeverage ?? 20,
+      minPositionPct: t.minPositionPct ?? 0,
       loopIntervalMs: t.loopIntervalMs ?? 60000,
       maxLossUsd: t.maxLossUsd ?? 5,
       maxLossPct: t.maxLossPct ?? 10,
@@ -123,6 +129,8 @@ export function loadConfig(): Config {
       maxHoldHours: t.maxHoldHours ?? 24,
       fearGreedLeverageCap: t.fearGreedLeverageCap ?? 10,
       weekendLeverageMultiplier: t.weekendLeverageMultiplier ?? 0.5,
+      useLimitEntry: t.useLimitEntry ?? false,
+      limitEntryTimeoutMs: t.limitEntryTimeoutMs ?? 3000,
     },
     positionManagement: {
       enabled: pm.enabled ?? false,

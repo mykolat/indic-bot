@@ -444,4 +444,85 @@ describe('OrderExecutor', () => {
       expect(slPrice).toBe('49000.00');
     });
   });
+
+  describe('limit order entry', () => {
+    it('uses LIMIT order when useLimitEntry is true and order fills', async () => {
+      const limitClient = {
+        ...mockClient,
+        submitNewOrder: vi.fn()
+          .mockResolvedValueOnce({
+            orderId: 100, status: 'FILLED',
+            fills: [{ price: '50000.00', qty: '0.001', commission: '0.005', commissionAsset: 'USDT' }],
+          }),
+        getOrderBook: vi.fn().mockResolvedValue({
+          bids: [['49999.00', '1.0']], asks: [['50001.00', '1.0']],
+        }),
+      };
+      const exec = new OrderExecutor(limitClient as any, undefined, undefined, { useLimitEntry: true, limitEntryTimeoutMs: 0 });
+      const result = await exec.execute(
+        { pair: 'BTCUSDT', action: 'LONG', size_pct: 10, leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test' },
+        10000,
+      );
+      expect(result.success).toBe(true);
+      expect(limitClient.submitNewOrder.mock.calls[0][0].type).toBe('LIMIT');
+      expect(limitClient.submitNewOrder.mock.calls[0][0].price).toBeDefined();
+    });
+
+    it('falls back to MARKET when LIMIT not filled within timeout', async () => {
+      const limitClient = {
+        ...mockClient,
+        submitNewOrder: vi.fn()
+          .mockResolvedValueOnce({ orderId: 100, status: 'NEW' })
+          .mockResolvedValueOnce({
+            orderId: 101, status: 'FILLED',
+            fills: [{ price: '50000.00', qty: '0.001', commission: '0.01', commissionAsset: 'USDT' }],
+          }),
+        getOrder: vi.fn().mockResolvedValue({ status: 'NEW' }),
+        cancelOrder: vi.fn().mockResolvedValue({}),
+        getOrderBook: vi.fn().mockResolvedValue({
+          bids: [['49999.00', '1.0']], asks: [['50001.00', '1.0']],
+        }),
+      };
+      const exec = new OrderExecutor(limitClient as any, undefined, undefined, { useLimitEntry: true, limitEntryTimeoutMs: 0 });
+      const result = await exec.execute(
+        { pair: 'BTCUSDT', action: 'LONG', size_pct: 10, leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test' },
+        10000,
+      );
+      expect(result.success).toBe(true);
+      expect(limitClient.cancelOrder).toHaveBeenCalledWith({ symbol: 'BTCUSDT', orderId: 100 });
+      expect(limitClient.submitNewOrder.mock.calls[1][0].type).toBe('MARKET');
+    });
+
+    it('does not use LIMIT when useLimitEntry is false', async () => {
+      const exec = new OrderExecutor(mockClient as any);
+      const result = await exec.execute(
+        { pair: 'BTCUSDT', action: 'LONG', size_pct: 10, leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test' },
+        10000,
+      );
+      expect(result.success).toBe(true);
+      expect(mockClient.submitNewOrder.mock.calls[0][0].type).toBe('MARKET');
+    });
+
+    it('uses best ask for SHORT LIMIT orders', async () => {
+      const limitClient = {
+        ...mockClient,
+        submitNewOrder: vi.fn()
+          .mockResolvedValueOnce({
+            orderId: 200, status: 'FILLED',
+            fills: [{ price: '50001.00', qty: '0.001', commission: '0.005', commissionAsset: 'USDT' }],
+          }),
+        getOrderBook: vi.fn().mockResolvedValue({
+          bids: [['49999.00', '1.0']], asks: [['50001.00', '1.0']],
+        }),
+      };
+      const exec = new OrderExecutor(limitClient as any, undefined, undefined, { useLimitEntry: true, limitEntryTimeoutMs: 0 });
+      const result = await exec.execute(
+        { pair: 'BTCUSDT', action: 'SHORT', size_pct: 10, leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test' },
+        10000,
+      );
+      expect(result.success).toBe(true);
+      expect(limitClient.submitNewOrder.mock.calls[0][0].type).toBe('LIMIT');
+      expect(limitClient.submitNewOrder.mock.calls[0][0].side).toBe('SELL');
+    });
+  });
 });

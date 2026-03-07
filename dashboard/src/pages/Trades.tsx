@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { TradeTimeline } from '../components/TradeTimeline';
@@ -24,6 +24,9 @@ interface DecisionRow {
   has_swarm?: boolean;
   fill_price?: number;
   fail_reason?: string;
+  unrealized_pnl?: number;
+  unrealized_pnl_pct?: number;
+  side?: string;
 }
 
 type StatusBadge = 'RISK_REJECTED' | 'ORDER_FAIL' | 'OPEN' | 'TP' | 'SL' | 'MANUAL' | 'PENDING';
@@ -65,12 +68,40 @@ interface TimelineEvent {
 
 type FilterTab = 'all' | 'open' | 'won' | 'lost' | 'rejected';
 
+function TradeListSkeleton() {
+  return (
+    <div className="space-y-2 animate-pulse">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="px-3 py-2.5 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-surface-3 rounded" />
+              <div className="h-3.5 bg-surface-3 rounded w-24" />
+              <div className="h-3 bg-surface-2 rounded w-8" />
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 bg-surface-3 rounded w-16" />
+              <div className="h-3 bg-surface-2 rounded w-10" />
+            </div>
+          </div>
+          <div className="flex gap-3 mt-2">
+            <div className="h-2.5 bg-surface-2 rounded w-12" />
+            <div className="h-2.5 bg-surface-2 rounded w-20" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Trades() {
   const navigate = useNavigate();
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  const timelineCache = useRef(new Map<number, TimelineEvent[]>());
 
   useEffect(() => {
     const load = async () => {
@@ -87,7 +118,7 @@ export function Trades() {
 
       const [risks, execs, swarms, errors] = await Promise.all([
         supabase.from('risk_validations').select('decision_id, passed, rejection_reason').in('decision_id', decIds),
-        supabase.from('trade_executions').select('id, decision_id, leverage, fill_price').in('decision_id', decIds),
+        supabase.from('trade_executions').select('id, decision_id, leverage, fill_price, quantity, side, pair').in('decision_id', decIds),
         supabase.from('llm_conversations').select('cycle_id').eq('method', 'swarm_consensus').in('cycle_id', cycleIds),
         supabase.from('errors').select('cycle_id, message').eq('code', 'ORDER_FAIL').in('cycle_id', cycleIds),
       ]);
@@ -103,10 +134,39 @@ export function Trades() {
       const swarmSet = new Set((swarms.data ?? []).map((s) => s.cycle_id));
       const errorMap = new Map((errors.data ?? []).map((e) => [e.cycle_id, e.message]));
 
+      // Fetch latest mark prices for open positions (unrealized PnL)
+      const openExecs = (execs.data ?? []).filter((e: any) => !closeMap.has(e.id));
+      const openPairs = [...new Set(openExecs.map((e: any) => e.pair))];
+      const markPriceMap = new Map<string, number>();
+      if (openPairs.length > 0) {
+        for (const pair of openPairs) {
+          const { data: snap } = await supabase
+            .from('market_snapshots')
+            .select('mark_price')
+            .eq('pair', pair)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (snap?.[0]) markPriceMap.set(pair, Number(snap[0].mark_price));
+        }
+      }
+
       const enriched = decs.map((d) => {
         const risk = riskMap.get(d.id);
         const exec = execMap.get(d.id);
         const close = exec ? closeMap.get(exec.id) : undefined;
+        const isOpen = exec && !close;
+        let unrealized_pnl: number | undefined;
+        let unrealized_pnl_pct: number | undefined;
+        if (isOpen && exec.fill_price) {
+          const mark = markPriceMap.get(exec.pair ?? d.pair);
+          const fill = Number(exec.fill_price);
+          const lev = Number(exec.leverage || 1);
+          if (mark && fill > 0) {
+            const side = d.action === 'LONG' ? 1 : -1;
+            unrealized_pnl_pct = side * ((mark - fill) / fill) * 100 * lev;
+            unrealized_pnl = side * (mark - fill) * Number(exec.quantity || 0);
+          }
+        }
         return {
           ...d,
           risk_passed: risk?.passed,
@@ -120,10 +180,14 @@ export function Trades() {
           has_swarm: swarmSet.has(d.cycle_id),
           fill_price: exec?.fill_price ? Number(exec.fill_price) : undefined,
           fail_reason: errorMap.get(d.cycle_id),
+          unrealized_pnl,
+          unrealized_pnl_pct,
+          side: exec?.side,
         };
       });
 
       setDecisions(enriched);
+      setLoading(false);
     };
     load();
   }, []);
@@ -165,6 +229,13 @@ export function Trades() {
     const decision = decisions.find((d) => d.id === selectedId);
     if (!decision) return;
 
+    // Check cache
+    if (timelineCache.current.has(selectedId)) {
+      setTimeline(timelineCache.current.get(selectedId)!);
+      return;
+    }
+
+    setTimeline([]); // trigger skeleton
     const loadTimeline = async () => {
       const events: TimelineEvent[] = [];
 
@@ -194,7 +265,9 @@ export function Trades() {
         const { data: closes } = await supabase.from('trade_closes').select('*').eq('execution_id', ex.id);
         closes?.forEach((c) => events.push({ type: 'close', time: c.closed_at, data: c }));
       }
-      setTimeline(events.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()));
+      const sorted = events.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      timelineCache.current.set(selectedId, sorted);
+      setTimeline(sorted);
     };
     loadTimeline();
   }, [selectedId, decisions]);
@@ -278,7 +351,7 @@ export function Trades() {
 
       <div className="flex gap-5 h-[calc(100vh-15rem)]">
         <div className="w-[45%] overflow-y-auto pr-1 space-y-4">
-          {grouped.map((group) => (
+          {loading ? <TradeListSkeleton /> : grouped.map((group) => (
             <div key={group.date}>
               <div className="sticky top-0 z-10 bg-surface-0 pb-1 pt-1">
                 <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-semibold">{group.date}</span>
@@ -331,6 +404,13 @@ export function Trades() {
                                       {d.close_pnl > 0 ? '+' : ''}${d.close_pnl.toFixed(2)}
                                       {d.close_pnl_pct != null && (
                                         <span className="text-[10px] ml-1 opacity-60">{d.close_pnl_pct > 0 ? '+' : ''}{d.close_pnl_pct.toFixed(1)}%</span>
+                                      )}
+                                    </span>
+                                  ) : status === 'OPEN' && d.unrealized_pnl_pct != null ? (
+                                    <span className={`text-[12px] font-mono font-semibold ${d.unrealized_pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                      {d.unrealized_pnl_pct >= 0 ? '+' : ''}{d.unrealized_pnl_pct.toFixed(1)}%
+                                      {d.unrealized_pnl != null && (
+                                        <span className="text-[10px] ml-1 opacity-60">{d.unrealized_pnl >= 0 ? '+' : ''}${d.unrealized_pnl.toFixed(2)}</span>
                                       )}
                                     </span>
                                   ) : (

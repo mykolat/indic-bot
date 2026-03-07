@@ -307,6 +307,45 @@ export interface DbSlTpAdjustment {
   created_at?: string;
 }
 
+export interface DbDailyDirective {
+  id?: string;
+  session_id?: string;
+  allowed_pairs: string[];
+  pair_bias: Record<string, string>;
+  max_exposure_pct: number;
+  risk_appetite: string;
+  banned_pairs: string[];
+  key_levels: Record<string, { support: number[]; resistance: number[] }>;
+  reasoning: string;
+  valid_until?: string;
+  created_at?: string;
+}
+
+export interface DbHourlyPlan {
+  id?: string;
+  directive_id?: string;
+  session_id?: string;
+  watchlist: string[];
+  entry_zones: Record<string, { min: number; max: number; bias: string }>;
+  position_notes: Record<string, string>;
+  escalate_daily: boolean;
+  reasoning: string;
+  created_at?: string;
+}
+
+export interface DbExpertCall {
+  id?: number;
+  cycle_id?: number;
+  tier: string;
+  expert_name: string;
+  llm_provider: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  result?: any;
+  latency_ms?: number;
+  created_at?: string;
+}
+
 export interface DbLiquidation {
   id?: number;
   session_id?: string;

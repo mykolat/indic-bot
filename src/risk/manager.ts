@@ -41,7 +41,9 @@ export interface ValidationResult {
 }
 
 interface RiskConfig {
+  minLeverage?: number;
   maxLeverage: number;
+  minPositionPct?: number;
   maxPositionPct: number;
   maxExposurePct: number;
   maxStopLossPct: number;
@@ -152,8 +154,20 @@ export class RiskManager {
       return { approved: false, reason: `Drawdown ${portfolio.drawdownPct.toFixed(1)}% exceeded max ${this.config.maxDrawdownPct}% — shutdown triggered`, shutdown: true };
     }
 
+    const minLev = this.config.minLeverage ?? 1;
+    if (decision.leverage < minLev) {
+      console.log(`[Risk] Bumping leverage ${decision.leverage}x → ${minLev}x (min floor)`);
+      decision.leverage = minLev;
+    }
+
     if (decision.leverage > this.config.maxLeverage) {
       return { approved: false, reason: `leverage ${decision.leverage}x exceeds max ${this.config.maxLeverage}x` };
+    }
+
+    const minSize = this.config.minPositionPct ?? 0;
+    if (minSize > 0 && decision.size_pct < minSize) {
+      console.log(`[Risk] Bumping size_pct ${decision.size_pct}% → ${minSize}% (min floor)`);
+      decision.size_pct = minSize;
     }
 
     if (decision.size_pct > this.config.maxPositionPct) {

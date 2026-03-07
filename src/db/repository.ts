@@ -7,6 +7,7 @@ import type {
   DbEpisodicMemory, DbTradeStory, DbMemoryReview, DbError,
   DbTokenUsage, DbWebhookSignal, DbIndicatorSnapshot, DbMarketSnapshot,
   DbSlTpAdjustment, DbLiquidation,
+  DbDailyDirective, DbHourlyPlan, DbExpertCall,
 } from './types.js';
 
 function q(): pg.Pool {
@@ -436,4 +437,53 @@ export async function getRecentLiquidations(pair: string, sinceMinutes: number):
     [pair, sinceMinutes],
   );
   return rows;
+}
+
+// --- Daily Directives (Tier 1) ---
+
+export async function insertDailyDirective(d: Omit<DbDailyDirective, 'id' | 'created_at'>): Promise<string> {
+  const { rows } = await q().query(
+    `INSERT INTO daily_directives (session_id, allowed_pairs, pair_bias, max_exposure_pct, risk_appetite, banned_pairs, key_levels, reasoning, valid_until)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [d.session_id, d.allowed_pairs, JSON.stringify(d.pair_bias), d.max_exposure_pct, d.risk_appetite, d.banned_pairs, JSON.stringify(d.key_levels), d.reasoning, d.valid_until],
+  );
+  return rows[0].id;
+}
+
+export async function getLatestDirective(sessionId: string): Promise<DbDailyDirective | null> {
+  const { rows } = await q().query(
+    `SELECT * FROM daily_directives WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [sessionId],
+  );
+  return rows[0] ?? null;
+}
+
+// --- Hourly Plans (Tier 2) ---
+
+export async function insertHourlyPlan(p: Omit<DbHourlyPlan, 'id' | 'created_at'>): Promise<string> {
+  const { rows } = await q().query(
+    `INSERT INTO hourly_plans (directive_id, session_id, watchlist, entry_zones, position_notes, escalate_daily, reasoning)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [p.directive_id, p.session_id, p.watchlist, JSON.stringify(p.entry_zones), JSON.stringify(p.position_notes), p.escalate_daily, p.reasoning],
+  );
+  return rows[0].id;
+}
+
+export async function getLatestHourlyPlan(sessionId: string): Promise<DbHourlyPlan | null> {
+  const { rows } = await q().query(
+    `SELECT * FROM hourly_plans WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [sessionId],
+  );
+  return rows[0] ?? null;
+}
+
+// --- Expert Calls ---
+
+export async function insertExpertCall(e: Omit<DbExpertCall, 'id' | 'created_at'>): Promise<number> {
+  const { rows } = await q().query(
+    `INSERT INTO expert_calls (cycle_id, tier, expert_name, llm_provider, input_tokens, output_tokens, result, latency_ms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [e.cycle_id, e.tier, e.expert_name, e.llm_provider, e.input_tokens, e.output_tokens, JSON.stringify(e.result), e.latency_ms],
+  );
+  return rows[0].id;
 }
