@@ -46,12 +46,13 @@ export class GrokGrounder {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'grok-3',
+            model: 'grok-4-1-fast-non-reasoning',
             messages: [
               { role: 'system', content: GROUNDING_PROMPT },
               { role: 'user', content: `Verify this crypto claim using X/Twitter search:\n\n"${claim}"` },
             ],
             temperature: 0,
+            search_parameters: { mode: 'on', return_citations: true },
           }),
         },
         30_000,

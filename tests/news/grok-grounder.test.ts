@@ -46,7 +46,8 @@ describe('GrokGrounder', () => {
     const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toBe('https://api.x.ai/v1/chat/completions');
     const body = JSON.parse(opts!.body as string);
-    expect(body.model).toBe('grok-3');
+    expect(body.model).toBe('grok-4-1-fast-non-reasoning');
+    expect(body.search_parameters).toEqual({ mode: 'on', return_citations: true });
     expect((opts!.headers as any)['Authorization']).toBe('Bearer test-xai-key');
   });
 
