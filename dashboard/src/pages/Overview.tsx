@@ -23,6 +23,7 @@ export function Overview() {
   const [errors, setErrors] = useState<any[]>([]);
   const [snapshotCount, setSnapshotCount] = useState(0);
   const [lastSnapshotAge, setLastSnapshotAge] = useState<number | null>(null);
+  const [totalFees, setTotalFees] = useState<{ usd: number; asset: string } | null>(null);
 
   const fetchLive = useCallback(() => {
     supabase.from('cycles').select('*').order('created_at', { ascending: false }).limit(1)
@@ -39,6 +40,24 @@ export function Overview() {
       .order('created_at', { ascending: false }).limit(1)
       .then(({ data }) => {
         if (data?.[0]) setLastSnapshotAge(Math.round((Date.now() - new Date(data[0].created_at).getTime()) / 1000));
+      });
+    // Fees: sum real commission_usd where available, fallback to estimated (size_usd * leverage * 0.0008)
+    supabase.from('trade_executions').select('commission_usd, commission_asset, size_usd, leverage')
+      .then(({ data }) => {
+        if (!data) return;
+        let total = 0;
+        let asset = 'USDT';
+        for (const e of data) {
+          const comm = Number(e.commission_usd);
+          if (comm > 0) {
+            total += comm;
+            if (e.commission_asset) asset = e.commission_asset;
+          } else {
+            // Estimate: entry + exit = size_usd * leverage * 0.04% * 2
+            total += Number(e.size_usd || 0) * Number(e.leverage || 1) * 0.0008;
+          }
+        }
+        setTotalFees({ usd: total, asset });
       });
   }, []);
 
@@ -92,10 +111,16 @@ export function Overview() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatCard label="Wallet Balance" value={`$${Number(cycle?.balance || 0).toFixed(2)}`} />
         <StatCard label="Session PnL" value={`$${Number(cycle?.session_pnl || 0).toFixed(2)}`} color={pnlColor} />
         <StatCard label="Regime" value={cycle?.regime || '—'} subtitle={`Confidence: ${cycle?.regime_confidence != null ? `${Math.round(cycle.regime_confidence)}%` : '—'}`} />
+        <StatCard
+          label="Total Fees"
+          value={totalFees != null ? `$${totalFees.usd.toFixed(2)}` : '—'}
+          subtitle={totalFees?.asset === 'BNB' ? 'Paid in BNB' : 'Est. 0.04% taker'}
+          color="red"
+        />
         <StatCard label="Watchdog" value={watchdogOk ? 'Healthy' : 'Stale'} subtitle={`${snapshotCount} snaps/h`} color={watchdogOk ? 'green' : 'red'} />
       </div>
 

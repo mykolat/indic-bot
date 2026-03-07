@@ -1139,6 +1139,8 @@ export class TradingLoop {
                 entry_price: result.fillPrice,
                 entry_thesis: decision.reasoning,
                 strategy_type: (pairRegimes.get(decision.pair)?.regime ?? marketRegime) === MarketRegime.Scalping ? 'scalping' : 'swing',
+                commission_usd: result.commissionUsd,
+                commission_asset: result.commissionAsset,
               }).catch(e => console.error('[DB] execution insert error:', e.message));
             }
 

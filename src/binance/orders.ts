@@ -17,6 +17,8 @@ export interface OrderResult {
   slPrice?: number;
   tpPrice?: number;
   quantity?: number;
+  commissionUsd?: number;
+  commissionAsset?: string;
 }
 
 export class OrderExecutor {
@@ -52,12 +54,16 @@ export class OrderExecutor {
       });
 
       let fillPrice = price; // fallback
+      let commissionUsd = 0;
+      let commissionAsset = 'USDT';
       if (order.fills && order.fills.length > 0) {
         let totalQty = 0;
         let totalCost = 0;
         for (const fill of order.fills) {
           totalQty += parseFloat(fill.qty);
           totalCost += parseFloat(fill.price) * parseFloat(fill.qty);
+          if (fill.commission) commissionUsd += parseFloat(fill.commission);
+          if (fill.commissionAsset) commissionAsset = fill.commissionAsset;
         }
         if (totalQty > 0) fillPrice = totalCost / totalQty;
       } else if (order.price && parseFloat(order.price) > 0) {
@@ -117,7 +123,7 @@ export class OrderExecutor {
         console.error(`[Orders] TP placement failed for ${decision.pair}: ${tpErr.message}`);
       }
 
-      return { success: true, orderId: order.orderId, fillPrice, slPrice: stopPrice, tpPrice, quantity };
+      return { success: true, orderId: order.orderId, fillPrice, slPrice: stopPrice, tpPrice, quantity, commissionUsd, commissionAsset };
     } catch (err: any) {
       return { success: false, error: err.message };
     }

@@ -85,6 +85,8 @@ export interface DbTradeExecution {
   size_usd?: number;
   entry_thesis?: string;
   strategy_type?: string;
+  commission_usd?: number;
+  commission_asset?: string;
   opened_at?: string;
 }
 
