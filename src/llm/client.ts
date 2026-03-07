@@ -233,18 +233,11 @@ export class LLMClient {
           // Reasoning/thinking deltas
           if (event.type === 'response.reasoning.delta' && event.delta) {
             reasoning += event.delta;
-            process.stdout.write(`\x1b[90m${event.delta}\x1b[0m`);
-          }
-
-          // Reasoning summary
-          if (event.type === 'response.reasoning_summary_text.delta' && event.delta) {
-            process.stdout.write(`\x1b[33m${event.delta}\x1b[0m`);
           }
 
           // Text output deltas
           if (event.type === 'response.output_text.delta' && event.delta) {
             output += event.delta;
-            process.stdout.write(event.delta);
           }
 
           // Response completed — extract full text as fallback and usage
