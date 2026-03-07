@@ -20,6 +20,22 @@ trading:
   fearGreedLeverageCap: 10
   weekendLeverageMultiplier: 0.5
 
+positionManagement:
+  enabled: true
+  tp1CloseRatio: 0.5
+  breakevenBufferPct: 0.1
+  trailing:
+    enabled: true
+    callbackRatePct: 1.0
+  regimeOverrides:
+    Capitulation:
+      tp1CloseRatio: 1.0
+    Range:
+      tp1CloseRatio: 0.7
+      callbackRatePct: 0.5
+    BullTrend:
+      callbackRatePct: 1.5
+
 openai:
   model: gpt-5.4
   fallbackModel: gpt-4o-mini

@@ -31,6 +31,7 @@ import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClos
 import type { AdjustContext } from './risk/manager.js';
 import { buildWatchdogSummary } from './watchdog-summary.js';
 import { buildDiversityContext, type PairDecisionEntry } from './market/pair-diversity.js';
+import type { Watchdog, Tp1Target } from './watchdog.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -59,6 +60,7 @@ interface TradingLoopDeps {
     maxHoldHours?: number;
     minConfidence?: number;
     fearGreedLeverageCap?: number;
+    weekendLeverageMultiplier?: number;
     layer3EmergencyPct?: number;  // default -5 — threshold for Layer 3 emergency close
   };
   macroFetcher?: MacroFetcher;
@@ -83,6 +85,14 @@ interface TradingLoopDeps {
   decisionJournal?: DecisionJournal;
   tradeStoryLogger?: TradeStoryLogger;
   sessionId?: string;
+  watchdog?: Watchdog;
+  positionManagement?: {
+    enabled: boolean;
+    tp1CloseRatio: number;
+    breakevenBufferPct: number;
+    trailing: { enabled: boolean; callbackRatePct: number };
+    regimeOverrides: Record<string, Partial<{ tp1CloseRatio: number; callbackRatePct: number }>>;
+  };
 }
 
 export class TradingLoop {
@@ -101,6 +111,10 @@ export class TradingLoop {
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
+  }
+
+  setWatchdog(watchdog: Watchdog): void {
+    this.deps.watchdog = watchdog;
   }
 
   private saveEpisode(
@@ -204,6 +218,39 @@ export class TradingLoop {
           logger.logError('FLASH_CRASH_CLOSE_FAILED', err.message ?? 'unknown');
         }
         return undefined;
+      }
+    }
+
+    // Process TP1 hits from watchdog (position management)
+    if (this.deps.watchdog && this.deps.positionManagement?.enabled) {
+      const tp1Hits = this.deps.watchdog.drainTp1Hits();
+      for (const hit of tp1Hits) {
+        try {
+          const pm = this.deps.positionManagement;
+          const regime = this.regimeHysteresis.get(hit.pair);
+          const override = pm.regimeOverrides[regime] ?? {};
+          const closeRatio = override.tp1CloseRatio ?? pm.tp1CloseRatio;
+
+          console.log(`[PosMgmt] TP1 hit ${hit.pair} ${hit.side} — closing ${(closeRatio * 100).toFixed(0)}%, moving SL to breakeven`);
+
+          const partialResult = await orders.partialClose(hit.pair, hit.side, closeRatio);
+          if (partialResult.success) {
+            logger.logTrade({ type: 'PARTIAL_CLOSE', pair: hit.pair, reason: 'tp1_hit', ratio: closeRatio });
+          }
+
+          const beResult = await orders.moveSlToBreakeven(hit.pair, hit.side, hit.entryPrice, pm.breakevenBufferPct);
+          if (beResult.success) {
+            insertSlTpAdjustment({
+              pair: hit.pair,
+              side: hit.side === 'LONG' ? 'BUY' : 'SELL',
+              execution_id: hit.executionId,
+              new_sl: beResult.slPrice,
+              reasoning: 'tp1_hit_breakeven',
+            }).catch(() => {});
+          }
+        } catch (err: any) {
+          console.error(`[PosMgmt] TP1 processing failed for ${hit.pair}:`, err.message);
+        }
       }
     }
 
@@ -666,13 +713,12 @@ export class TradingLoop {
         }
       }
 
+      let useSwarm = false;
       try {
         if (filterWarning) {
           console.log(`[Loop] Pre-flight warning: ${filterWarning} (Passing to LLM as Soft Filter)`);
 
         }
-
-        let useSwarm = false;
         if (this.deps.swarmAgent && btcInd) {
           const btcSnapTemp = snapshots.find(s => s.pair === 'BTCUSDT');
           if (btcSnapTemp) {
@@ -1199,6 +1245,27 @@ export class TradingLoop {
           }
         }
       }
+
+      // Refresh TP1 targets for watchdog (all open positions with TP price)
+      if (this.deps.watchdog && this.deps.positionManagement?.enabled) {
+        try {
+          const openPairs = portfolio.positions.map(p => p.pair);
+          if (openPairs.length > 0) {
+            const posCtxs = await getOpenPositionContexts(openPairs);
+            const targets: Tp1Target[] = posCtxs
+              .filter(ctx => ctx.tp_price && ctx.fill_price && ctx.id)
+              .map(ctx => ({
+                pair: ctx.pair,
+                side: (ctx.side === 'BUY' ? 'LONG' : 'SHORT') as 'LONG' | 'SHORT',
+                entryPrice: ctx.fill_price,
+                tpPrice: ctx.tp_price,
+                executionId: ctx.id,
+              }));
+            this.deps.watchdog.setTp1Targets(targets);
+          }
+        } catch { /* DB optional */ }
+      }
+
       logger.logPerformance({
         balance: portfolio.balanceUsd,
         openPositions: portfolio.positions.length,

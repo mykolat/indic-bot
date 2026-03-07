@@ -289,6 +289,71 @@ describe('OrderExecutor', () => {
     });
   });
 
+  describe('partialClose', () => {
+    it('closes specified ratio of position', async () => {
+      mockClient.getPositions.mockResolvedValue([
+        { symbol: 'BTCUSDT', positionAmt: '0.010' },
+      ]);
+      const result = await executor.partialClose('BTCUSDT', 'LONG', 0.5);
+      expect(result.success).toBe(true);
+      expect(mockClient.submitNewOrder).toHaveBeenCalledTimes(1);
+      const call = mockClient.submitNewOrder.mock.calls[0][0];
+      expect(call.side).toBe('SELL');
+      expect(call.reduceOnly).toBe('true');
+      // 0.010 * 0.5 = 0.005 → rounded to 3dp (BTC fallback)
+      expect(parseFloat(call.quantity)).toBeCloseTo(0.005, 3);
+    });
+
+    it('returns error when no position found', async () => {
+      mockClient.getPositions.mockResolvedValue([
+        { symbol: 'BTCUSDT', positionAmt: '0' },
+      ]);
+      const result = await executor.partialClose('BTCUSDT', 'LONG', 0.5);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No open position');
+    });
+
+    it('closes SHORT position with BUY side', async () => {
+      mockClient.getPositions.mockResolvedValue([
+        { symbol: 'ETHUSDT', positionAmt: '-1.5' },
+      ]);
+      const result = await executor.partialClose('ETHUSDT', 'SHORT', 0.5);
+      expect(result.success).toBe(true);
+      const call = mockClient.submitNewOrder.mock.calls[0][0];
+      expect(call.side).toBe('BUY');
+    });
+  });
+
+  describe('moveSlToBreakeven', () => {
+    it('cancels old algo orders and places new SL at entry + buffer for LONG', async () => {
+      const result = await executor.moveSlToBreakeven('BTCUSDT', 'LONG', 100000, 0.1);
+      expect(result.success).toBe(true);
+      expect(mockClient.cancelAllAlgoOpenOrders).toHaveBeenCalledWith({ symbol: 'BTCUSDT' });
+      expect(mockClient.submitNewAlgoOrder).toHaveBeenCalledTimes(1);
+      const call = mockClient.submitNewAlgoOrder.mock.calls[0][0];
+      expect(call.type).toBe('STOP_MARKET');
+      expect(call.side).toBe('SELL');
+      expect(call.closePosition).toBe('true');
+      // 100000 * 1.001 = 100100
+      expect(result.slPrice).toBeCloseTo(100100, 0);
+    });
+
+    it('places SL at entry - buffer for SHORT', async () => {
+      const result = await executor.moveSlToBreakeven('ETHUSDT', 'SHORT', 5000, 0.1);
+      expect(result.success).toBe(true);
+      const call = mockClient.submitNewAlgoOrder.mock.calls[0][0];
+      expect(call.side).toBe('BUY');
+      // 5000 * 0.999 = 4995
+      expect(result.slPrice).toBeCloseTo(4995, 0);
+    });
+
+    it('returns failure if SL placement fails', async () => {
+      mockClient.submitNewAlgoOrder.mockRejectedValue(new Error('rejected'));
+      const result = await executor.moveSlToBreakeven('BTCUSDT', 'LONG', 100000, 0.1);
+      expect(result.success).toBe(false);
+    });
+  });
+
   it('returns error on API failure', async () => {
     mockClient.submitNewOrder.mockRejectedValue(new Error('Insufficient margin'));
 

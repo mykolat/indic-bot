@@ -48,6 +48,13 @@ export interface Config {
     fearGreedLeverageCap: number;
     weekendLeverageMultiplier: number;
   };
+  positionManagement: {
+    enabled: boolean;
+    tp1CloseRatio: number;
+    breakevenBufferPct: number;
+    trailing: { enabled: boolean; callbackRatePct: number };
+    regimeOverrides: Record<string, Partial<{ tp1CloseRatio: number; callbackRatePct: number }>>;
+  };
 }
 
 function requiredEnv(key: string): string {
@@ -69,6 +76,8 @@ export function loadConfig(): Config {
   const o = y.openai ?? {};
   const b = y.binance ?? {};
   const w = y.webhook ?? {};
+  const pm = y.positionManagement ?? {};
+  const pmTrailing = pm.trailing ?? {};
 
   return {
     binance: {
@@ -114,6 +123,16 @@ export function loadConfig(): Config {
       maxHoldHours: t.maxHoldHours ?? 24,
       fearGreedLeverageCap: t.fearGreedLeverageCap ?? 10,
       weekendLeverageMultiplier: t.weekendLeverageMultiplier ?? 0.5,
+    },
+    positionManagement: {
+      enabled: pm.enabled ?? false,
+      tp1CloseRatio: pm.tp1CloseRatio ?? 0.5,
+      breakevenBufferPct: pm.breakevenBufferPct ?? 0.1,
+      trailing: {
+        enabled: pmTrailing.enabled ?? false,
+        callbackRatePct: pmTrailing.callbackRatePct ?? 1.0,
+      },
+      regimeOverrides: pm.regimeOverrides ?? {},
     },
   };
 }

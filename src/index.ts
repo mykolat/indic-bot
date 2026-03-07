@@ -264,6 +264,7 @@ async function main() {
     decisionJournal,
     tradeStoryLogger,
     sessionId,
+    positionManagement: config.positionManagement,
   });
 
   // Start Watchdog (1-min snapshots into DB)
@@ -282,8 +283,9 @@ async function main() {
         loop.runOnce().catch(err => console.error('[Watchdog] Brain wake failed:', err.message));
       },
     });
+    loop.setWatchdog(watchdog);
     watchdog.start(60_000);
-    console.log('[Watchdog] Started — 1-min market snapshots');
+    console.log('[Watchdog] Started — 1-min market snapshots + TP1 monitoring');
   }
 
   // Run loop

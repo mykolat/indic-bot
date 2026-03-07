@@ -1,6 +1,22 @@
 import type { MarketDataFetcher, QuickSnapshot } from './binance/market-data.js';
 import type { DbMarketSnapshot } from './db/types.js';
 
+export interface Tp1Target {
+  pair: string;
+  side: 'LONG' | 'SHORT';
+  entryPrice: number;
+  tpPrice: number;
+  executionId: number;
+}
+
+export interface Tp1Hit {
+  pair: string;
+  side: 'LONG' | 'SHORT';
+  entryPrice: number;
+  markPrice: number;
+  executionId: number;
+}
+
 export interface WatchdogDeps {
   pairs: string[];
   marketData: MarketDataFetcher;
@@ -13,9 +29,24 @@ export interface WatchdogDeps {
 export class Watchdog {
   private deps: WatchdogDeps;
   private intervalId: ReturnType<typeof setInterval> | null = null;
+  private tp1Targets = new Map<string, Tp1Target>();
+  private tp1HitQueue: Tp1Hit[] = [];
 
   constructor(deps: WatchdogDeps) {
     this.deps = deps;
+  }
+
+  setTp1Targets(targets: Tp1Target[]): void {
+    this.tp1Targets.clear();
+    for (const t of targets) {
+      this.tp1Targets.set(t.pair, t);
+    }
+  }
+
+  drainTp1Hits(): Tp1Hit[] {
+    const hits = [...this.tp1HitQueue];
+    this.tp1HitQueue = [];
+    return hits;
   }
 
   start(intervalMs = 60_000): void {
@@ -66,6 +97,25 @@ export class Watchdog {
         if (oiDelta > 10) {
           this.deps.onAnomaly(pair, 'OI_SPIKE', `${oiDelta.toFixed(1)}% change`);
         }
+      }
+    }
+
+    // TP1 monitoring
+    const target = this.tp1Targets.get(pair);
+    if (target) {
+      const hit = target.side === 'LONG'
+        ? current.mark_price >= target.tpPrice
+        : current.mark_price <= target.tpPrice;
+      if (hit) {
+        this.tp1HitQueue.push({
+          pair,
+          side: target.side,
+          entryPrice: target.entryPrice,
+          markPrice: current.mark_price,
+          executionId: target.executionId,
+        });
+        this.tp1Targets.delete(pair); // one-shot — don't fire again
+        console.log(`[Watchdog] TP1 hit: ${pair} ${target.side} at $${current.mark_price}`);
       }
     }
   }

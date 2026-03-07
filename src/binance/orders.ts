@@ -210,6 +210,67 @@ export class OrderExecutor {
     }
   }
 
+  async partialClose(pair: string, side: 'LONG' | 'SHORT', ratio: number): Promise<OrderResult> {
+    try {
+      const closeSide = side === 'LONG' ? 'SELL' : 'BUY';
+      const positions = await this.client.getPositions({ symbol: pair });
+      const pos = positions.find((p: any) => p.symbol === pair && parseFloat(p.positionAmt) !== 0);
+      if (!pos) {
+        return { success: false, error: `No open position found for ${pair}` };
+      }
+      const fullQty = Math.abs(parseFloat(pos.positionAmt));
+      const partialQty = this.roundQuantity(fullQty * ratio, pair);
+      if (partialQty <= 0) {
+        return { success: false, error: `Partial quantity too small for ${pair}` };
+      }
+
+      const order = await this.client.submitNewOrder({
+        symbol: pair,
+        side: closeSide,
+        type: 'MARKET',
+        quantity: String(partialQty),
+        reduceOnly: 'true',
+      });
+
+      console.log(`[Orders] Partial close ${pair} ${side}: ${(ratio * 100).toFixed(0)}% (${partialQty})`);
+      return { success: true, orderId: order.orderId, quantity: partialQty };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async moveSlToBreakeven(pair: string, side: 'LONG' | 'SHORT', entryPrice: number, bufferPct: number): Promise<OrderResult> {
+    const closeSide = side === 'LONG' ? 'SELL' : 'BUY';
+    try {
+      // Cancel existing algo orders
+      try {
+        await this.client.cancelAllAlgoOpenOrders({ symbol: pair });
+      } catch {
+        // May have no algo orders
+      }
+
+      // Breakeven = entry + buffer (above for LONG, below for SHORT)
+      const bePrice = side === 'LONG'
+        ? entryPrice * (1 + bufferPct / 100)
+        : entryPrice * (1 - bufferPct / 100);
+
+      await this.client.submitNewAlgoOrder({
+        symbol: pair,
+        side: closeSide,
+        algoType: 'CONDITIONAL',
+        type: 'STOP_MARKET',
+        triggerPrice: this.formatPrice(bePrice, pair),
+        closePosition: 'true',
+      });
+
+      console.log(`[Orders] Moved SL to breakeven ${pair} ${side}: $${bePrice.toFixed(4)}`);
+      return { success: true, slPrice: bePrice };
+    } catch (err: any) {
+      console.error(`[Orders] Breakeven SL FAILED for ${pair}: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  }
+
   private roundQuantity(qty: number, pair: string): number {
     const decimals = this.stepDecimals.get(pair)
       ?? (pair.includes('BTC') ? 3 : pair.includes('ETH') ? 2 : 1);
