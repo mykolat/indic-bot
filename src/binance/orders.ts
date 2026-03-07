@@ -114,6 +114,8 @@ export class OrderExecutor {
           type: 'STOP_MARKET',
           triggerPrice: this.formatPrice(stopPrice, decision.pair),
           closePosition: 'true',
+          workingType: 'MARK_PRICE',
+          priceProtect: 'true',
         });
       } catch (slErr: any) {
         console.error(`[Orders] SL placement FAILED for ${decision.pair} — closing position!`, slErr.message);
@@ -143,6 +145,8 @@ export class OrderExecutor {
           type: 'TAKE_PROFIT_MARKET',
           triggerPrice: this.formatPrice(tpPrice, decision.pair),
           closePosition: 'true',
+          workingType: 'MARK_PRICE',
+          priceProtect: 'true',
         });
       } catch (tpErr: any) {
         console.error(`[Orders] TP placement failed for ${decision.pair}: ${tpErr.message}`);
@@ -211,6 +215,8 @@ export class OrderExecutor {
         type: 'STOP_MARKET',
         triggerPrice: this.formatPrice(newSlPrice, pair),
         closePosition: 'true',
+        workingType: 'MARK_PRICE',
+        priceProtect: 'true',
       });
 
       // 3. Place new TP (best-effort)
@@ -222,6 +228,8 @@ export class OrderExecutor {
           type: 'TAKE_PROFIT_MARKET',
           triggerPrice: this.formatPrice(newTpPrice, pair),
           closePosition: 'true',
+          workingType: 'MARK_PRICE',
+          priceProtect: 'true',
         });
       } catch (tpErr: any) {
         console.error(`[Orders] TP adjustment failed for ${pair}: ${tpErr.message}`);
@@ -286,6 +294,8 @@ export class OrderExecutor {
         type: 'STOP_MARKET',
         triggerPrice: this.formatPrice(bePrice, pair),
         closePosition: 'true',
+        workingType: 'MARK_PRICE',
+        priceProtect: 'true',
       });
 
       console.log(`[Orders] Moved SL to breakeven ${pair} ${side}: $${bePrice.toFixed(4)}`);

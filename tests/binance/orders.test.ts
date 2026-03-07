@@ -100,6 +100,19 @@ describe('OrderExecutor', () => {
     expect(tpCall.closePosition).toBe('true');
   });
 
+  it('SL/TP orders use MARK_PRICE and priceProtect', async () => {
+    const decision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
+      leverage: 10, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
+    };
+    await executor.execute(decision, 10);
+
+    for (const call of mockClient.submitNewAlgoOrder.mock.calls) {
+      expect(call[0].workingType).toBe('MARK_PRICE');
+      expect(call[0].priceProtect).toBe('true');
+    }
+  });
+
   it('stop price is below entry for LONG, above for SHORT', async () => {
     const longDecision: TradeDecision = {
       pair: 'BTCUSDT', action: 'LONG', size_pct: 20,
@@ -274,6 +287,14 @@ describe('OrderExecutor', () => {
       expect(result.tpPrice).toBe(0.250);
     });
 
+    it('uses MARK_PRICE and priceProtect on adjusted SL/TP', async () => {
+      await executor.adjustSlTp({ pair: 'ADAUSDT', side: 'SHORT', newSlPrice: 0.265, newTpPrice: 0.250 });
+      for (const call of mockClient.submitNewAlgoOrder.mock.calls) {
+        expect(call[0].workingType).toBe('MARK_PRICE');
+        expect(call[0].priceProtect).toBe('true');
+      }
+    });
+
     it('returns failure if new SL placement fails', async () => {
       mockClient.submitNewAlgoOrder.mockRejectedValueOnce(new Error('SL rejected by exchange'));
 
@@ -351,6 +372,13 @@ describe('OrderExecutor', () => {
       mockClient.submitNewAlgoOrder.mockRejectedValue(new Error('rejected'));
       const result = await executor.moveSlToBreakeven('BTCUSDT', 'LONG', 100000, 0.1);
       expect(result.success).toBe(false);
+    });
+
+    it('uses MARK_PRICE and priceProtect on breakeven SL', async () => {
+      await executor.moveSlToBreakeven('BTCUSDT', 'LONG', 100000, 0.1);
+      const call = mockClient.submitNewAlgoOrder.mock.calls[0][0];
+      expect(call.workingType).toBe('MARK_PRICE');
+      expect(call.priceProtect).toBe('true');
     });
   });
 
