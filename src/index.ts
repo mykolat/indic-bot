@@ -23,7 +23,6 @@ import { NewsAnalystAgent } from './news/news-analyst.js';
 import { SessionMemory } from './memory/session.js';
 import { MacroFetcher } from './news/macro-fetcher.js';
 import { MacroAnalystAgent } from './news/macro-analyst.js';
-import { join } from 'path';
 import { MemoryKeeper } from './memory/memory-keeper.js';
 import { SwarmAgent } from './llm/swarm-agent.js';
 import { MemoryReviewAgent } from './memory/memory-review.js';

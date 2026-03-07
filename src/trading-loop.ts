@@ -953,7 +953,7 @@ export class TradingLoop {
             pair: decision.pair,
             regime: marketRegime,
             regimeConfidence: regimeConfidence,
-            regimeOverride: decision.regime_override || null,
+            regimeOverride: null,
             filtersApplied: {
               volume: {
                 value: indicators.get(decision.pair)?.volumeRatio,
@@ -1075,7 +1075,7 @@ export class TradingLoop {
               reasoning: decision.reasoning,
               regime: marketRegime,
               regime_confidence: regimeConfidence,
-              regime_override: decision.regime_override,
+              regime_override: undefined,
               volume_ratio: btcInd?.volumeRatio,
               confluence_score: confluenceResult?.score,
               confluence_factors: confluenceResult?.factors,
@@ -1336,7 +1336,7 @@ export class TradingLoop {
                 filter_profile_at_entry: entryRegime,
                 confluence_at_entry: entryConfluence,
                 was_swarm: currentLayer === 1 && useSwarm,
-                volume_ratio_at_entry: entryVolumeRatio,
+                volume_ratio_at_entry: entryVolumeRatio ?? undefined,
                 fear_greed_at_entry: entryFearGreed,
               }).catch(e => console.error('[DB] execution insert error:', e.message));
             }
