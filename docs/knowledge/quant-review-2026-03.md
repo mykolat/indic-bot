@@ -243,4 +243,50 @@ Future architecture adds:
 
 ---
 
+## 8. ChatGPT Round 2 — Follow-up Analysis
+
+### What ChatGPT confirmed as correct in our analysis
+- Beta-adjusted exposure as #1 priority
+- Regime persistence as cheap high-impact improvement
+- Weekend leverage reduction as trivial win
+- Our LLM latency defense (Watchdog + SL/TP on exchange)
+- Our scalping math correction (8% of profit, not edge destruction)
+- Our dual-loop architecture as significantly stronger than typical bots
+
+### What ChatGPT suggested that we ALREADY have
+- **Volatility-scaled position sizing** — already implemented as VT (Volatility Targeting) cap in `trading-loop.ts:862-873`. Calculates `maxVtSize = (balance * targetRiskPct%) / slDistancePct%`. ChatGPT doesn't know this exists.
+- **LLM as regime classifier, not entry decider** — already our architecture (LLM proposes, RiskManager gates)
+
+### New valid point: Graph RAG regime filtering
+Even within same regime, 2023 Range != 2025 Range due to market structure drift (ETF flows, regulatory changes). RAG should be treated as context, not signal. **Worth monitoring but not urgent.**
+
+### Liquidation data — upgraded to P0
+User decision: Binance WebSocket `forceOrder` stream is free and we trade on Binance only.
+This should be integrated into Watchdog NOW, not deferred.
+
+**Architecture:**
+```
+Binance WS forceOrder stream
+  → Watchdog aggregates per pair per minute
+  → Stores in liquidations table or market_snapshots
+  → Brain reads liquidation summary (spike detection)
+  → LLM sees: "BTCUSDT: 47 long liquidations ($2.3M) in last 10min"
+```
+
+**Signals:**
+- Liquidation spike > 5x rolling avg = potential reversal
+- Long liq cluster = bearish pressure / potential bottom
+- Short liq cluster = bullish pressure / potential squeeze
+
+### Roadmap alignment (agreed by external review)
+
+| Phase | Items | Trigger |
+|---|---|---|
+| Phase 1 (NOW) | Beta exposure, regime persistence, liquidation WS | Before scaling |
+| Phase 2 (profitable) | OBI, funding filter, weekend mode | After 50+ trades |
+| Phase 3 ($10K+) | Liquidation heatmap (Coinglass), quant metrics | Proven edge |
+| Phase 4 ($100K+) | Strategy library, execution engine, portfolio optimizer | Fund-grade |
+
+---
+
 *Last updated: 2026-03-07*
