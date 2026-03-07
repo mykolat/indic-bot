@@ -20,15 +20,19 @@ const navItems = [
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-zinc-950 text-white">
-        <nav className="border-b border-zinc-800 px-4 py-2 flex gap-1 items-center">
-          <span className="text-sm font-bold text-zinc-300 mr-4">Indic Bot</span>
+      <div className="min-h-screen bg-surface-0 text-[#e4e4ed]">
+        <nav className="border-b border-border px-6 py-3 flex items-center gap-1">
+          <span className="font-mono font-bold text-accent text-base mr-6 tracking-tight">Indic<span className="text-zinc-500 font-normal text-xs ml-1">bot</span></span>
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `text-sm px-3 py-1 rounded ${isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`
+                `text-sm px-3 py-1.5 border-b-2 transition-colors ${
+                  isActive
+                    ? 'border-accent text-white'
+                    : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                }`
               }
             >
               {item.label}
