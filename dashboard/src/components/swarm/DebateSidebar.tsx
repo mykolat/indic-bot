@@ -5,6 +5,8 @@ interface DebateItem {
   createdAt: string;
   votes: Array<{ persona: string; vote: string | null }>;
   summary: string;
+  isSkip?: boolean;
+  skipReason?: string;
 }
 
 interface DebateSidebarProps {
@@ -21,6 +23,25 @@ export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarP
       </div>
       {debates.map((d, i) => {
         const isSelected = selectedIdx === i;
+
+        if (d.isSkip) {
+          return (
+            <div
+              key={i}
+              className="w-full text-left px-4 py-3 border-b border-border-subtle border-l-2 border-l-yellow-600/40 bg-yellow-950/10"
+            >
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-mono text-yellow-600/70">#{d.cycleId}</span>
+                <span className="text-[10px] text-zinc-600 font-mono">
+                  {new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              <p className="text-[10px] text-yellow-600/60 font-mono">SKIPPED</p>
+              <p className="text-[10px] text-zinc-600 mt-0.5">{d.skipReason}</p>
+            </div>
+          );
+        }
+
         return (
           <button
             key={i}

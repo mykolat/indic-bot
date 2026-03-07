@@ -205,6 +205,52 @@ export function Wiki() {
         </div>
       </section>
 
+      {/* Swarm Multi-Agent Debate */}
+      <section className="bg-surface-1 rounded-xl border border-border p-6">
+        <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-4">Swarm Multi-Agent Debate</h2>
+        <div className="space-y-4 text-xs text-zinc-400">
+          <div>
+            <h3 className="text-zinc-300 font-semibold mb-1">When does it activate?</h3>
+            <p>When <span className="font-mono text-accent">BTC volumeRatio &gt; 1.5x</span> (current 1h volume vs 20-period average). This typically happens during London/NY overlap (15:00-19:00 Kyiv) or major news events.</p>
+          </div>
+          <div>
+            <h3 className="text-zinc-300 font-semibold mb-1">What happens when it's skipped?</h3>
+            <p>Bot uses a single LLM call instead. Faster, cheaper, sufficient for low-activity markets. The <span className="font-mono text-yellow-500">SKIPPED</span> label in the sidebar shows the last cycle with its volume ratio and regime.</p>
+          </div>
+          <div>
+            <h3 className="text-zinc-300 font-semibold mb-1">5 Personas</h3>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              {[
+                ['Risk Manager', 'text-blue-400', 'Evaluates downside risk, position sizing, exposure'],
+                ['Bull Thesis', 'text-green-400', 'Builds the case for going long'],
+                ['Bear Thesis', 'text-red-400', 'Builds the case for going short'],
+                ['Market Structure', 'text-purple-400', 'Analyzes technicals, support/resistance, order flow'],
+                ["Devil's Advocate", 'text-yellow-400', 'Challenges consensus, finds hidden risks'],
+                ['Narrative Expert', 'text-cyan-400', 'Grok-powered — reads X/Twitter sentiment, news narrative'],
+              ].map(([name, color, desc]) => (
+                <div key={name} className="flex gap-2 items-start p-2 bg-surface-2 rounded-lg">
+                  <span className={`font-mono font-semibold shrink-0 ${color}`}>{name}</span>
+                  <span className="text-zinc-500">{desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-zinc-300 font-semibold mb-1">Pipeline</h3>
+            <div className="font-mono text-[11px] space-y-1">
+              <p><span className="text-zinc-600">Phase 1:</span> <span className="text-zinc-300">Generate</span> — each persona produces thesis + probability + confidence</p>
+              <p><span className="text-zinc-600">Phase 2:</span> <span className="text-zinc-300">Critique</span> — personas challenge each other (high-stakes only: &gt;3% PnL or &gt;30% balance)</p>
+              <p><span className="text-zinc-600">Phase 3:</span> <span className="text-zinc-300">Revise</span> — update positions after critique</p>
+              <p><span className="text-zinc-600">Judge:</span> <span className="text-zinc-300">Aggregate</span> — weighted by probability × confidence, DA risks get extra weight</p>
+            </div>
+          </div>
+          <div>
+            <h3 className="text-zinc-300 font-semibold mb-1">Cost</h3>
+            <p>Phase 1: 6-7 LLM calls. Phase 2 (critique): +5. Phase 3 (revise): +5. Total: 6-17 calls per debate.</p>
+          </div>
+        </div>
+      </section>
+
       {/* Status meanings */}
       <section className="bg-surface-1 rounded-xl border border-border p-6">
         <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-4">Trade Status Meanings</h2>

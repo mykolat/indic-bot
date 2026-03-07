@@ -12,6 +12,8 @@ interface SidebarItem {
   createdAt: string;
   summary: string;
   votes: Array<{ persona: string; vote: string | null }>;
+  isSkip?: boolean;
+  skipReason?: string;
 }
 
 interface SwarmMessage {
@@ -119,34 +121,61 @@ export function Swarm() {
   // ── Load sidebar (fast — single query) ──
   useEffect(() => {
     (async () => {
-      const { data: judges } = await supabase
-        .from('llm_conversations')
-        .select('cycle_id, raw_response, created_at')
-        .eq('method', 'swarm_consensus')
-        .order('created_at', { ascending: false })
-        .limit(60);
-      if (!judges?.length) return;
+      const [{ data: judges }, { data: latestCycle }] = await Promise.all([
+        supabase
+          .from('llm_conversations')
+          .select('cycle_id, raw_response, created_at')
+          .eq('method', 'swarm_consensus')
+          .order('created_at', { ascending: false })
+          .limit(60),
+        supabase
+          .from('cycles')
+          .select('id, volume_ratio, regime, created_at')
+          .order('created_at', { ascending: false })
+          .limit(1),
+      ]);
 
       // Deduplicate by cycle_id, keep latest per cycle
       const seen = new Set<number>();
       const items: SidebarItem[] = [];
-      for (const j of judges) {
-        if (seen.has(j.cycle_id)) continue;
-        seen.add(j.cycle_id);
+
+      // If latest cycle is NOT a debate, show it as "skip" at top
+      const latestDebateCycleId = judges?.[0]?.cycle_id;
+      const latest = latestCycle?.[0];
+      if (latest && latest.id !== latestDebateCycleId) {
+        const vol = latest.volume_ratio != null ? Number(latest.volume_ratio).toFixed(2) : '?';
         items.push({
-          cycleId: j.cycle_id,
-          createdAt: j.created_at,
-          summary: extractSummary(j.raw_response),
-          votes: [], // loaded with detail
+          cycleId: latest.id,
+          createdAt: latest.created_at,
+          summary: `Skip — Vol ${vol}x < 1.5x`,
+          votes: [],
+          isSkip: true,
+          skipReason: `Vol ${vol}x (need >1.5x) · ${latest.regime}`,
         });
+        seen.add(latest.id);
+      }
+
+      if (judges?.length) {
+        for (const j of judges) {
+          if (seen.has(j.cycle_id)) continue;
+          seen.add(j.cycle_id);
+          items.push({
+            cycleId: j.cycle_id,
+            createdAt: j.created_at,
+            summary: extractSummary(j.raw_response),
+            votes: [],
+          });
+        }
       }
       setSidebarItems(items);
 
-      // Auto-select from ?cycle= param
+      // Auto-select from ?cycle= param (default to first debate, not skip)
       const cycleParam = searchParams.get('cycle');
       if (cycleParam) {
         const idx = items.findIndex(i => i.cycleId === Number(cycleParam));
         if (idx >= 0) setSelectedIdx(idx);
+      } else if (items.length > 0 && items[0].isSkip && items.length > 1) {
+        setSelectedIdx(1); // select first real debate by default
       }
     })();
   }, [searchParams]);
@@ -375,7 +404,7 @@ export function Swarm() {
   return (
     <div className="flex h-[calc(100vh-5rem)]">
       <DebateSidebar
-        debates={sidebarItems.map(d => ({ cycleId: d.cycleId, createdAt: d.createdAt, votes: d.votes, summary: d.summary }))}
+        debates={sidebarItems.map(d => ({ cycleId: d.cycleId, createdAt: d.createdAt, votes: d.votes, summary: d.summary, isSkip: d.isSkip, skipReason: d.skipReason }))}
         selectedIdx={selectedIdx}
         onSelect={setSelectedIdx}
       />
@@ -438,7 +467,26 @@ export function Swarm() {
               {rounds.map(r => (
                 <RoundSection key={r.round} {...r} />
               ))}
-              {rounds.length === 0 && (
+              {rounds.length === 0 && selected?.isSkip && (
+                <div className="max-w-lg mx-auto mt-8 space-y-4">
+                  <div className="bg-yellow-950/20 border border-yellow-800/30 rounded-xl p-5">
+                    <h3 className="text-sm font-semibold text-yellow-500 mb-2">Debate Skipped</h3>
+                    <p className="text-sm text-zinc-400">{selected.skipReason}</p>
+                  </div>
+                  <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">How Swarm Activation Works</h3>
+                    <div className="text-xs text-zinc-500 space-y-2">
+                      <p>The swarm multi-agent debate activates when <span className="text-zinc-300 font-mono">BTC volumeRatio &gt; 1.5x</span> (current volume vs 20-period average).</p>
+                      <p>When active, <span className="text-zinc-300">5 AI personas</span> debate independently: Risk Manager, Bull Thesis, Bear Thesis, Market Structure, and Devil's Advocate (+ optional Narrative Expert via Grok).</p>
+                      <p>When volume is below threshold, the bot uses a <span className="text-zinc-300">single LLM call</span> instead — faster, cheaper, sufficient for low-activity markets.</p>
+                      <div className="border-t border-border pt-2 mt-2">
+                        <p className="text-zinc-600">Volume typically spikes during London/NY overlap (15:00-19:00 Kyiv) and around major news events.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {rounds.length === 0 && !selected?.isSkip && (
                 <div className="text-zinc-600 text-sm text-center mt-8">No expert data for this debate</div>
               )}
             </>
