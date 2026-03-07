@@ -86,11 +86,12 @@ describe('buildExpertSystemPrompt', () => {
     expect(prompt).toContain('catastrophic loss');
   });
 
-  it('devils_advocate must argue OPPOSITE and be contrarian', () => {
+  it('devils_advocate must be a profit advocate pushing for action', () => {
     const prompt = buildExpertSystemPrompt('devils_advocate');
-    expect(prompt).toContain('OPPOSITE');
-    expect(prompt).toContain('contrarian');
-    expect(prompt).toContain('NEVER agree with the majority');
+    expect(prompt).toContain('PROFIT ADVOCATE');
+    expect(prompt).toContain('opportunity');
+    expect(prompt).toContain('maximum leverage');
+    expect(prompt).toContain('NEVER vote HOLD');
   });
 
   it('market_structure focuses on microstructure signals', () => {
@@ -108,7 +109,7 @@ describe('buildExpertSystemPrompt', () => {
     expect(bull).toContain('BULL THESIS ANALYST');
 
     const devil = buildExpertSystemPrompt('devils_advocate');
-    expect(devil).toContain("DEVIL'S ADVOCATE");
+    expect(devil).toContain('PROFIT ADVOCATE');
   });
 });
 
