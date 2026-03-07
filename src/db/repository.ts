@@ -45,12 +45,13 @@ export async function insertCycle(c: Omit<DbCycle, 'id' | 'created_at'>): Promis
 
 export async function insertLlmConversation(c: Omit<DbLlmConversation, 'id' | 'created_at'>): Promise<number> {
   const { rows } = await q().query(
-    `INSERT INTO llm_conversations (cycle_id, session_id, layer, model, method, label, system_prompt, user_prompt, raw_response, reasoning_chain, tokens_in, tokens_out, estimated, latency_ms, parsed_ok, parse_error)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+    `INSERT INTO llm_conversations (cycle_id, session_id, layer, model, method, label, system_prompt, user_prompt, raw_response, reasoning_chain, tokens_in, tokens_out, estimated, latency_ms, parsed_ok, parse_error, blackboard_state)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
     [c.cycle_id, c.session_id, c.layer, c.model, c.method, c.label,
      c.system_prompt, c.user_prompt, c.raw_response, c.reasoning_chain,
      c.tokens_in, c.tokens_out, c.estimated ?? false, c.latency_ms,
-     c.parsed_ok, c.parse_error],
+     c.parsed_ok, c.parse_error,
+     c.blackboard_state ? JSON.stringify(c.blackboard_state) : null],
   );
   return rows[0].id;
 }
@@ -164,10 +165,12 @@ export async function insertMacroAnalysis(a: Omit<DbMacroAnalysis, 'id' | 'creat
 
 export async function insertSwarmPersona(p: Omit<DbSwarmPersona, 'id' | 'created_at'>): Promise<number> {
   const { rows } = await q().query(
-    `INSERT INTO swarm_personas (conversation_id, persona, model, raw_response, vote, confidence, reasoning, tokens_in, tokens_out, phase, reply_to_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    `INSERT INTO swarm_personas (conversation_id, persona, model, raw_response, vote, confidence, reasoning, tokens_in, tokens_out, phase, reply_to_id, conflicts_with, signals)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
     [p.conversation_id, p.persona, p.model, p.raw_response, p.vote,
-     p.confidence, p.reasoning, p.tokens_in, p.tokens_out, p.phase ?? 1, p.reply_to_id ?? null],
+     p.confidence, p.reasoning, p.tokens_in, p.tokens_out, p.phase ?? 1, p.reply_to_id ?? null,
+     p.conflicts_with ? JSON.stringify(p.conflicts_with) : null,
+     p.signals ? JSON.stringify(p.signals) : null],
   );
   return rows[0].id;
 }

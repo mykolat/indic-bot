@@ -42,6 +42,7 @@ export interface DbLlmConversation {
   latency_ms?: number;
   parsed_ok?: boolean;
   parse_error?: string;
+  blackboard_state?: Record<string, unknown>;
   created_at?: string;
 }
 
@@ -168,6 +169,8 @@ export interface DbSwarmPersona {
   tokens_out?: number;
   phase?: number;
   reply_to_id?: number;
+  conflicts_with?: Record<string, string>;
+  signals?: { bullish?: string[]; bearish?: string[]; neutral?: string[] };
   created_at?: string;
 }
 
