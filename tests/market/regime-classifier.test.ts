@@ -151,3 +151,30 @@ describe('classifyRegime', () => {
     expect(result.confidence).toBeLessThan(50);
   });
 });
+
+describe('classifyRegime — Scalping', () => {
+  it('detects Scalping when volume < 0.5 AND ADX < 25 AND F&G > 15', () => {
+    const ind = makeIndicators({ volumeRatio: 0.3, adx: 14 });
+    const result = classifyRegime(ind, 100, { value: 40 });
+    expect(result.regime).toBe(MarketRegime.Scalping);
+    expect(result.confidence).toBeGreaterThan(0);
+  });
+
+  it('does NOT detect Scalping when F&G < 15 (Capitulation takes priority)', () => {
+    const ind = makeIndicators({ volumeRatio: 0.3, adx: 14 });
+    const result = classifyRegime(ind, 100, { value: 10 });
+    expect(result.regime).toBe(MarketRegime.Capitulation);
+  });
+
+  it('does NOT detect Scalping when volume >= 0.5', () => {
+    const ind = makeIndicators({ volumeRatio: 0.7, adx: 14 });
+    const result = classifyRegime(ind, 100, { value: 40 });
+    expect(result.regime).not.toBe(MarketRegime.Scalping);
+  });
+
+  it('does NOT detect Scalping when ADX >= 25 (trend too strong)', () => {
+    const ind = makeIndicators({ volumeRatio: 0.3, adx: 27, ema20: 105, ema50: 100 });
+    const result = classifyRegime(ind, 105, { value: 40 });
+    expect(result.regime).not.toBe(MarketRegime.Scalping);
+  });
+});

@@ -17,12 +17,12 @@ interface DecisionRow {
   executed?: boolean;
   close_pnl?: number;
   close_reason?: string;
+  strategy_type?: string;
 }
 
-type StatusBadge = 'PREFLIGHT_FAIL' | 'RISK_REJECTED' | 'ORDER_FAIL' | 'OPEN' | 'TP' | 'SL' | 'MANUAL' | 'PENDING';
+type StatusBadge = 'RISK_REJECTED' | 'ORDER_FAIL' | 'OPEN' | 'TP' | 'SL' | 'MANUAL' | 'PENDING';
 
 const BADGE_STYLES: Record<StatusBadge, string> = {
-  PREFLIGHT_FAIL: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
   RISK_REJECTED:  'bg-red-500/15 text-red-400 border-red-500/30',
   ORDER_FAIL:     'bg-red-500/15 text-red-400 border-red-500/30',
   OPEN:           'bg-blue-500/15 text-blue-400 border-blue-500/30',
@@ -32,12 +32,14 @@ const BADGE_STYLES: Record<StatusBadge, string> = {
   PENDING:        'bg-zinc-500/10 text-zinc-500 border-zinc-600/30',
 };
 
-const ACTION_COLORS: Record<string, string> = {
-  LONG: '#4ade80',
-  SHORT: '#f87171',
-  HOLD: '#71717a',
-  CLOSE: '#a78bfa',
-  ADJUST: '#fb923c',
+const STATUS_LABELS: Record<StatusBadge, string> = {
+  RISK_REJECTED: 'Rejected',
+  ORDER_FAIL: 'Failed',
+  OPEN: 'Open',
+  TP: 'Take Profit',
+  SL: 'Stop Loss',
+  MANUAL: 'Closed',
+  PENDING: 'Pending',
 };
 
 interface TimelineEvent {
@@ -46,18 +48,20 @@ interface TimelineEvent {
   data: Record<string, any>;
 }
 
+type FilterTab = 'all' | 'open' | 'won' | 'lost' | 'rejected';
+
 export function Trades() {
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
-  const [filterPair, setFilterPair] = useState('');
-  const [filterAction, setFilterAction] = useState('');
+  const [activeTab, setActiveTab] = useState<FilterTab>('all');
 
   useEffect(() => {
     const load = async () => {
       const { data: decs } = await supabase
         .from('trade_decisions')
         .select('id, pair, action, confidence, reasoning, regime, created_at, cycle_id')
+        .in('action', ['LONG', 'SHORT'])
         .order('created_at', { ascending: false })
         .limit(100);
       if (!decs) return;
@@ -65,7 +69,7 @@ export function Trades() {
       const decIds = decs.map((d) => d.id);
       const [risks, execs] = await Promise.all([
         supabase.from('risk_validations').select('decision_id, passed, rejection_reason').in('decision_id', decIds),
-        supabase.from('trade_executions').select('id, decision_id').in('decision_id', decIds),
+        supabase.from('trade_executions').select('id, decision_id, strategy_type').in('decision_id', decIds),
       ]);
 
       const execIds = (execs.data ?? []).map((e) => e.id);
@@ -74,7 +78,7 @@ export function Trades() {
         : { data: [] };
 
       const riskMap = new Map((risks.data ?? []).map((r) => [r.decision_id, r]));
-      const execMap = new Map((execs.data ?? []).map((e) => [e.decision_id, e]));
+      const execMap = new Map((execs.data ?? []).map((e: any) => [e.decision_id, e]));
       const closeMap = new Map((closes ?? []).map((c) => [c.execution_id, c]));
 
       const enriched = decs.map((d) => {
@@ -88,6 +92,7 @@ export function Trades() {
           executed: !!exec,
           close_pnl: close ? Number(close.pnl_usd) : undefined,
           close_reason: close?.exit_reason,
+          strategy_type: (exec as any)?.strategy_type,
         };
       });
 
@@ -97,7 +102,6 @@ export function Trades() {
   }, []);
 
   const getStatus = (d: DecisionRow): StatusBadge => {
-    if (d.action === 'HOLD' || d.action === 'ADJUST' || d.action === 'CLOSE') return 'PENDING';
     if (d.risk_passed === false) return 'RISK_REJECTED';
     if (!d.executed && d.risk_passed) return 'ORDER_FAIL';
     if (!d.executed) return 'PENDING';
@@ -107,15 +111,28 @@ export function Trades() {
     return 'OPEN';
   };
 
-  const pairs = useMemo(() => [...new Set(decisions.map((d) => d.pair))], [decisions]);
-  const actions = useMemo(() => [...new Set(decisions.map((d) => d.action))].sort(), [decisions]);
   const filtered = useMemo(() => {
     return decisions.filter((d) => {
-      if (filterPair && d.pair !== filterPair) return false;
-      if (filterAction && d.action !== filterAction) return false;
-      return true;
+      const status = getStatus(d);
+      switch (activeTab) {
+        case 'open': return status === 'OPEN';
+        case 'won': return status === 'TP' || (status === 'MANUAL' && (d.close_pnl ?? 0) > 0);
+        case 'lost': return status === 'SL' || (status === 'MANUAL' && (d.close_pnl ?? 0) < 0);
+        case 'rejected': return status === 'RISK_REJECTED' || status === 'ORDER_FAIL';
+        default: return true;
+      }
     });
-  }, [decisions, filterPair, filterAction]);
+  }, [decisions, activeTab]);
+
+  // Stats
+  const stats = useMemo(() => {
+    const wins = decisions.filter(d => { const s = getStatus(d); return s === 'TP' || (s === 'MANUAL' && (d.close_pnl ?? 0) > 0); }).length;
+    const losses = decisions.filter(d => { const s = getStatus(d); return s === 'SL' || (s === 'MANUAL' && (d.close_pnl ?? 0) < 0); }).length;
+    const totalPnl = decisions.reduce((sum, d) => sum + (d.close_pnl ?? 0), 0);
+    const open = decisions.filter(d => getStatus(d) === 'OPEN').length;
+    const rejected = decisions.filter(d => { const s = getStatus(d); return s === 'RISK_REJECTED' || s === 'ORDER_FAIL'; }).length;
+    return { wins, losses, totalPnl, open, rejected, total: decisions.length };
+  }, [decisions]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -158,7 +175,6 @@ export function Trades() {
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
-  // Group decisions by date
   const grouped = useMemo(() => {
     const groups: Array<{ date: string; items: DecisionRow[] }> = [];
     let currentDate = '';
@@ -173,29 +189,53 @@ export function Trades() {
     return groups;
   }, [filtered]);
 
+  const TABS: { key: FilterTab; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: stats.total },
+    { key: 'open', label: 'Open', count: stats.open },
+    { key: 'won', label: 'Won', count: stats.wins },
+    { key: 'lost', label: 'Lost', count: stats.losses },
+    { key: 'rejected', label: 'Rejected', count: stats.rejected },
+  ];
+
   return (
     <div className="space-y-4">
+      {/* Header with summary stats */}
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-zinc-200">Trade Decisions</h1>
-        <span className="text-xs text-zinc-600 font-mono">{filtered.length} decisions</span>
+        <h1 className="text-lg font-semibold text-zinc-200">Trades</h1>
+        <div className="flex items-center gap-4">
+          <span className={`text-sm font-mono font-semibold ${stats.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toFixed(2)}
+          </span>
+          <span className="text-xs text-zinc-600 font-mono">
+            {stats.wins}W / {stats.losses}L
+          </span>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2">
-        <select value={filterPair} onChange={(e) => setFilterPair(e.target.value)}
-          className="bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-300 focus:outline-none focus:border-accent/40">
-          <option value="">All Pairs</option>
-          {pairs.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-        <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)}
-          className="bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-300 focus:outline-none focus:border-accent/40">
-          <option value="">All Actions</option>
-          {actions.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+      {/* Filter tabs */}
+      <div className="flex gap-1 bg-surface-1 rounded-lg p-1 w-fit">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              activeTab === tab.key
+                ? 'bg-surface-3 text-zinc-200 shadow-sm'
+                : 'text-zinc-500 hover:text-zinc-400'
+            }`}
+          >
+            {tab.label}
+            {tab.count > 0 && (
+              <span className={`ml-1.5 text-[10px] font-mono ${activeTab === tab.key ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      <div className="flex gap-5 h-[calc(100vh-14rem)]">
-        {/* Left: Decision list */}
+      <div className="flex gap-5 h-[calc(100vh-15rem)]">
+        {/* Left: Trade list */}
         <div className="w-[45%] overflow-y-auto pr-1 space-y-4">
           {grouped.map((group) => (
             <div key={group.date}>
@@ -206,7 +246,7 @@ export function Trades() {
                 {group.items.map((d) => {
                   const status = getStatus(d);
                   const isSelected = selectedId === d.id;
-                  const actionColor = ACTION_COLORS[d.action] ?? '#a1a1aa';
+                  const isLong = d.action === 'LONG';
 
                   return (
                     <button
@@ -220,36 +260,36 @@ export function Trades() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-[13px] font-mono font-medium text-zinc-300">{d.pair}</span>
-                          <span className="text-[11px] font-mono font-bold" style={{ color: actionColor }}>
-                            {d.action}
+                          {/* Direction arrow */}
+                          <span className={`text-sm ${isLong ? 'text-green-400' : 'text-red-400'}`}>
+                            {isLong ? '\u2191' : '\u2193'}
                           </span>
+                          <span className="text-[13px] font-mono font-medium text-zinc-300">{d.pair}</span>
+                          {d.strategy_type === 'scalping' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono">SCALP</span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className={`text-[10px] font-mono px-1.5 py-px rounded border ${BADGE_STYLES[status]}`}>
-                            {status}
-                          </span>
+                          {d.close_pnl !== undefined ? (
+                            <span className={`text-[12px] font-mono font-semibold ${d.close_pnl > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {d.close_pnl > 0 ? '+' : ''}${d.close_pnl.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className={`text-[10px] font-mono px-1.5 py-px rounded border ${BADGE_STYLES[status]}`}>
+                              {STATUS_LABELS[status]}
+                            </span>
+                          )}
                           <span className="text-[10px] text-zinc-600 font-mono">{formatTime(d.created_at)}</span>
                         </div>
                       </div>
 
-                      {/* Second row: confidence + regime + pnl */}
                       <div className="flex items-center gap-3 mt-1">
-                        <span className="text-[10px] text-zinc-600 font-mono">conf:{d.confidence}</span>
+                        <span className="text-[10px] text-zinc-600 font-mono">{d.confidence}%</span>
                         <span className="text-[10px] text-zinc-700">{d.regime}</span>
-                        {d.close_pnl !== undefined && (
-                          <span className={`text-[10px] font-mono font-semibold ${d.close_pnl > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {d.close_pnl > 0 ? '+' : ''}${d.close_pnl.toFixed(2)}
-                          </span>
+                        {d.risk_reason && (
+                          <span className="text-[10px] text-red-400/70 truncate">{d.risk_reason}</span>
                         )}
                       </div>
-
-                      {/* Reasoning preview */}
-                      {d.reasoning && (
-                        <p className="text-[11px] text-zinc-600 mt-1 line-clamp-1">
-                          {d.reasoning}
-                        </p>
-                      )}
                     </button>
                   );
                 })}
@@ -257,7 +297,7 @@ export function Trades() {
             </div>
           ))}
           {filtered.length === 0 && (
-            <div className="text-zinc-600 text-sm text-center py-8">No decisions match filters</div>
+            <div className="text-zinc-600 text-sm text-center py-8">No trades in this category</div>
           )}
         </div>
 
@@ -266,7 +306,7 @@ export function Trades() {
           {selectedId ? (
             <div className="bg-surface-1 rounded-xl border border-border h-full overflow-y-auto">
               <div className="p-4 border-b border-border">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Decision Lifecycle</h2>
+                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Trade Lifecycle</h2>
               </div>
               <div className="p-4">
                 <TradeTimeline events={timeline} />
@@ -274,7 +314,7 @@ export function Trades() {
             </div>
           ) : (
             <div className="flex items-center justify-center h-full">
-              <div className="text-zinc-600 text-sm">Select a decision to see its lifecycle</div>
+              <div className="text-zinc-600 text-sm">Select a trade to see its lifecycle</div>
             </div>
           )}
         </div>

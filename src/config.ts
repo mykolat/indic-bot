@@ -37,6 +37,8 @@ export interface Config {
     targetRiskPct: number;
     targetReturnPct: number;
     minTakeProfitPct: number;
+    scalpingMinTakeProfitPct: number;
+    scalpingMaxStopLossPct: number;
     newsRefreshIntervalH: number;
     newsMaxItems: number;
     churnCooldownMs: number;
@@ -101,6 +103,8 @@ export function loadConfig(): Config {
       targetRiskPct: t.targetRiskPct ?? 2,
       targetReturnPct: t.targetReturnPct ?? 100,
       minTakeProfitPct: t.minTakeProfitPct ?? 5,
+      scalpingMinTakeProfitPct: t.scalpingMinTakeProfitPct ?? 1.0,
+      scalpingMaxStopLossPct: t.scalpingMaxStopLossPct ?? 0.8,
       newsRefreshIntervalH: t.newsRefreshIntervalH ?? 0.33,
       newsMaxItems: t.newsMaxItems ?? 100,
       churnCooldownMs: t.churnCooldownMs ?? 900000,

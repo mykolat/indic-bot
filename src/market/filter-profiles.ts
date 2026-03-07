@@ -56,6 +56,15 @@ const PROFILES: Record<MarketRegime, FilterProfile> = {
         slStyle: 'fixed',
         tpStyle: 'dca',
     },
+    [MarketRegime.Scalping]: {
+        rsiRange: [30, 70],
+        volumeMin: 0.15,
+        confluenceMin: 1,
+        leverageMultiplier: 0.1,   // maxLeverage 20 → 2x max
+        minConfidence: 72,          // high bar — low liquidity = more false signals
+        slStyle: 'fixed',
+        tpStyle: 'fixed',
+    },
 };
 
 export function getFilterProfile(regime: MarketRegime): FilterProfile {

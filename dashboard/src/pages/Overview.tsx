@@ -95,7 +95,7 @@ export function Overview() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Wallet Balance" value={`$${Number(cycle?.balance || 0).toFixed(2)}`} />
         <StatCard label="Session PnL" value={`$${Number(cycle?.session_pnl || 0).toFixed(2)}`} color={pnlColor} />
-        <StatCard label="Regime" value={cycle?.regime || '—'} subtitle={`Confidence: ${cycle?.regime_confidence != null ? `${Math.round(cycle.regime_confidence * 100)}%` : '—'}`} />
+        <StatCard label="Regime" value={cycle?.regime || '—'} subtitle={`Confidence: ${cycle?.regime_confidence != null ? `${Math.round(cycle.regime_confidence)}%` : '—'}`} />
         <StatCard label="Watchdog" value={watchdogOk ? 'Healthy' : 'Stale'} subtitle={`${snapshotCount} snaps/h`} color={watchdogOk ? 'green' : 'red'} />
       </div>
 

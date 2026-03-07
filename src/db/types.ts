@@ -84,6 +84,7 @@ export interface DbTradeExecution {
   algo_tp_id?: string;
   size_usd?: number;
   entry_thesis?: string;
+  strategy_type?: string;
   opened_at?: string;
 }
 

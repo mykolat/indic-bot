@@ -74,11 +74,11 @@ export async function insertTradeDecision(d: Omit<DbTradeDecision, 'id' | 'creat
 
 export async function insertTradeExecution(e: Omit<DbTradeExecution, 'id' | 'opened_at'>): Promise<number> {
   const { rows } = await q().query(
-    `INSERT INTO trade_executions (decision_id, pair, side, action, entry_price, fill_price, quantity, leverage, sl_price, tp_price, order_id, algo_sl_id, algo_tp_id, size_usd, entry_thesis)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+    `INSERT INTO trade_executions (decision_id, pair, side, action, entry_price, fill_price, quantity, leverage, sl_price, tp_price, order_id, algo_sl_id, algo_tp_id, size_usd, entry_thesis, strategy_type)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
     [e.decision_id, e.pair, e.side, e.action, e.entry_price, e.fill_price,
      e.quantity, e.leverage, e.sl_price, e.tp_price, e.order_id,
-     e.algo_sl_id, e.algo_tp_id, e.size_usd, e.entry_thesis],
+     e.algo_sl_id, e.algo_tp_id, e.size_usd, e.entry_thesis, e.strategy_type ?? 'swing'],
   );
   return rows[0].id;
 }

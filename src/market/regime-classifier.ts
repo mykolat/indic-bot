@@ -6,6 +6,7 @@ export enum MarketRegime {
   Range = 'Range',
   Breakout = 'Breakout',
   Capitulation = 'Capitulation',
+  Scalping = 'Scalping',
 }
 
 export interface RegimeResult {
@@ -75,6 +76,14 @@ export function classifyRegime(
     factors.push(`price below VWAP (${currentPrice} < ${indicators.vwap.toFixed(1)})`);
     const confidence = Math.min(90, 60 + (indicators.adx - 25) * 2);
     return { regime: MarketRegime.BearTrend, confidence, factors };
+  }
+
+  // --- Priority 4.5: Scalping (low volume dead zone) ---
+  const isDeadZone = indicators.volumeRatio < 0.5 && indicators.adx < 25;
+  if (isDeadZone) {
+    factors.push(`dead zone: volume ${indicators.volumeRatio.toFixed(2)}x, ADX ${indicators.adx.toFixed(0)}`);
+    const confidence = Math.round(50 + (0.5 - indicators.volumeRatio) * 40);
+    return { regime: MarketRegime.Scalping, confidence: Math.min(confidence, 75), factors };
   }
 
   // --- Priority 5: Range ---

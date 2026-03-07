@@ -1096,6 +1096,15 @@ export class TradingLoop {
             }
           }
 
+          // Cap TP/SL to scalping limits if in Scalping regime
+          const decisionRegimeForCap = pairRegimes.get(decision.pair)?.regime ?? marketRegime;
+          if (decisionRegimeForCap === MarketRegime.Scalping) {
+            const scalping = this.deps.tradingConfig as any;
+            decision.take_profit_pct = Math.min(decision.take_profit_pct, scalping.scalpingMinTakeProfitPct ?? 1.0);
+            decision.stop_loss_pct = Math.min(decision.stop_loss_pct, scalping.scalpingMaxStopLossPct ?? 0.8);
+            console.log(`[Scalping] Capped ${decision.pair} TP=${decision.take_profit_pct.toFixed(2)}% SL=${decision.stop_loss_pct.toFixed(2)}%`);
+          }
+
           const result = await orders.execute(decision, portfolio.balanceUsd);
 
           if (result.success) {
@@ -1129,6 +1138,7 @@ export class TradingLoop {
                 quantity: result.quantity,
                 entry_price: result.fillPrice,
                 entry_thesis: decision.reasoning,
+                strategy_type: (pairRegimes.get(decision.pair)?.regime ?? marketRegime) === MarketRegime.Scalping ? 'scalping' : 'swing',
               }).catch(e => console.error('[DB] execution insert error:', e.message));
             }
 

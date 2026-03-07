@@ -8,6 +8,8 @@ trading:
   maxLossPct: 10
   targetReturnPct: 100
   minTakeProfitPct: 5
+  scalpingMinTakeProfitPct: 1.0
+  scalpingMaxStopLossPct: 0.8
   minConfidence: 55
   churnCooldownMs: 900000
   loopIntervalMs: 60000
