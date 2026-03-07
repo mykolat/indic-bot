@@ -9,7 +9,14 @@ export interface TradeDecision {
   take_profit_pct: number;
   reasoning: string;
   confidence?: number;
-  regime_override?: string;
+  setup_detected?: boolean;
+  setup_type?: string;
+  directional_bias?: 'long' | 'short' | 'neutral';
+  entry_valid_now?: boolean;
+  invalidators?: string[];
+  risk_flags?: string[];
+  data_gaps?: string[];
+  abstain_reason?: string | null;
   session_context?: {
     session_pattern_active: boolean;
     session_fit_score: number;
