@@ -30,12 +30,22 @@ interface SwarmMessage {
   signals?: { bullish?: string[]; bearish?: string[]; neutral?: string[] } | null;
 }
 
+interface SingleLlmDetail {
+  raw_response: string;
+  model: string;
+  tokens_in: number;
+  tokens_out: number;
+  latency_ms: number;
+  decisions: Array<{ pair: string; action: string; confidence?: number; reasoning?: string }>;
+}
+
 interface DebateDetail {
   cycleId: number;
   createdAt: string;
   messages: SwarmMessage[];
   userPrompt: string;
   blackboardStates: Array<{ phase: number; state: any }>;
+  singleLlm?: SingleLlmDetail;
 }
 
 // ── Helpers ──
@@ -219,6 +229,43 @@ export function Swarm() {
     }
 
     setLoadingDetail(true);
+
+    // For skip items, fetch single LLM analysis
+    if (item.isSkip) {
+      const [{ data: convs }, { data: decisions }] = await Promise.all([
+        supabase
+          .from('llm_conversations')
+          .select('raw_response, model, tokens_in, tokens_out, latency_ms')
+          .eq('cycle_id', item.cycleId)
+          .eq('method', 'analyze')
+          .order('created_at', { ascending: false })
+          .limit(1),
+        supabase
+          .from('trade_decisions')
+          .select('pair, action, confidence, reasoning')
+          .eq('cycle_id', item.cycleId),
+      ]);
+      const conv = convs?.[0];
+      const detail: DebateDetail = {
+        cycleId: item.cycleId,
+        createdAt: item.createdAt,
+        messages: [],
+        userPrompt: '',
+        blackboardStates: [],
+        singleLlm: conv ? {
+          raw_response: conv.raw_response,
+          model: conv.model,
+          tokens_in: conv.tokens_in,
+          tokens_out: conv.tokens_out,
+          latency_ms: conv.latency_ms,
+          decisions: decisions ?? [],
+        } : undefined,
+      };
+      detailCache.current.set(item.cycleId, detail);
+      setCurrentDetail(detail);
+      setLoadingDetail(false);
+      return;
+    }
 
     // Compute tight time window: from previous cycle to current + 1min
     const nextOlderItem = sidebarItems[idx + 1];
@@ -495,22 +542,58 @@ export function Swarm() {
                 <RoundSection key={r.round} {...r} />
               ))}
               {rounds.length === 0 && selected?.isSkip && (
-                <div className="max-w-lg mx-auto mt-8 space-y-4">
-                  <div className="bg-yellow-950/20 border border-yellow-800/30 rounded-xl p-5">
-                    <h3 className="text-sm font-semibold text-yellow-500 mb-2">Debate Skipped</h3>
-                    <p className="text-sm text-zinc-400">{selected.skipReason}</p>
-                  </div>
-                  <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-3">
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">How Swarm Activation Works</h3>
-                    <div className="text-xs text-zinc-500 space-y-2">
-                      <p>The swarm multi-agent debate activates when <span className="text-zinc-300 font-mono">BTC volumeRatio &gt; 1.5x</span> (current volume vs 20-period average).</p>
-                      <p>When active, <span className="text-zinc-300">5 AI personas</span> debate independently: Risk Manager, Bull Thesis, Bear Thesis, Market Structure, and Devil's Advocate (+ optional Narrative Expert via Grok).</p>
-                      <p>When volume is below threshold, the bot uses a <span className="text-zinc-300">single LLM call</span> instead — faster, cheaper, sufficient for low-activity markets.</p>
-                      <div className="border-t border-border pt-2 mt-2">
-                        <p className="text-zinc-600">Volume typically spikes during London/NY overlap (15:00-19:00 Kyiv) and around major news events.</p>
-                      </div>
+                <div className="max-w-2xl mx-auto mt-4 space-y-4">
+                  <div className="bg-yellow-950/20 border border-yellow-800/30 rounded-xl px-5 py-3 flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-semibold text-yellow-500">Single LLM</span>
+                      <span className="text-xs text-zinc-500 ml-3">{selected.skipReason}</span>
                     </div>
+                    {currentDetail?.singleLlm && (
+                      <div className="flex gap-3 text-xs text-zinc-600 font-mono">
+                        <span>{currentDetail.singleLlm.model}</span>
+                        <span>{currentDetail.singleLlm.latency_ms ? `${(currentDetail.singleLlm.latency_ms / 1000).toFixed(1)}s` : ''}</span>
+                        <span>{currentDetail.singleLlm.tokens_in + currentDetail.singleLlm.tokens_out} tok</span>
+                      </div>
+                    )}
                   </div>
+                  {currentDetail?.singleLlm ? (
+                    <>
+                      {currentDetail.singleLlm.decisions.map((d, i) => (
+                        <div key={i} className="bg-surface-1 border border-border rounded-xl p-5">
+                          <div className="flex items-baseline gap-3 mb-3">
+                            <span className={`text-2xl font-bold ${
+                              d.action === 'HOLD' ? 'text-zinc-500' :
+                              d.action === 'LONG' ? 'text-green-400' :
+                              d.action === 'SHORT' ? 'text-red-400' :
+                              d.action === 'CLOSE' ? 'text-yellow-400' : 'text-zinc-400'
+                            }`}>{d.action}</span>
+                            <span className="text-lg text-zinc-300 font-mono">{d.pair}</span>
+                            {d.confidence != null && (
+                              <span className="text-sm text-zinc-500">conf:{d.confidence}</span>
+                            )}
+                          </div>
+                          {d.reasoning && (
+                            <p className="text-sm text-zinc-400 leading-relaxed">{d.reasoning}</p>
+                          )}
+                        </div>
+                      ))}
+                      {currentDetail.singleLlm.decisions.length === 0 && (
+                        <div className="bg-surface-1 border border-border rounded-xl p-5">
+                          <p className="text-xs text-zinc-600 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto">
+                            {(() => {
+                              try {
+                                return JSON.stringify(JSON.parse(currentDetail.singleLlm!.raw_response), null, 2);
+                              } catch {
+                                return currentDetail.singleLlm!.raw_response;
+                              }
+                            })()}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-sm text-zinc-600 text-center py-8">No single LLM data for this cycle</div>
+                  )}
                 </div>
               )}
               {rounds.length === 0 && !selected?.isSkip && (
