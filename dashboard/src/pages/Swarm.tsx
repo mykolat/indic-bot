@@ -308,6 +308,7 @@ export function Swarm() {
             reasoning: p.content,
             probability: null,
             conflictsWith: p.conflictsWith ?? null,
+            time: p.time,
           })),
           judgeRawResponse: data.judgeRaw,
           isFinalRound: round === maxRound,
