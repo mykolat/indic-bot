@@ -60,6 +60,7 @@ interface TradingLoopDeps {
     maxLeverage: number;
     maxPositionPct: number;
     maxStopLossPct: number;
+    minLeverage?: number;
     stalePositionHours?: number;
     maxHoldHours?: number;
     minConfidence?: number;
@@ -1204,7 +1205,8 @@ export class TradingLoop {
           // Apply Leverage Multiplier per Filter Profile BEFORE order execution
           const decisionProfile = pairRegimes.get(decision.pair)?.profile ?? activeProfile;
           if (decisionProfile && (decision.action === 'LONG' || decision.action === 'SHORT')) {
-            decision.leverage = Math.max(1, Math.round(decision.leverage * decisionProfile.leverageMultiplier));
+            const minLev = this.deps.tradingConfig.minLeverage ?? 1;
+            decision.leverage = Math.max(minLev, Math.round(decision.leverage * decisionProfile.leverageMultiplier));
             const decisionRegime = pairRegimes.get(decision.pair)?.regime ?? marketRegime;
             console.log(`[Regime] Adjusted leverage for ${decision.pair} to ${decision.leverage}x based on ${decisionRegime} profile`);
           }
@@ -1214,7 +1216,8 @@ export class TradingLoop {
             const isWeekend = [0, 6].includes(new Date().getUTCDay());
             if (isWeekend) {
               const weekendMult = this.deps.tradingConfig.weekendLeverageMultiplier ?? 0.5;
-              decision.leverage = Math.max(1, Math.round(decision.leverage * weekendMult));
+              const wkMinLev = this.deps.tradingConfig.minLeverage ?? 1;
+              decision.leverage = Math.max(wkMinLev, Math.round(decision.leverage * weekendMult));
               console.log(`[Weekend] Reduced ${decision.pair} leverage to ${decision.leverage}x`);
             }
           }
