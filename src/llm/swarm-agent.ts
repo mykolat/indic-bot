@@ -185,7 +185,7 @@ export class SwarmAgent {
     }
 
     const userPrompt = buildUserPrompt(data);
-    const MAX_ROUNDS = 3;
+    const MAX_ROUNDS = 4;
     const allPersonas: SwarmPersona[] = ['risk_manager', 'market_structure', 'devils_advocate'];
     if (this.grokLlm) allPersonas.push('narrative_expert');
 
