@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { TradeTimeline } from '../components/TradeTimeline';
 
+
 interface DecisionRow {
   id: number;
   pair: string;
@@ -11,7 +12,6 @@ interface DecisionRow {
   regime: string;
   created_at: string;
   cycle_id: number;
-  // joined
   risk_passed?: boolean;
   risk_reason?: string;
   executed?: boolean;
@@ -21,15 +21,23 @@ interface DecisionRow {
 
 type StatusBadge = 'PREFLIGHT_FAIL' | 'RISK_REJECTED' | 'ORDER_FAIL' | 'OPEN' | 'TP' | 'SL' | 'MANUAL' | 'PENDING';
 
-const badgeColors: Record<StatusBadge, string> = {
-  PREFLIGHT_FAIL: 'bg-orange-900 text-orange-300',
-  RISK_REJECTED: 'bg-red-900 text-red-300',
-  ORDER_FAIL: 'bg-red-900 text-red-300',
-  OPEN: 'bg-blue-900 text-blue-300',
-  TP: 'bg-green-900 text-green-300',
-  SL: 'bg-red-900 text-red-300',
-  MANUAL: 'bg-zinc-700 text-zinc-300',
-  PENDING: 'bg-zinc-800 text-zinc-400',
+const BADGE_STYLES: Record<StatusBadge, string> = {
+  PREFLIGHT_FAIL: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+  RISK_REJECTED:  'bg-red-500/15 text-red-400 border-red-500/30',
+  ORDER_FAIL:     'bg-red-500/15 text-red-400 border-red-500/30',
+  OPEN:           'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  TP:             'bg-green-500/15 text-green-400 border-green-500/30',
+  SL:             'bg-red-500/15 text-red-400 border-red-500/30',
+  MANUAL:         'bg-zinc-500/15 text-zinc-400 border-zinc-500/30',
+  PENDING:        'bg-zinc-500/10 text-zinc-500 border-zinc-600/30',
+};
+
+const ACTION_COLORS: Record<string, string> = {
+  LONG: '#4ade80',
+  SHORT: '#f87171',
+  HOLD: '#71717a',
+  CLOSE: '#a78bfa',
+  ADJUST: '#fb923c',
 };
 
 interface TimelineEvent {
@@ -100,6 +108,7 @@ export function Trades() {
   };
 
   const pairs = useMemo(() => [...new Set(decisions.map((d) => d.pair))], [decisions]);
+  const actions = useMemo(() => [...new Set(decisions.map((d) => d.action))].sort(), [decisions]);
   const filtered = useMemo(() => {
     return decisions.filter((d) => {
       if (filterPair && d.pair !== filterPair) return false;
@@ -134,68 +143,139 @@ export function Trades() {
     loadTimeline();
   }, [selectedId, decisions]);
 
+  const formatTime = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    const today = new Date();
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  // Group decisions by date
+  const grouped = useMemo(() => {
+    const groups: Array<{ date: string; items: DecisionRow[] }> = [];
+    let currentDate = '';
+    for (const d of filtered) {
+      const date = formatDate(d.created_at);
+      if (date !== currentDate) {
+        groups.push({ date, items: [] });
+        currentDate = date;
+      }
+      groups[groups.length - 1].items.push(d);
+    }
+    return groups;
+  }, [filtered]);
+
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Trade Decisions</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-zinc-200">Trade Decisions</h1>
+        <span className="text-xs text-zinc-600 font-mono">{filtered.length} decisions</span>
+      </div>
 
-      <div className="flex gap-3 text-sm">
+      {/* Filters */}
+      <div className="flex gap-2">
         <select value={filterPair} onChange={(e) => setFilterPair(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1">
+          className="bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-300 focus:outline-none focus:border-accent/40">
           <option value="">All Pairs</option>
           {pairs.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
         <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1">
+          className="bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-300 focus:outline-none focus:border-accent/40">
           <option value="">All Actions</option>
-          {['LONG', 'SHORT', 'CLOSE', 'HOLD', 'ADJUST'].map((a) => <option key={a} value={a}>{a}</option>)}
+          {actions.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
-        <span className="text-zinc-500 self-center">{filtered.length} decisions</span>
       </div>
 
-      <div className="flex gap-6">
-        <div className="w-2/5 space-y-1 max-h-[75vh] overflow-y-auto">
-          {filtered.map((d) => {
-            const status = getStatus(d);
-            return (
-              <button
-                key={d.id}
-                onClick={() => setSelectedId(d.id)}
-                className={`w-full text-left p-3 rounded text-sm ${
-                  selectedId === d.id ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-800/50'
-                }`}
-              >
-                <div className="flex justify-between items-center">
-                  <span className="font-mono">{d.pair}</span>
-                  <div className="flex gap-2 items-center">
-                    <span className={`text-xs px-2 py-0.5 rounded ${badgeColors[status]}`}>{status}</span>
-                    <span className={
-                      d.action === 'HOLD' ? 'text-zinc-500' :
-                      d.action === 'CLOSE' ? 'text-purple-400' :
-                      d.action === 'SHORT' ? 'text-red-400' : 'text-green-400'
-                    }>{d.action}</span>
-                  </div>
-                </div>
-                <div className="text-zinc-500 text-xs mt-1">
-                  {new Date(d.created_at).toLocaleString()} | conf:{d.confidence} | {d.regime}
-                  {d.close_pnl !== undefined && (
-                    <span className={d.close_pnl > 0 ? ' text-green-400' : ' text-red-400'}>
-                      {' '}| ${d.close_pnl.toFixed(2)}
-                    </span>
-                  )}
-                </div>
-              </button>
-            );
-          })}
+      <div className="flex gap-5 h-[calc(100vh-14rem)]">
+        {/* Left: Decision list */}
+        <div className="w-[45%] overflow-y-auto pr-1 space-y-4">
+          {grouped.map((group) => (
+            <div key={group.date}>
+              <div className="sticky top-0 z-10 bg-surface-0 pb-1 pt-1">
+                <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-semibold">{group.date}</span>
+              </div>
+              <div className="space-y-px">
+                {group.items.map((d) => {
+                  const status = getStatus(d);
+                  const isSelected = selectedId === d.id;
+                  const actionColor = ACTION_COLORS[d.action] ?? '#a1a1aa';
+
+                  return (
+                    <button
+                      key={d.id}
+                      onClick={() => setSelectedId(d.id)}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg transition-all ${
+                        isSelected
+                          ? 'bg-surface-2 border border-border'
+                          : 'hover:bg-surface-1 border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-[13px] font-mono font-medium text-zinc-300">{d.pair}</span>
+                          <span className="text-[11px] font-mono font-bold" style={{ color: actionColor }}>
+                            {d.action}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[10px] font-mono px-1.5 py-px rounded border ${BADGE_STYLES[status]}`}>
+                            {status}
+                          </span>
+                          <span className="text-[10px] text-zinc-600 font-mono">{formatTime(d.created_at)}</span>
+                        </div>
+                      </div>
+
+                      {/* Second row: confidence + regime + pnl */}
+                      <div className="flex items-center gap-3 mt-1">
+                        <span className="text-[10px] text-zinc-600 font-mono">conf:{d.confidence}</span>
+                        <span className="text-[10px] text-zinc-700">{d.regime}</span>
+                        {d.close_pnl !== undefined && (
+                          <span className={`text-[10px] font-mono font-semibold ${d.close_pnl > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {d.close_pnl > 0 ? '+' : ''}${d.close_pnl.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Reasoning preview */}
+                      {d.reasoning && (
+                        <p className="text-[11px] text-zinc-600 mt-1 line-clamp-1">
+                          {d.reasoning}
+                        </p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="text-zinc-600 text-sm text-center py-8">No decisions match filters</div>
+          )}
         </div>
 
-        <div className="flex-1">
-          <h2 className="text-lg font-bold mb-3">Decision Lifecycle</h2>
+        {/* Right: Detail panel */}
+        <div className="flex-1 min-w-0">
           {selectedId ? (
-            <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
-              <TradeTimeline events={timeline} />
+            <div className="bg-surface-1 rounded-xl border border-border h-full overflow-y-auto">
+              <div className="p-4 border-b border-border">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Decision Lifecycle</h2>
+              </div>
+              <div className="p-4">
+                <TradeTimeline events={timeline} />
+              </div>
             </div>
           ) : (
-            <div className="text-zinc-500 text-sm">Select a decision to see its full lifecycle funnel</div>
+            <div className="flex items-center justify-center h-full">
+              <div className="text-zinc-600 text-sm">Select a decision to see its lifecycle</div>
+            </div>
           )}
         </div>
       </div>
