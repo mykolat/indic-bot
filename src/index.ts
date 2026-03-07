@@ -171,8 +171,19 @@ async function main() {
 
   const macroFetcher = config.apifyToken ? new MacroFetcher(config.apifyToken) : undefined;
   const macroAnalyst = macroFetcher ? new MacroAnalystAgent(llm) : undefined;
-  if (macroFetcher) console.log('[Macro] MacroFetcher enabled — refreshing every 3h');
-  else console.log('[Macro] No APIFY_API_TOKEN — macro disabled');
+
+  // Grok Macro Analyst — preferred over Apify (live search, no stale data)
+  let grokMacroAnalyst: import('./news/grok-macro.js').GrokMacroAnalyst | undefined;
+  if (config.xaiApiKey) {
+    const { GrokMacroAnalyst } = await import('./news/grok-macro.js');
+    const grokForMacro = new (await import('./llm/grok-client.js')).GrokClient(config.xaiApiKey);
+    grokMacroAnalyst = new GrokMacroAnalyst(grokForMacro);
+    console.log('[Macro] Grok live search macro analyst enabled');
+  } else if (macroFetcher) {
+    console.log('[Macro] Apify MacroFetcher enabled (legacy) — refreshing every 3h');
+  } else {
+    console.log('[Macro] No XAI_API_KEY or APIFY_API_TOKEN — macro disabled');
+  }
 
   const sourceHealth = new SourceHealthMonitor();
 
@@ -249,6 +260,7 @@ async function main() {
     },
     macroFetcher,
     macroAnalyst,
+    grokMacroAnalyst,
     macroRefreshIntervalMs: 10_800_000,
     fallbackLlm,
     memoryKeeper,

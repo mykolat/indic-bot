@@ -7,6 +7,7 @@ export interface MacroAnalysis {
   risk_environment: 'risk_on' | 'risk_off' | 'neutral';
   crypto_correlation_signal: 'bullish' | 'bearish' | 'neutral';
   key_levels: string[];
+  pair_briefs?: Record<string, string>;
   refreshed_at: string;
 }
 

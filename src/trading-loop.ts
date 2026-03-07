@@ -65,6 +65,7 @@ interface TradingLoopDeps {
   };
   macroFetcher?: MacroFetcher;
   macroAnalyst?: MacroAnalystAgent;
+  grokMacroAnalyst?: import('./news/grok-macro.js').GrokMacroAnalyst;
   macroRefreshIntervalMs?: number;  // default 10_800_000 (3h)
   fallbackLlm?: import('./llm/fallback-client.js').FallbackLLMClient;
   swarmAgent?: SwarmAgent;
@@ -480,19 +481,29 @@ export class TradingLoop {
       const newsAnalyzedAt = newsCacheState?.analyzedAt ?? undefined;
       const fearGreed = await fetchFearGreed();
 
-      // Macro refresh (every 3h)
+      // Macro refresh (every 3h) — prefer Grok with live search, fallback to Apify
       const macroIntervalMs = this.deps.macroRefreshIntervalMs ?? 10_800_000;
-      if (this.deps.macroFetcher && this.deps.macroAnalyst && Date.now() - this.lastMacroRefresh > macroIntervalMs) {
-        try {
-          console.log('[Macro] Refreshing macro market data...');
-          const [macroSnapshots, btcDom] = await Promise.all([
-            this.deps.macroFetcher.fetch(),
-            this.deps.macroFetcher.fetchBTCDominance(),
-          ]);
-          this.lastMacroAnalysis = await this.deps.macroAnalyst.analyze(macroSnapshots, btcDom);
-          this.lastMacroRefresh = Date.now();
-        } catch (err) {
-          console.error('[Macro] Refresh failed:', err);
+      if (Date.now() - this.lastMacroRefresh > macroIntervalMs) {
+        if (this.deps.grokMacroAnalyst) {
+          try {
+            console.log('[Macro] Refreshing via Grok live search...');
+            this.lastMacroAnalysis = await this.deps.grokMacroAnalyst.analyze(this.deps.pairs);
+            this.lastMacroRefresh = Date.now();
+          } catch (err: any) {
+            console.error('[Macro] Grok macro refresh failed:', err.message);
+          }
+        } else if (this.deps.macroFetcher && this.deps.macroAnalyst) {
+          try {
+            console.log('[Macro] Refreshing via Apify (legacy)...');
+            const [macroSnapshots, btcDom] = await Promise.all([
+              this.deps.macroFetcher.fetch(),
+              this.deps.macroFetcher.fetchBTCDominance(),
+            ]);
+            this.lastMacroAnalysis = await this.deps.macroAnalyst.analyze(macroSnapshots, btcDom);
+            this.lastMacroRefresh = Date.now();
+          } catch (err) {
+            console.error('[Macro] Refresh failed:', err);
+          }
         }
       }
 

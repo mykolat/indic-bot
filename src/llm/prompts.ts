@@ -11,6 +11,7 @@ export interface MacroAnalysis {
   risk_environment: 'risk_on' | 'risk_off' | 'neutral';
   crypto_correlation_signal: 'bullish' | 'bearish' | 'neutral';
   key_levels: string[];
+  pair_briefs?: Record<string, string>;
   refreshed_at: string;
 }
 
@@ -422,6 +423,12 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += `${m.macro_summary}\n`;
     if (m.key_levels.length > 0) {
       prompt += `Key levels: ${m.key_levels.join(' | ')}\n`;
+    }
+    if (m.pair_briefs && Object.keys(m.pair_briefs).length > 0) {
+      prompt += `\n### Pair Market Briefs (Grok live search)\n`;
+      for (const [pair, brief] of Object.entries(m.pair_briefs)) {
+        prompt += `${pair}: ${brief}\n`;
+      }
     }
     prompt += '\n';
   }

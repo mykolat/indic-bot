@@ -10,7 +10,12 @@ export class GrokClient {
 
     constructor(private apiKey: string) { }
 
-    async call(systemPrompt: string, userPrompt: string, model: string = 'grok-4-1-fast-reasoning'): Promise<string> {
+    async call(
+        systemPrompt: string,
+        userPrompt: string,
+        model: string = 'grok-4-1-fast-reasoning',
+        options?: { search?: boolean; temperature?: number },
+    ): Promise<string> {
         if (!this.apiKey) {
             if (!this.emptyKeyWarned) {
                 console.warn('[Grok] No API key — all Grok calls will be skipped');
@@ -18,21 +23,25 @@ export class GrokClient {
             }
             return '';
         }
+        const body: Record<string, unknown> = {
+            model,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+            ],
+            temperature: options?.temperature ?? 0.1,
+        };
+        if (options?.search) {
+            body.search_parameters = { mode: 'on', return_citations: true };
+        }
         const res = await fetchWithTimeout('https://api.x.ai/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`
+                'Authorization': `Bearer ${this.apiKey}`,
             },
-            body: JSON.stringify({
-                model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt }
-                ],
-                temperature: 0.1
-            })
-        }, 15000);
+            body: JSON.stringify(body),
+        }, options?.search ? 30_000 : 15_000);
 
         if (!res.ok) throw new Error(`xAI Error: ${res.status} ${res.statusText}`);
         const data = await res.json() as any;

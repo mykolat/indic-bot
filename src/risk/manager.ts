@@ -85,7 +85,9 @@ export interface AdjustContext {
 export const BETA_TO_BTC: Record<string, number> = {
   BTCUSDT: 1.0, ETHUSDT: 1.3, SOLUSDT: 1.8,
   BNBUSDT: 1.1, XRPUSDT: 1.5, DOGEUSDT: 2.0,
-  ADAUSDT: 1.5, AVAXUSDT: 1.7,
+  ADAUSDT: 1.5, AVAXUSDT: 1.7, LINKUSDT: 1.4,
+  NEARUSDT: 1.6, SUIUSDT: 1.9, PEPEUSDT: 2.5,
+  LTCUSDT: 1.2, APTUSDT: 1.7,
 };
 
 export class RiskManager {
