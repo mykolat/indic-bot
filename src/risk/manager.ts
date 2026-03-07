@@ -64,6 +64,12 @@ export interface AdjustContext {
   side: 'LONG' | 'SHORT';
 }
 
+export const BETA_TO_BTC: Record<string, number> = {
+  BTCUSDT: 1.0, ETHUSDT: 1.3, SOLUSDT: 1.8,
+  BNBUSDT: 1.1, XRPUSDT: 1.5, DOGEUSDT: 2.0,
+  ADAUSDT: 1.5, AVAXUSDT: 1.7,
+};
+
 export class RiskManager {
   constructor(private config: RiskConfig) { }
 
@@ -142,13 +148,31 @@ export class RiskManager {
       return { approved: false, reason: `stop-loss ${decision.stop_loss_pct}% exceeds max ${this.config.maxStopLossPct}%` };
     }
 
-    // Use margin (collateral) not notional — sizeUsd / leverage = actual margin used
-    const currentExposureUsd = portfolio.positions.reduce((sum, p) => sum + p.sizeUsd / p.leverage, 0);
-    const newPositionUsd = (decision.size_pct / 100) * portfolio.balanceUsd;
-    const totalExposurePct = ((currentExposureUsd + newPositionUsd) / portfolio.balanceUsd) * 100;
+    // Beta-adjusted exposure — correlated liquidation protection
+    const getBeta = (pair: string) => BETA_TO_BTC[pair] ?? 1.0;
+    const directionSign = (side: 'LONG' | 'SHORT') => side === 'LONG' ? 1 : -1;
+
+    let longExposure = 0;
+    let shortExposure = 0;
+    for (const p of portfolio.positions) {
+      const margin = p.sizeUsd / p.leverage;
+      const betaMargin = margin * getBeta(p.pair);
+      if (p.side === 'LONG') longExposure += betaMargin;
+      else shortExposure += betaMargin;
+    }
+
+    const newMargin = (decision.size_pct / 100) * portfolio.balanceUsd;
+    const newBetaMargin = newMargin * getBeta(decision.pair);
+    if (decision.action === 'LONG') longExposure += newBetaMargin;
+    else shortExposure += newBetaMargin;
+
+    const netExposure = Math.abs(longExposure - shortExposure);
+    const grossExposure = longExposure + shortExposure;
+    const effectiveExposure = Math.max(netExposure, grossExposure * 0.5);
+    const totalExposurePct = (effectiveExposure / portfolio.balanceUsd) * 100;
 
     if (totalExposurePct > this.config.maxExposurePct) {
-      return { approved: false, reason: `total exposure ${totalExposurePct.toFixed(1)}% exceeds max ${this.config.maxExposurePct}%` };
+      return { approved: false, reason: `beta-adjusted exposure ${totalExposurePct.toFixed(1)}% exceeds max ${this.config.maxExposurePct}%` };
     }
 
     // ── Hard guardrails (code-enforced, LLM cannot bypass) ──

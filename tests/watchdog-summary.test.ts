@@ -54,4 +54,31 @@ describe('buildWatchdogSummary', () => {
     expect(result).toContain('Funding flipped');
     expect(result).toContain('L/S 1.00→0.80');
   });
+
+  it('includes order book imbalance in summary', () => {
+    const snapshots = [
+      { mark_price: 70000, open_interest: 50000, imbalance_pct: 5, created_at: new Date(Date.now() - 60000).toISOString() },
+      { mark_price: 70100, open_interest: 50000, imbalance_pct: 15, created_at: new Date().toISOString() },
+    ];
+    const summary = buildWatchdogSummary('BTCUSDT', snapshots as any, undefined);
+    expect(summary).toContain('OBI +15%');
+  });
+
+  it('shows negative OBI for ask-heavy book', () => {
+    const snapshots = [
+      { mark_price: 70000, open_interest: 50000, imbalance_pct: -20, created_at: new Date(Date.now() - 60000).toISOString() },
+      { mark_price: 69800, open_interest: 50000, imbalance_pct: -25, created_at: new Date().toISOString() },
+    ];
+    const summary = buildWatchdogSummary('BTCUSDT', snapshots as any, undefined);
+    expect(summary).toContain('OBI -25%');
+  });
+
+  it('omits OBI when imbalance_pct is null', () => {
+    const snapshots = [
+      { mark_price: 70000, open_interest: 50000, created_at: new Date(Date.now() - 60000).toISOString() },
+      { mark_price: 70100, open_interest: 50000, created_at: new Date().toISOString() },
+    ];
+    const summary = buildWatchdogSummary('BTCUSDT', snapshots as any, undefined);
+    expect(summary).not.toContain('OBI');
+  });
 });

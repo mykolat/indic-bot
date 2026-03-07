@@ -46,6 +46,7 @@ export interface Config {
     stalePositionHours: number;
     maxHoldHours: number;
     fearGreedLeverageCap: number;
+    weekendLeverageMultiplier: number;
   };
 }
 
@@ -112,6 +113,7 @@ export function loadConfig(): Config {
       stalePositionHours: t.stalePositionHours ?? 8,
       maxHoldHours: t.maxHoldHours ?? 24,
       fearGreedLeverageCap: t.fearGreedLeverageCap ?? 10,
+      weekendLeverageMultiplier: t.weekendLeverageMultiplier ?? 0.5,
     },
   };
 }

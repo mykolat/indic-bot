@@ -297,3 +297,15 @@ export interface DbSlTpAdjustment {
   reasoning?: string;
   created_at?: string;
 }
+
+export interface DbLiquidation {
+  id?: number;
+  session_id?: string;
+  pair: string;
+  long_liquidations: number;
+  short_liquidations: number;
+  long_liq_usd: number;
+  short_liq_usd: number;
+  spike_ratio: number;
+  created_at?: string;
+}

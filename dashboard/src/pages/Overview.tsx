@@ -11,12 +11,14 @@ import { ErrorFeed } from '../components/ErrorFeed';
 import { usePnlData } from '../hooks/usePnlData';
 import { useFunnelData } from '../hooks/useFunnelData';
 import { useBalanceHistory } from '../hooks/useBalanceHistory';
+import { useQuantMetrics } from '../hooks/useQuantMetrics';
 
 export function Overview() {
   const [range, setRange] = useState<'7D' | '1M' | '3M' | 'ALL'>('7D');
   const pnl = usePnlData(range);
   const funnel = useFunnelData();
   const balance = useBalanceHistory();
+  const quant = useQuantMetrics();
 
   const [cycle, setCycle] = useState<any>(null);
   const [positions, setPositions] = useState<any[]>([]);
@@ -153,6 +155,38 @@ export function Overview() {
           />
         </div>
       </div>
+
+      {quant.metrics && (
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-3">Quant Metrics <span className="text-zinc-500 font-normal">({quant.metrics.tradeCount} trades)</span></h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard
+              label="Sharpe Ratio"
+              value={quant.metrics.sharpeRatio != null ? quant.metrics.sharpeRatio.toFixed(2) : '—'}
+              subtitle={quant.metrics.sharpeRatio == null ? `Need ${30 - quant.metrics.tradeCount} more trades` : quant.metrics.sharpeRatio >= 1 ? 'Good' : quant.metrics.sharpeRatio >= 0 ? 'Weak' : 'Negative'}
+              color={quant.metrics.sharpeRatio == null ? 'default' : quant.metrics.sharpeRatio >= 1 ? 'green' : quant.metrics.sharpeRatio >= 0 ? 'yellow' : 'red'}
+            />
+            <StatCard
+              label="Max Drawdown"
+              value={quant.metrics.maxDrawdownPct != null ? `${quant.metrics.maxDrawdownPct.toFixed(1)}%` : '—'}
+              subtitle={quant.metrics.maxDrawdownPct != null ? (quant.metrics.maxDrawdownPct < 10 ? 'Healthy' : quant.metrics.maxDrawdownPct < 25 ? 'Moderate' : 'High') : undefined}
+              color={quant.metrics.maxDrawdownPct == null ? 'default' : quant.metrics.maxDrawdownPct < 10 ? 'green' : quant.metrics.maxDrawdownPct < 25 ? 'yellow' : 'red'}
+            />
+            <StatCard
+              label="Profit Factor"
+              value={quant.metrics.profitFactor != null ? quant.metrics.profitFactor.toFixed(2) : '—'}
+              subtitle={quant.metrics.profitFactor == null ? `Need ${20 - quant.metrics.tradeCount} more trades` : quant.metrics.profitFactor >= 1.5 ? 'Strong' : quant.metrics.profitFactor >= 1 ? 'Marginal' : 'Losing'}
+              color={quant.metrics.profitFactor == null ? 'default' : quant.metrics.profitFactor >= 1.5 ? 'green' : quant.metrics.profitFactor >= 1 ? 'yellow' : 'red'}
+            />
+            <StatCard
+              label="Expectancy"
+              value={quant.metrics.expectancy != null ? `$${quant.metrics.expectancy.toFixed(2)}` : '—'}
+              subtitle={quant.metrics.expectancy == null ? `Need ${30 - quant.metrics.tradeCount} more trades` : 'Avg $ per trade'}
+              color={quant.metrics.expectancy == null ? 'default' : quant.metrics.expectancy > 0 ? 'green' : 'red'}
+            />
+          </div>
+        </div>
+      )}
 
       {funnel.data && (
         <div className="bg-surface-1 rounded-xl border border-border p-4">

@@ -6,7 +6,7 @@ import type {
   DbNewsAnalysis, DbMacroSnapshot, DbMacroAnalysis, DbSwarmPersona,
   DbEpisodicMemory, DbTradeStory, DbMemoryReview, DbError,
   DbTokenUsage, DbWebhookSignal, DbIndicatorSnapshot, DbMarketSnapshot,
-  DbSlTpAdjustment,
+  DbSlTpAdjustment, DbLiquidation,
 } from './types.js';
 
 function q(): pg.Pool {
@@ -415,4 +415,23 @@ export async function updateExecutionSlTp(executionId: number, slPrice: number, 
     `UPDATE trade_executions SET sl_price = $1, tp_price = $2 WHERE id = $3`,
     [slPrice, tpPrice, executionId],
   );
+}
+
+// --- Liquidations ---
+
+export async function insertLiquidation(l: Omit<DbLiquidation, 'id' | 'created_at'>): Promise<number> {
+  const { rows } = await q().query(
+    `INSERT INTO liquidations (session_id, pair, long_liquidations, short_liquidations, long_liq_usd, short_liq_usd, spike_ratio)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [l.session_id, l.pair, l.long_liquidations, l.short_liquidations, l.long_liq_usd, l.short_liq_usd, l.spike_ratio],
+  );
+  return rows[0].id;
+}
+
+export async function getRecentLiquidations(pair: string, sinceMinutes: number): Promise<DbLiquidation[]> {
+  const { rows } = await q().query(
+    `SELECT * FROM liquidations WHERE pair = $1 AND created_at > NOW() - INTERVAL '1 minute' * $2 ORDER BY created_at ASC`,
+    [pair, sinceMinutes],
+  );
+  return rows;
 }

@@ -20,6 +20,7 @@ import { computeMemoryStats } from './memory/memory-stats.js';
 import { CircuitBreaker } from './utils/circuit-breaker.js';
 import { extractExternalInsights } from './utils/soul-utils.js';
 import { MarketRegime, classifyRegime } from './market/regime-classifier.js';
+import { RegimeHysteresis } from './market/regime-hysteresis.js';
 import { getFilterProfile, type FilterProfile } from './market/filter-profiles.js';
 import { computeConfluence } from './market/confluence.js';
 import type { DecisionJournal, JournalEntry } from './logging/decision-journal.js';
@@ -93,6 +94,7 @@ export class TradingLoop {
   private lastMacroRefresh = 0;
   private lastMacroAnalysis: MacroAnalysis | undefined;
   private binanceCircuitBreaker = new CircuitBreaker(3);
+  private regimeHysteresis = new RegimeHysteresis(3);
   private staticSoulCache: string | null = null;
   private _lastPositionCount = 0;
   private pairDecisionHistory: PairDecisionEntry[] = [];
@@ -445,11 +447,12 @@ export class TradingLoop {
       for (const snap of snapshots) {
         const ind = indicators.get(snap.pair);
         if (ind) {
-          const res = classifyRegime(ind, parseFloat(snap.markPrice), fearGreed);
+          const raw = classifyRegime(ind, parseFloat(snap.markPrice), fearGreed);
+          const confirmedRegime = this.regimeHysteresis.update(snap.pair, raw.regime);
           pairRegimes.set(snap.pair, {
-            regime: res.regime,
-            confidence: res.confidence,
-            profile: getFilterProfile(res.regime),
+            regime: confirmedRegime,
+            confidence: raw.confidence,
+            profile: getFilterProfile(confirmedRegime),
           });
         }
       }
@@ -1070,6 +1073,16 @@ export class TradingLoop {
             decision.leverage = Math.max(1, Math.round(decision.leverage * decisionProfile.leverageMultiplier));
             const decisionRegime = pairRegimes.get(decision.pair)?.regime ?? marketRegime;
             console.log(`[Regime] Adjusted leverage for ${decision.pair} to ${decision.leverage}x based on ${decisionRegime} profile`);
+          }
+
+          // Weekend leverage reduction
+          if (decision.action === 'LONG' || decision.action === 'SHORT') {
+            const isWeekend = [0, 6].includes(new Date().getUTCDay());
+            if (isWeekend) {
+              const weekendMult = this.deps.tradingConfig.weekendLeverageMultiplier ?? 0.5;
+              decision.leverage = Math.max(1, Math.round(decision.leverage * weekendMult));
+              console.log(`[Weekend] Reduced ${decision.pair} leverage to ${decision.leverage}x`);
+            }
           }
 
           // Regime-aware SL/TP adjustment

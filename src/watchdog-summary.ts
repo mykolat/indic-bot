@@ -1,5 +1,6 @@
 import type { DbMarketSnapshot } from './db/types.js';
 import type { OpenPositionContext } from './db/repository.js';
+import { interpretFundingRate, interpretOIDivergence, interpretOBI } from './market/signals.js';
 
 export function buildWatchdogSummary(
   pair: string,
@@ -19,6 +20,22 @@ export function buildWatchdogSummary(
   if (first.open_interest && last.open_interest) {
     const oiDelta = ((Number(last.open_interest) - Number(first.open_interest)) / Number(first.open_interest) * 100).toFixed(1);
     summary += ` | OI ${Number(oiDelta) >= 0 ? '+' : ''}${oiDelta}%`;
+    const oiDeltaNum = Number(oiDelta);
+    const priceDeltaNum = Number(priceDelta);
+    const divergence = interpretOIDivergence(priceDeltaNum, oiDeltaNum);
+    if (divergence.label !== 'NEUTRAL') {
+      summary += ` (${divergence.label})`;
+    }
+  }
+
+  // Order Book Imbalance
+  if (last.imbalance_pct != null) {
+    const obi = Number(last.imbalance_pct);
+    const obiSignal = interpretOBI(obi);
+    summary += ` | OBI ${obi >= 0 ? '+' : ''}${obi.toFixed(0)}%`;
+    if (obiSignal.label !== 'BALANCED') {
+      summary += ` (${obiSignal.label})`;
+    }
   }
 
   // Funding rate
@@ -30,6 +47,10 @@ export function buildWatchdogSummary(
     } else {
       const frBps = (fr1 * 10000).toFixed(1);
       summary += ` | Funding ${Number(frBps) >= 0 ? '+' : ''}${frBps}bps`;
+      const fundingSignal = interpretFundingRate(fr1);
+      if (fundingSignal.label !== 'NEUTRAL') {
+        summary += ` (${fundingSignal.label})`;
+      }
     }
   }
 

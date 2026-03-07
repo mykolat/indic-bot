@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { RiskManager, TradeDecision, PortfolioState, ValidationContext, AdjustContext } from '../../src/risk/manager.js';
+import { RiskManager, TradeDecision, PortfolioState, ValidationContext, AdjustContext, BETA_TO_BTC } from '../../src/risk/manager.js';
 
 describe('RiskManager', () => {
   const config = {
@@ -79,6 +79,62 @@ describe('RiskManager', () => {
     const result = rm.validate(decision, portfolio);
     expect(result.approved).toBe(false);
     expect(result.reason).toContain('exposure');
+  });
+
+  it('rejects correlated longs when beta-adjusted exposure exceeds max', () => {
+    // 3 correlated longs: SOL ($100/5x=$20, beta 1.8=36), DOGE ($100/5x=$20, beta 2.0=40), existing
+    // New: ETH 20% of $500=$100 margin, beta 1.3=130... let's simplify
+    // Balance $1000, maxExposure 50%
+    // Existing: SOLUSDT $500/5x = $100 margin × 1.8 beta = $180 long
+    // New: ETHUSDT 10% of $1000 = $100 margin × 1.3 beta = $130 long
+    // Gross = 310, net = 310, effective = max(310, 155) = 310
+    // 310/1000 = 31% — under 50%. Need bigger positions.
+    // Existing: SOLUSDT $2000/5x = $400 margin × 1.8 = $720 long
+    // New: DOGEUSDT 10% = $100 × 2.0 = $200
+    // effective = max(920, 460) = 920 → 92% > 50%
+    const decision: TradeDecision = {
+      pair: 'DOGEUSDT', action: 'LONG', size_pct: 10,
+      leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
+    };
+    const portfolio: PortfolioState = {
+      balanceUsd: 1000,
+      positions: [{ pair: 'SOLUSDT', sizeUsd: 2000, leverage: 5, side: 'LONG', entryPrice: 100, unrealizedPnlPct: 1, heldHours: 2 }],
+      sessionPnl: 0, drawdownPct: 0,
+    };
+    const result = rm.validate(decision, portfolio);
+    expect(result.approved).toBe(false);
+    expect(result.reason).toContain('beta-adjusted exposure');
+  });
+
+  it('reduces effective exposure for hedged (opposing) positions', () => {
+    // Long BTC $500/5x = $100 margin × 1.0 = $100 long
+    // New: Short ETH 10% of $1000 = $100 margin × 1.3 = $130 short
+    // net = |100 - 130| = 30, gross = 230, effective = max(30, 115) = 115
+    // Without beta hedge awareness this would be higher
+    // 115/1000 = 11.5% < 50% → approved
+    const decision: TradeDecision = {
+      pair: 'ETHUSDT', action: 'SHORT', size_pct: 10,
+      leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
+    };
+    const portfolio: PortfolioState = {
+      balanceUsd: 1000,
+      positions: [{ pair: 'BTCUSDT', sizeUsd: 500, leverage: 5, side: 'LONG', entryPrice: 50000, unrealizedPnlPct: 1, heldHours: 2 }],
+      sessionPnl: 0, drawdownPct: 0,
+    };
+    const result = rm.validate(decision, portfolio);
+    expect(result.approved).toBe(true);
+  });
+
+  it('defaults to beta=1.0 for unknown pairs', () => {
+    expect(BETA_TO_BTC['UNKNOWNUSDT']).toBeUndefined();
+    // Unknown pair should still work — beta defaults to 1.0
+    const decision: TradeDecision = {
+      pair: 'UNKNOWNUSDT', action: 'LONG', size_pct: 10,
+      leverage: 5, stop_loss_pct: 2, take_profit_pct: 4, reasoning: 'test',
+    };
+    const portfolio: PortfolioState = { balanceUsd: 1000, positions: [], sessionPnl: 0, drawdownPct: 0 };
+    const result = rm.validate(decision, portfolio);
+    expect(result.approved).toBe(true);
   });
 
   it('rejects missing stop-loss', () => {
