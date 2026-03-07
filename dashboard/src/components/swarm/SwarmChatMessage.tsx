@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion';
+
 interface SwarmChatMessageProps {
   persona: string;
   content: string;
@@ -46,7 +48,13 @@ export function SwarmChatMessage({
   const label = persona.replace(/_/g, ' ').toUpperCase();
 
   return (
-    <div className={`flex gap-3 ${isOutgoing ? 'flex-row-reverse' : ''}`}>
+    <motion.div
+      initial={{ opacity: 0, x: isOutgoing ? 30 : -30 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+      className={`flex gap-3 ${isOutgoing ? 'flex-row-reverse' : ''}`}
+      style={isSuperuser ? { borderLeft: '3px solid #f59e0b', boxShadow: '0 0 12px 2px rgba(245, 158, 11, 0.15)', borderRadius: '8px', paddingLeft: '8px' } : undefined}
+    >
       {/* Avatar */}
       <div
         className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-lg"
@@ -92,6 +100,6 @@ export function SwarmChatMessage({
           <p className="whitespace-pre-wrap">{content}</p>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

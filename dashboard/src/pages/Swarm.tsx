@@ -3,6 +3,9 @@ import { supabase } from '../lib/supabase';
 import { SwarmChatMessage } from '../components/swarm/SwarmChatMessage';
 import { DebateSidebar } from '../components/swarm/DebateSidebar';
 import { LevelDivider } from '../components/swarm/LevelDivider';
+import { ConflictCard } from '../components/swarm/ConflictCard';
+import { BlackboardStateCard } from '../components/swarm/BlackboardStateCard';
+import { AnimatePresence } from 'framer-motion';
 
 interface SwarmMessage {
   persona: string;
@@ -22,6 +25,8 @@ interface DebateData {
   votes: Array<{ persona: string; vote: string | null }>;
   summary: string;
   messages: SwarmMessage[];
+  blackboardStates: Array<{ phase: number; state: any }>;
+  conflicts: Array<{ personaA: string; personaB: string; topic: string; severity: string; phase: number }>;
 }
 
 function extractSummary(judgeResponse?: string): string {
@@ -70,13 +75,13 @@ export function Swarm() {
         const [personasRes, judgeConvsRes] = await Promise.all([
           supabase
             .from('swarm_personas')
-            .select('persona, vote, confidence, reasoning, created_at, phase, reply_to_id')
+            .select('persona, vote, confidence, reasoning, created_at, phase, reply_to_id, conflicts_with, signals')
             .gte('created_at', windowStart)
             .lte('created_at', windowEnd)
             .order('created_at', { ascending: true }),
           supabase
             .from('llm_conversations')
-            .select('raw_response, created_at, label')
+            .select('raw_response, created_at, label, blackboard_state')
             .eq('cycle_id', j.cycle_id)
             .eq('method', 'swarm_consensus')
             .order('created_at', { ascending: true }),
@@ -136,6 +141,32 @@ export function Swarm() {
           }
         }
 
+        // Build conflicts from persona conflicts_with data
+        const conflicts: DebateData['conflicts'] = [];
+        for (const p of personaList) {
+          if (p.conflicts_with && typeof p.conflicts_with === 'object') {
+            for (const [target, topic] of Object.entries(p.conflicts_with as Record<string, string>)) {
+              conflicts.push({
+                personaA: p.persona,
+                personaB: target,
+                topic,
+                severity: 'medium',
+                phase: p.phase ?? 1,
+              });
+            }
+          }
+        }
+
+        // Build blackboard states from judge conversations
+        const blackboardStates: DebateData['blackboardStates'] = [];
+        for (const [level, convs] of judgeByLevel) {
+          for (const jc of convs) {
+            if ((jc as any).blackboard_state) {
+              blackboardStates.push({ phase: level, state: (jc as any).blackboard_state });
+            }
+          }
+        }
+
         result.push({
           cycleId: j.cycle_id,
           createdAt: j.created_at,
@@ -144,6 +175,8 @@ export function Swarm() {
             .map(p => ({ persona: p.persona, vote: p.vote })),
           summary: extractSummary(j.raw_response),
           messages,
+          conflicts,
+          blackboardStates,
         });
       }
       setDebates(result);
@@ -191,13 +224,39 @@ export function Swarm() {
     const msgs = current.messages;
     let lastPhase = 0;
     const elements: React.ReactNode[] = [];
+
     for (let i = 0; i < msgs.length; i++) {
       const m = msgs[i];
       const phase = m.phase ?? 1;
+
+      // Phase divider
       if (phase !== lastPhase) {
         elements.push(<LevelDivider key={`lvl-${phase}-${i}`} level={phase} />);
         lastPhase = phase;
       }
+
+      // Insert conflict cards before the first judge message in this phase
+      if (m.isJudge) {
+        const isFirstJudgeInPhase = !msgs.slice(0, i).some(
+          prev => prev.isJudge && (prev.phase ?? 1) === phase,
+        );
+        if (isFirstJudgeInPhase) {
+          const phaseConflicts = current.conflicts.filter(c => c.phase === phase);
+          for (const c of phaseConflicts) {
+            elements.push(
+              <ConflictCard
+                key={`conflict-${c.personaA}-${c.personaB}-${phase}`}
+                personaA={c.personaA}
+                personaB={c.personaB}
+                topic={c.topic}
+                severity={c.severity as 'low' | 'medium' | 'high'}
+              />,
+            );
+          }
+        }
+      }
+
+      // Render the message
       elements.push(
         <SwarmChatMessage
           key={i}
@@ -211,6 +270,27 @@ export function Swarm() {
           replyTo={m.replyTo}
         />,
       );
+
+      // Insert blackboard state card after the last judge message in this phase
+      if (m.isJudge) {
+        const noMoreJudgesThisPhase = !msgs.slice(i + 1).some(
+          next => next.isJudge && (next.phase ?? 1) === phase,
+        );
+        if (noMoreJudgesThisPhase) {
+          const phaseBoard = current.blackboardStates.find(b => b.phase === phase);
+          if (phaseBoard?.state) {
+            elements.push(
+              <BlackboardStateCard
+                key={`board-${phase}`}
+                signals={phaseBoard.state.signals ?? { bullish: [], bearish: [], neutral: [] }}
+                votes={phaseBoard.state.votes ?? {}}
+                risks={phaseBoard.state.risks ?? []}
+                conflicts={phaseBoard.state.conflicts ?? []}
+              />,
+            );
+          }
+        }
+      }
     }
     return elements;
   };
@@ -239,16 +319,18 @@ export function Swarm() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {current ? (
-            <>
-              {renderMessages()}
-              <div ref={bottomRef} />
-            </>
-          ) : (
-            <div className="text-zinc-500 text-sm mt-8 text-center">
-              {debates.length === 0 ? 'No swarm debates found' : 'Select a debate from the sidebar'}
-            </div>
-          )}
+          <AnimatePresence mode="wait">
+            {current ? (
+              <>
+                {renderMessages()}
+                <div ref={bottomRef} />
+              </>
+            ) : (
+              <div className="text-zinc-500 text-sm mt-8 text-center">
+                {debates.length === 0 ? 'No swarm debates found' : 'Select a debate from the sidebar'}
+              </div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="p-3 border-t border-zinc-800">
