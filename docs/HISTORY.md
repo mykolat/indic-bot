@@ -126,6 +126,26 @@ The Observability DB (`src/db/`) with 19 Supabase PostgreSQL tables provided the
 
 ---
 
+## Phase 9 — Blackboard Swarm + Aggressive Fear Trading (2026-03-07)
+
+The swarm system was rebuilt around a **blackboard architecture**: a shared `BlackboardState` (market context, signals, votes, risks, conflicts) that all personas read and write to. Six personas replaced the original three: `risk_manager` (RM), `bull_thesis` (BT), `bear_thesis` (BA), `market_structure` (MS), `devils_advocate` (DA), `narrative_expert` (NE). Each writes structured JSON updates — signals, vote (`HOLD|LONG|SHORT|CLOSE` with confidence and probability), risks, and explicit `conflicts_with` referencing other persona codes. A judge reads the aggregated board and decides whether to continue debate or produce a final verdict.
+
+**Reactive Devil's Advocate** (`da-activation.ts`): DA was moved from parallel execution to a reactive post-round-1 role. After `Promise.allSettled([RM, MS, NE])` completes, `shouldActivateDA(votes)` checks whether DA adds value: exactly 1 action vote (DA amplifies), or a CLOSE vote exists (DA argues against closing). If 2+ experts already agree on direction or all vote HOLD, DA is skipped — saving a Grok API call. When activated, DA uses Grok with `web_search` + `x_search` to find real arguments backing the minority action position. The DA prompt (`buildDAPrompt`) is aggressive: "You NEVER vote HOLD. Find opportunity where others see risk."
+
+**Leverage floor fix**: `leverageMultiplier` in filter profiles (e.g., Capitulation = 0.75x) was applied using `Math.max(1, ...)`, which meant a configured `minLeverage: 5` was reduced to 1x after multiplication. Fixed to `Math.max(minLev, ...)`. Same fix applied to weekend leverage reduction. Root cause was visible in DB (`leverage=5` in risk validation) vs `trades.jsonl` (`leverage=1` after multiplier override).
+
+**Capitulation regime fix**: F&G < 15 alone triggered Capitulation, making the bot overly cautious during extended fear periods with low volume. Fixed: Capitulation now requires volume > 3x (real sell-off) OR (F&G < 15 AND volume > 1.5x). F&G=12 with volume=0.45x correctly classifies as Range.
+
+**`regime_override` removed**: The LLM had a `regime_override` field that could change the algorithmic regime classification. In practice, the LLM saw F&G=12 and overrode Range → Capitulation every cycle, undoing the classifier fix. Removed entirely — the classifier is the single source of truth for regime. The LLM controls actions, confidence, and sizing; the classifier controls system filters, leverage multipliers, and SL/TP styles.
+
+**Aggressive fear trading philosophy**: The Capitulation prompt was rewritten from "extreme caution mode, prioritize capital preservation" to "Blood in the streets. Aggressive SHORT trader. Press shorts on breakdowns, fade dead-cat bounces." The Extreme Fear policy changed from "require stronger confirmation for SHORTs" to "Fear is fuel. DEFAULT bias: SHORT." The core insight: F&G=12 with low volume means everyone is scared but nobody is selling — ideal conditions for aggressive shorts, not capital preservation.
+
+**Token cost reduction**: Two changes to reduce ~20 LLM calls/hour to ~3-6. First, `next_check_minutes` floors enforced algorithmically: 10 min with open positions, 30 min without (quiet market). Second, HOLD reasoning changed from 2-3 sentences per pair to a single slug (`"4h_conflict"`, `"low_volume"`) — saving ~60-70% of output tokens on HOLD decisions which are the majority.
+
+**DB retention**: `pg_cron` jobs added for `market_snapshots` and `indicator_snapshots` — both auto-delete rows older than 2 days at 04:00 UTC daily. These tables grow at ~20k rows/day but are only read for the last 10-15 minutes. Without retention, they'd reach 600k rows/month.
+
+---
+
 ## Architectural Decisions Summary
 
 | Decision | Reason |
@@ -137,7 +157,9 @@ The Observability DB (`src/db/`) with 19 Supabase PostgreSQL tables provided the
 | `LLMClient.analyze()` throws on API errors, returns `[]` on parse errors | API errors are infrastructure failures (trigger layer switch); parse errors are recoverable (HOLD is safe) |
 | SwarmAgent triggered at volumeRatio > 1.5 | High volatility is when single-model bias is most dangerous; multi-persona consensus surfaces disagreements |
 | Graph RAG episodic memory (cosine > 0.7) | Similar past setups have labeled outcomes; retrieval outperforms asking the LLM to remember |
-| DevilsAdvocate pre-trade veto | Asymmetric: skipping an opportunity costs less than entering a bad trade; Grok's X/Twitter access provides real-time counterevidence |
+| Reactive DA (post-round-1, conditional) | Saves Grok API calls when not needed; real search-backed arguments when activated; aggressive bias balances conservative RM |
+| regime_override removed | LLM consistently overrode classifier during fear, undoing algorithmic fixes; single source of truth prevents feedback loops |
+| Aggressive fear trading | F&G < 15 + low volume = scared market without sellers = SHORT opportunity, not capital preservation scenario |
 | FlashCrashScanner at cycle start | All analysis is based on stale prices during a crash; aborting early is cheaper than acting on bad data |
 | Dynamic loop interval (LLM sets next_check_minutes) | LLM's own confidence modulates frequency; reduces API costs in quiet periods; increases responsiveness in volatile periods |
 | Layer 1 distilled agents (NewsExpert, MacroExpert, MemoryExpert) | Specialized pre-digestion keeps main prompt within 33k token context window; improves signal quality |
@@ -158,9 +180,10 @@ The Observability DB (`src/db/`) with 19 Supabase PostgreSQL tables provided the
 | Acceleration factor | ~38–52x |
 | LLM layers | 3 (Codex OAuth, OpenAI fallback, rule-based) |
 | Observability tables | 19 (PostgreSQL + pgvector) |
-| Market regimes | 5 (BullTrend, BearTrend, Range, Breakout, Capitulation) |
+| Market regimes | 6 (BullTrend, BearTrend, Range, Breakout, Capitulation, Scalping) |
 | Confluence factors | 5 (trend, RSI, volume, VWAP, ADX) |
-| Swarm personas | 3 + optional Grok narrative expert |
+| Swarm personas | 6 (RM, BT, BA, MS, DA reactive, NE via Grok) |
+| Observability tables | 20 (added `indicator_snapshots`) |
 | News sources | CryptoPanic (Apify) + CoinDesk, CoinTelegraph, Decrypt (RSS) |
 | Macro data points | WTI, DXY, S&P500, VIX, EUR/USD, Gold, BTC dominance |
 
