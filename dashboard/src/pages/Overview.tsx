@@ -95,8 +95,38 @@ export function Overview() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Wallet Balance" value={`$${Number(cycle?.balance || 0).toFixed(2)}`} />
         <StatCard label="Session PnL" value={`$${Number(cycle?.session_pnl || 0).toFixed(2)}`} color={pnlColor} />
-        <StatCard label="Regime" value={cycle?.regime || '—'} subtitle={`F&G: ${cycle?.fear_greed_value ?? '—'} | Layer: ${cycle?.layer ?? '—'}`} />
+        <StatCard label="Regime" value={cycle?.regime || '—'} subtitle={`Confidence: ${cycle?.regime_confidence != null ? `${Math.round(cycle.regime_confidence * 100)}%` : '—'}`} />
         <StatCard label="Watchdog" value={watchdogOk ? 'Healthy' : 'Stale'} subtitle={`${snapshotCount} snaps/h`} color={watchdogOk ? 'green' : 'red'} />
+      </div>
+
+      <div className="bg-surface-1 rounded-xl border border-border p-4">
+        <h3 className="text-sm font-semibold text-zinc-300 mb-3">Market State — Last Cycle</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard
+            label="Volume Ratio"
+            value={cycle?.volume_ratio != null ? `${Number(cycle.volume_ratio).toFixed(2)}x` : '—'}
+            subtitle="Swarm @ >1.5x"
+            color={Number(cycle?.volume_ratio) >= 1.5 ? 'green' : Number(cycle?.volume_ratio) >= 0.8 ? 'default' : 'red'}
+          />
+          <StatCard
+            label="Fear & Greed"
+            value={cycle?.fear_greed_value != null ? String(cycle.fear_greed_value) : '—'}
+            subtitle={cycle?.fear_greed_value != null ? (cycle.fear_greed_value <= 25 ? 'Extreme Fear' : cycle.fear_greed_value <= 45 ? 'Fear' : cycle.fear_greed_value <= 55 ? 'Neutral' : cycle.fear_greed_value <= 75 ? 'Greed' : 'Extreme Greed') : ''}
+            color={cycle?.fear_greed_value != null ? (cycle.fear_greed_value <= 25 ? 'red' : cycle.fear_greed_value >= 75 ? 'green' : 'default') : 'default'}
+          />
+          <StatCard
+            label="Confluence"
+            value={cycle?.confluence_score != null ? `${Number(cycle.confluence_score).toFixed(1)} / 5` : '—'}
+            subtitle={Array.isArray(cycle?.confluence_factors) ? cycle.confluence_factors.slice(0, 2).join(', ') : cycle?.confluence_factors ?? ''}
+            color={Number(cycle?.confluence_score) >= 3 ? 'green' : Number(cycle?.confluence_score) >= 2 ? 'default' : 'red'}
+          />
+          <StatCard
+            label="LLM Layer"
+            value={cycle?.layer != null ? `Layer ${cycle.layer}` : '—'}
+            subtitle={cycle?.filter_warning ? '⚠ ' + cycle.filter_warning.slice(0, 40) : 'No filter warnings'}
+            color={cycle?.filter_warning ? 'red' : 'green'}
+          />
+        </div>
       </div>
 
       {funnel.data && (
