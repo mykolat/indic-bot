@@ -25,6 +25,7 @@ interface SwarmMessage {
   isSuperuser?: boolean;
   phase?: number;
   conflictsWith?: Record<string, string> | null;
+  signals?: { bullish?: string[]; bearish?: string[]; neutral?: string[] } | null;
 }
 
 interface DebateDetail {
@@ -219,6 +220,7 @@ export function Swarm() {
             vote: p.vote, confidence: p.confidence,
             time: new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             phase, conflictsWith: p.conflicts_with as Record<string, string> | null,
+            signals: p.signals as { bullish?: string[]; bearish?: string[]; neutral?: string[] } | null,
           });
         }
       }
@@ -323,6 +325,7 @@ export function Swarm() {
             reasoning: p.content,
             probability: null,
             conflictsWith: p.conflictsWith ?? null,
+            signals: p.signals ?? undefined,
             time: p.time,
           })),
           judgeRawResponse: data.judgeRaw,
