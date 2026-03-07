@@ -35,6 +35,7 @@ import { buildDiversityContext, type PairDecisionEntry } from './market/pair-div
 import type { Watchdog, Tp1Target } from './watchdog.js';
 import { buildNewsMarketFusion, formatFusionBlock } from './news/news-market-fusion.js';
 import type { GroundingResult } from './news/grok-grounder.js';
+import { getMarketSession, formatSessionPromptBlock } from './market/session.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -752,6 +753,7 @@ export class TradingLoop {
         envelope,
         liquidations: liquidations.length > 0 ? liquidations : undefined,
         newsMarketFusion: this.lastNewsMarketFusion,
+        sessionBlock: formatSessionPromptBlock(new Date()),
       };
 
       let decisions: TradeDecision[] = [];
@@ -946,7 +948,12 @@ export class TradingLoop {
             indicatorsSnapshot: {
               rsi: indicators.get(decision.pair)?.rsi ?? 0,
               adx: indicators.get(decision.pair)?.adx ?? 0,
-            }
+            },
+            session: getMarketSession(new Date()),
+            sessionPatternActive: decision.session_context?.session_pattern_active,
+            sessionFitScore: decision.session_context?.session_fit_score,
+            sessionRole: decision.session_context?.session_role,
+            sessionReason: decision.session_context?.session_reason,
           };
           this.deps.decisionJournal.log(entry);
         }

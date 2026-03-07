@@ -21,6 +21,11 @@ export interface JournalEntry {
     confidence: number;
     riskValidation: string;
     indicatorsSnapshot: Record<string, number | string>;
+    session?: string;
+    sessionPatternActive?: boolean;
+    sessionFitScore?: number;
+    sessionRole?: string;
+    sessionReason?: string;
 }
 
 export class DecisionJournal {
@@ -41,6 +46,11 @@ export class DecisionJournal {
                 confidence: entry.confidence,
                 risk_validation: entry.riskValidation,
                 indicators_snapshot: entry.indicatorsSnapshot,
+                session: entry.session,
+                session_pattern_active: entry.sessionPatternActive,
+                session_fit_score: entry.sessionFitScore,
+                session_role: entry.sessionRole,
+                session_reason: entry.sessionReason,
             }) + '\n';
             appendFileSync(this.logFile, line, 'utf-8');
         } catch {

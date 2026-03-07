@@ -10,6 +10,12 @@ export interface TradeDecision {
   reasoning: string;
   confidence?: number;
   regime_override?: string;
+  session_context?: {
+    session_pattern_active: boolean;
+    session_fit_score: number;
+    session_role: 'supports' | 'neutral' | 'contradicts';
+    session_reason: string;
+  };
 }
 
 export interface Position {

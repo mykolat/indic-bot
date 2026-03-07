@@ -1,3 +1,4 @@
+import { getMarketSession, getSessionMetadata, formatSessionPromptBlock } from '../market/session.js';
 import type { MarketSnapshot } from '../binance/market-data.js';
 import type { Indicators } from '../indicators/technical.js';
 import { computeRSI } from '../indicators/technical.js';
@@ -106,7 +107,13 @@ Respond ONLY with valid JSON:
       "take_profit_pct": <${config.minTakeProfitPct}-50>,
       "regime_override": "<optional: string if you disagree with the detected regime, e.g. 'capitulation'>",
       "reasoning": "<2-3 sentences: what signals aligned, what's the thesis>",
-      "confidence": <1-100>
+      "confidence": <1-100>,
+      "session_context": {
+        "session_pattern_active": true|false,
+        "session_fit_score": <0-100>,
+        "session_role": "supports" | "neutral" | "contradicts",
+        "session_reason": "<1 sentence: why session pattern is/isn't relevant>"
+      }
     }
   ],
   "next_check_minutes": <1-30>
@@ -118,6 +125,7 @@ next_check_minutes guide: How soon to re-analyze. Consider:
 - Normal market, no positions → 5-10 min
 - Low volume (<0.5x), all HOLD, no catalyst → 15-30 min
 - Off-hours, dead tape → 20-30 min
+- Session context: use session tendencies only if confirmed by actual volume/ADX/price action. Do not default to session-typical cadence.
 
 confidence guide: <30 = very uncertain, 30-55 = weak, 55-70 = moderate, 70-85 = strong, >85 = very strong
 Always include a decision for every pair. HOLD = do nothing.
@@ -176,6 +184,7 @@ export interface EnrichedPromptData {
     execution_result?: string;
     created_at: string;
   }>;
+  sessionBlock?: string;
 }
 
 export function buildUserPrompt(data: EnrichedPromptData): string;
@@ -205,22 +214,13 @@ export function buildUserPrompt(
   });
 }
 
-function getTradingSession(utcHour: number): string {
-  if (utcHour >= 13 && utcHour < 16) return 'EU/US overlap (high liquidity)';
-  if (utcHour >= 7 && utcHour < 8) return 'Asia close / EU open overlap';
-  if (utcHour >= 0 && utcHour < 8) return 'Asia session';
-  if (utcHour >= 7 && utcHour < 16) return 'European session';
-  if (utcHour >= 13 && utcHour < 22) return 'US session';
-  return 'Off-hours (low liquidity)';
-}
-
 function formatCurrentTime(): string {
   const now = new Date();
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const day = days[now.getUTCDay()];
   const h = now.getUTCHours().toString().padStart(2, '0');
   const m = now.getUTCMinutes().toString().padStart(2, '0');
-  const session = getTradingSession(now.getUTCHours());
+  const session = getSessionMetadata(getMarketSession(now)).name;
   return `${now.toISOString().slice(0, 10)} ${h}:${m} UTC (${day}) — ${session}`;
 }
 
@@ -262,6 +262,10 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     else if (regimeLower === 'scalping') prompt += '>>> REGIME: Scalping. Low volume dead zone. Only high-confidence micro-trades with tight stops.\n\n';
     else prompt += '>>> REGIME: Unknown. Standard aggressive crypto futures trader.\n\n';
     prompt += `NOTE: If your narrative reading strongly contradicts this regime, use the 'regime_override' field to change it.\n\n`;
+  }
+
+  if (data.sessionBlock) {
+    prompt += data.sessionBlock + '\n';
   }
 
   if (data.pairRegimes && Object.keys(data.pairRegimes).length > 1) {
