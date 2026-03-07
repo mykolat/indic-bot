@@ -1,3 +1,5 @@
+import { VOTE_COLORS, getPersona } from '../../lib/theme';
+
 interface DebateItem {
   cycleId: number;
   createdAt: string;
@@ -11,47 +13,46 @@ interface DebateSidebarProps {
   onSelect: (idx: number) => void;
 }
 
-const VOTE_DOT_COLORS: Record<string, string> = {
-  LONG: '#4ade80',
-  SHORT: '#f87171',
-  HOLD: '#71717a',
-};
-
 export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarProps) {
   return (
-    <div className="w-72 shrink-0 border-r border-zinc-800 overflow-y-auto">
-      <div className="p-3 border-b border-zinc-800">
-        <h2 className="text-sm font-bold text-zinc-300">Debates</h2>
+    <div className="w-64 shrink-0 border-r border-border overflow-y-auto bg-surface-1">
+      <div className="p-4 border-b border-border">
+        <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Debates</h2>
       </div>
-      {debates.map((d, i) => (
-        <button
-          key={i}
-          onClick={() => onSelect(i)}
-          className={`w-full text-left p-3 border-b border-zinc-800/50 transition-colors ${
-            selectedIdx === i ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'
-          }`}
-        >
-          <div className="flex justify-between items-center mb-1">
-            <span className="text-xs font-mono text-zinc-400">Cycle {d.cycleId}</span>
-            <span className="text-xs text-zinc-600">
-              {new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          </div>
-          <div className="flex gap-1 mb-1">
-            {d.votes.map((v, j) => (
-              <div
-                key={j}
-                className="w-2.5 h-2.5 rounded-full"
-                style={{ backgroundColor: VOTE_DOT_COLORS[v.vote ?? 'HOLD'] ?? '#71717a' }}
-                title={`${v.persona}: ${v.vote ?? 'N/A'}`}
-              />
-            ))}
-          </div>
-          <p className="text-xs text-zinc-500 truncate">{d.summary}</p>
-        </button>
-      ))}
+      {debates.map((d, i) => {
+        const isSelected = selectedIdx === i;
+        return (
+          <button
+            key={i}
+            onClick={() => onSelect(i)}
+            className={`w-full text-left px-4 py-3 border-b border-border-subtle transition-all ${
+              isSelected
+                ? 'bg-surface-2 border-l-2 border-l-accent'
+                : 'hover:bg-surface-2/50 border-l-2 border-l-transparent'
+            }`}
+          >
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-xs font-mono text-zinc-400">#{d.cycleId}</span>
+              <span className="text-[10px] text-zinc-600 font-mono">
+                {new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+            <div className="flex gap-1 mb-1.5">
+              {d.votes.map((v, j) => (
+                <div
+                  key={j}
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: VOTE_COLORS[v.vote ?? 'HOLD'] ?? '#71717a' }}
+                  title={`${getPersona(v.persona).label}: ${v.vote ?? 'N/A'}`}
+                />
+              ))}
+            </div>
+            <p className="text-[11px] text-zinc-500 truncate">{d.summary}</p>
+          </button>
+        );
+      })}
       {debates.length === 0 && (
-        <div className="p-4 text-zinc-600 text-xs">No debates found</div>
+        <div className="p-6 text-zinc-600 text-xs text-center">No debates</div>
       )}
     </div>
   );

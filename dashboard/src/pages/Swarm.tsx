@@ -1,22 +1,20 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { SwarmChatMessage } from '../components/swarm/SwarmChatMessage';
 import { DebateSidebar } from '../components/swarm/DebateSidebar';
-import { LevelDivider } from '../components/swarm/LevelDivider';
-import { ConflictCard } from '../components/swarm/ConflictCard';
-import { BlackboardStateCard } from '../components/swarm/BlackboardStateCard';
-import { AnimatePresence } from 'framer-motion';
+import { InputContextCard } from '../components/swarm/InputContextCard';
+import { RoundSection } from '../components/swarm/RoundSection';
 
 interface SwarmMessage {
   persona: string;
   content: string;
   vote?: string | null;
   confidence?: number | null;
+  probability?: number | null;
   time: string;
   isJudge?: boolean;
   isSuperuser?: boolean;
   phase?: number;
-  replyTo?: { persona: string; content: string } | null;
+  conflictsWith?: Record<string, string> | null;
 }
 
 interface DebateData {
@@ -25,6 +23,7 @@ interface DebateData {
   votes: Array<{ persona: string; vote: string | null }>;
   summary: string;
   messages: SwarmMessage[];
+  userPrompt: string;
   blackboardStates: Array<{ phase: number; state: any }>;
   conflicts: Array<{ personaA: string; personaB: string; topic: string; severity: string; phase: number }>;
 }
@@ -39,7 +38,53 @@ function extractSummary(judgeResponse?: string): string {
     }
     if (parsed.verdict) return parsed.verdict.slice(0, 60);
   } catch { /* not JSON */ }
-  return judgeResponse.slice(0, 60).replace(/\n/g, ' ') + '…';
+  return judgeResponse.slice(0, 60).replace(/\n/g, ' ') + '\u2026';
+}
+
+function formatDebateForCopy(d: DebateData): string {
+  const lines: string[] = [];
+  lines.push(`=== Swarm Debate \u2014 Cycle ${d.cycleId} ===`);
+  lines.push(`Date: ${new Date(d.createdAt).toLocaleString()}`);
+  lines.push('');
+  if (d.userPrompt) {
+    lines.push('--- INPUT CONTEXT ---');
+    lines.push(d.userPrompt);
+    lines.push('');
+  }
+  const byRound = new Map<number, SwarmMessage[]>();
+  for (const m of d.messages) {
+    const r = m.phase ?? 1;
+    const arr = byRound.get(r) ?? [];
+    arr.push(m);
+    byRound.set(r, arr);
+  }
+  for (const [round, msgs] of byRound) {
+    lines.push(`--- ROUND ${round} ---`);
+    for (const m of msgs) {
+      const header = m.isJudge ? 'JUDGE' : m.persona.toUpperCase();
+      const vote = m.vote ? ` [${m.vote}]` : '';
+      const conf = m.confidence != null ? ` conf:${m.confidence}` : '';
+      lines.push(`${header}${vote}${conf}`);
+      lines.push(m.content);
+      lines.push('');
+    }
+  }
+  return lines.join('\n');
+}
+
+function CopyButton({ debate }: { debate: DebateData }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(formatDebateForCopy(debate)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button onClick={handleCopy} className="text-xs px-3 py-1.5 rounded-lg border border-border text-zinc-400 hover:text-white hover:border-accent/40 transition-colors font-mono">
+      {copied ? 'Copied!' : 'Copy All'}
+    </button>
+  );
 }
 
 export function Swarm() {
@@ -47,7 +92,7 @@ export function Swarm() {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [superInput, setSuperInput] = useState('');
   const [sending, setSending] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -59,7 +104,6 @@ export function Swarm() {
         .limit(30);
       if (!judges?.length) return;
 
-      // Group by cycle_id — take first (latest) judge per cycle for sidebar
       const seenCycles = new Set<number>();
       const topJudges = judges.filter(j => {
         if (seenCycles.has(j.cycle_id)) return false;
@@ -69,7 +113,7 @@ export function Swarm() {
 
       const result: DebateData[] = [];
       for (const j of topJudges) {
-        const windowStart = new Date(new Date(j.created_at).getTime() - 1_800_000).toISOString(); // 30min window
+        const windowStart = new Date(new Date(j.created_at).getTime() - 1_800_000).toISOString();
         const windowEnd = new Date(new Date(j.created_at).getTime() + 60_000).toISOString();
 
         const [personasRes, judgeConvsRes] = await Promise.all([
@@ -81,7 +125,7 @@ export function Swarm() {
             .order('created_at', { ascending: true }),
           supabase
             .from('llm_conversations')
-            .select('raw_response, created_at, label, blackboard_state')
+            .select('raw_response, created_at, label, blackboard_state, user_prompt')
             .eq('cycle_id', j.cycle_id)
             .eq('method', 'swarm_consensus')
             .order('created_at', { ascending: true }),
@@ -90,16 +134,14 @@ export function Swarm() {
         const personaList = personasRes.data || [];
         const judgeConvs = judgeConvsRes.data || [];
 
-        // Map judge convs by level
         const judgeByLevel = new Map<number, typeof judgeConvs>();
         for (const jc of judgeConvs) {
-          const levelMatch = jc.label?.match(/judge_level_(\d+)/);
+          const levelMatch = jc.label?.match(/judge_(?:level|round)_(\d+)/);
           const level = levelMatch ? parseInt(levelMatch[1]) : 1;
           const arr = judgeByLevel.get(level) ?? [];
           arr.push(jc);
           judgeByLevel.set(level, arr);
         }
-        // Legacy: unlabeled judge → level 1
         if (!judgeByLevel.has(1) && judgeConvs.length > 0) {
           judgeByLevel.set(1, judgeConvs);
         }
@@ -112,52 +154,28 @@ export function Swarm() {
           for (const p of phasePersonas) {
             if (p.persona === 'superuser') {
               messages.push({
-                persona: 'superuser',
-                content: p.reasoning || '(no message)',
+                persona: 'superuser', content: p.reasoning || '(no message)',
                 time: new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                isSuperuser: true,
-                phase,
+                isSuperuser: true, phase,
               });
             } else {
               messages.push({
-                persona: p.persona,
-                content: p.reasoning || '(no reasoning)',
-                vote: p.vote,
-                confidence: p.confidence,
+                persona: p.persona, content: p.reasoning || '(no reasoning)',
+                vote: p.vote, confidence: p.confidence,
                 time: new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                phase,
+                phase, conflictsWith: p.conflicts_with as Record<string, string> | null,
               });
             }
           }
-          // Judge for this level
           for (const jc of judgeByLevel.get(phase) ?? []) {
             messages.push({
-              persona: 'judge',
-              content: jc.raw_response || '(no verdict)',
+              persona: 'judge', content: jc.raw_response || '(no verdict)',
               time: new Date(jc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isJudge: true,
-              phase,
+              isJudge: true, phase,
             });
           }
         }
 
-        // Build conflicts from persona conflicts_with data
-        const conflicts: DebateData['conflicts'] = [];
-        for (const p of personaList) {
-          if (p.conflicts_with && typeof p.conflicts_with === 'object') {
-            for (const [target, topic] of Object.entries(p.conflicts_with as Record<string, string>)) {
-              conflicts.push({
-                personaA: p.persona,
-                personaB: target,
-                topic,
-                severity: 'medium',
-                phase: p.phase ?? 1,
-              });
-            }
-          }
-        }
-
-        // Build blackboard states from judge conversations
         const blackboardStates: DebateData['blackboardStates'] = [];
         for (const [level, convs] of judgeByLevel) {
           for (const jc of convs) {
@@ -170,13 +188,12 @@ export function Swarm() {
         result.push({
           cycleId: j.cycle_id,
           createdAt: j.created_at,
-          votes: personaList
-            .filter(p => p.persona !== 'superuser')
-            .map(p => ({ persona: p.persona, vote: p.vote })),
+          votes: personaList.filter(p => p.persona !== 'superuser').map(p => ({ persona: p.persona, vote: p.vote })),
           summary: extractSummary(j.raw_response),
           messages,
-          conflicts,
+          userPrompt: (judgeConvs[0] as any)?.user_prompt ?? '',
           blackboardStates,
+          conflicts: [],
         });
       }
       setDebates(result);
@@ -185,7 +202,7 @@ export function Swarm() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [selectedIdx]);
 
   const current = debates[selectedIdx];
@@ -202,138 +219,118 @@ export function Swarm() {
       });
       const now = new Date();
       const newMsg: SwarmMessage = {
-        persona: 'superuser',
-        content: superInput.trim(),
+        persona: 'superuser', content: superInput.trim(),
         time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isSuperuser: true,
-        phase: Math.max(...current.messages.map(m => m.phase ?? 1), 1),
+        isSuperuser: true, phase: Math.max(...current.messages.map(m => m.phase ?? 1), 1),
       };
-      setDebates(prev => prev.map((d, i) =>
-        i === selectedIdx ? { ...d, messages: [...d.messages, newMsg] } : d,
-      ));
+      setDebates(prev => prev.map((d, i) => i === selectedIdx ? { ...d, messages: [...d.messages, newMsg] } : d));
       setSuperInput('');
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (err) {
       console.error('Failed to inject superuser message:', err);
     }
     setSending(false);
   };
 
-  const renderMessages = () => {
-    if (!current) return null;
-    const msgs = current.messages;
-    let lastPhase = 0;
-    const elements: React.ReactNode[] = [];
-
-    for (let i = 0; i < msgs.length; i++) {
-      const m = msgs[i];
-      const phase = m.phase ?? 1;
-
-      // Phase divider
-      if (phase !== lastPhase) {
-        elements.push(<LevelDivider key={`lvl-${phase}-${i}`} level={phase} />);
-        lastPhase = phase;
-      }
-
-      // Insert conflict cards before the first judge message in this phase
+  // Group messages by round for RoundSection
+  const getRounds = () => {
+    if (!current) return [];
+    const roundMap = new Map<number, { personas: SwarmMessage[]; judgeRaw?: string }>();
+    for (const m of current.messages) {
+      const r = m.phase ?? 1;
+      const entry = roundMap.get(r) ?? { personas: [] };
       if (m.isJudge) {
-        const isFirstJudgeInPhase = !msgs.slice(0, i).some(
-          prev => prev.isJudge && (prev.phase ?? 1) === phase,
-        );
-        if (isFirstJudgeInPhase) {
-          const phaseConflicts = current.conflicts.filter(c => c.phase === phase);
-          for (const c of phaseConflicts) {
-            elements.push(
-              <ConflictCard
-                key={`conflict-${c.personaA}-${c.personaB}-${phase}`}
-                personaA={c.personaA}
-                personaB={c.personaB}
-                topic={c.topic}
-                severity={c.severity as 'low' | 'medium' | 'high'}
-              />,
-            );
-          }
-        }
+        entry.judgeRaw = m.content;
+      } else {
+        entry.personas.push(m);
       }
-
-      // Render the message
-      elements.push(
-        <SwarmChatMessage
-          key={i}
-          persona={m.persona}
-          content={m.content}
-          vote={m.vote}
-          confidence={m.confidence}
-          time={m.time}
-          isJudge={m.isJudge}
-          isSuperuser={m.isSuperuser}
-          replyTo={m.replyTo}
-        />,
-      );
-
-      // Insert blackboard state card after the last judge message in this phase
-      if (m.isJudge) {
-        const noMoreJudgesThisPhase = !msgs.slice(i + 1).some(
-          next => next.isJudge && (next.phase ?? 1) === phase,
-        );
-        if (noMoreJudgesThisPhase) {
-          const phaseBoard = current.blackboardStates.find(b => b.phase === phase);
-          if (phaseBoard?.state) {
-            elements.push(
-              <BlackboardStateCard
-                key={`board-${phase}`}
-                signals={phaseBoard.state.signals ?? { bullish: [], bearish: [], neutral: [] }}
-                votes={phaseBoard.state.votes ?? {}}
-                risks={phaseBoard.state.risks ?? []}
-                conflicts={phaseBoard.state.conflicts ?? []}
-              />,
-            );
-          }
-        }
-      }
+      roundMap.set(r, entry);
     }
-    return elements;
+    const maxRound = Math.max(...roundMap.keys(), 0);
+    return Array.from(roundMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([round, data]) => {
+        const board = current.blackboardStates.find(b => b.phase === round);
+        return {
+          round,
+          personas: data.personas.map(p => ({
+            persona: p.persona,
+            vote: p.vote ?? null,
+            confidence: p.confidence ?? null,
+            reasoning: p.content,
+            probability: null,
+            conflictsWith: p.conflictsWith ?? null,
+          })),
+          judgeRawResponse: data.judgeRaw,
+          isFinalRound: round === maxRound,
+          blackboardSignals: board?.state?.signals,
+          blackboardRisks: board?.state?.risks,
+        };
+      });
   };
 
+  // Extract context from blackboard state or user prompt
+  const getContext = () => {
+    if (!current) return null;
+    const firstBoard = current.blackboardStates[0]?.state;
+    return {
+      pair: firstBoard?.market?.pairs?.[0] ?? 'N/A',
+      regime: firstBoard?.market?.regime ?? 'Unknown',
+      fearGreed: firstBoard?.market?.fearGreed ?? 0,
+      volumeRatio: firstBoard?.market?.volumeRatio ?? 0,
+    };
+  };
+
+  const rounds = getRounds();
+  const ctx = getContext();
+
   return (
-    <div className="flex h-[calc(100vh-8rem)]">
+    <div className="flex h-[calc(100vh-5rem)]">
       <DebateSidebar
-        debates={debates.map(d => ({
-          cycleId: d.cycleId,
-          createdAt: d.createdAt,
-          votes: d.votes,
-          summary: d.summary,
-        }))}
+        debates={debates.map(d => ({ cycleId: d.cycleId, createdAt: d.createdAt, votes: d.votes, summary: d.summary }))}
         selectedIdx={selectedIdx}
         onSelect={setSelectedIdx}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="p-3 border-b border-zinc-800 flex items-center gap-3">
-          <h1 className="text-sm font-bold text-zinc-300">Swarm Debate</h1>
-          {current && (
-            <span className="text-xs text-zinc-500">
-              Cycle {current.cycleId} — {new Date(current.createdAt).toLocaleString()}
-            </span>
+        {/* Header */}
+        <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-sm font-semibold text-zinc-300">Swarm Debate</h1>
+            {current && (
+              <span className="text-xs text-zinc-600 font-mono">
+                Cycle {current.cycleId} &middot; {new Date(current.createdAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {current && <CopyButton debate={current} />}
+        </div>
+
+        {/* Scrollable content */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-6">
+          {current ? (
+            <>
+              {ctx && current.userPrompt && (
+                <InputContextCard
+                  userPrompt={current.userPrompt}
+                  pair={ctx.pair}
+                  regime={ctx.regime}
+                  fearGreed={ctx.fearGreed}
+                  volumeRatio={ctx.volumeRatio}
+                />
+              )}
+              {rounds.map(r => (
+                <RoundSection key={r.round} {...r} />
+              ))}
+            </>
+          ) : (
+            <div className="text-zinc-500 text-sm mt-8 text-center">
+              {debates.length === 0 ? 'No swarm debates found' : 'Select a debate from the sidebar'}
+            </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <AnimatePresence mode="wait">
-            {current ? (
-              <>
-                {renderMessages()}
-                <div ref={bottomRef} />
-              </>
-            ) : (
-              <div className="text-zinc-500 text-sm mt-8 text-center">
-                {debates.length === 0 ? 'No swarm debates found' : 'Select a debate from the sidebar'}
-              </div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        <div className="p-3 border-t border-zinc-800">
+        {/* Superuser input */}
+        <div className="p-3 border-t border-border">
           <div className="flex gap-2">
             <input
               type="text"
@@ -342,14 +339,14 @@ export function Swarm() {
               onKeyDown={(e) => e.key === 'Enter' && sendSuperuserMessage()}
               placeholder="Inject message as superuser..."
               disabled={!current || sending}
-              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-600 disabled:opacity-50"
+              className="flex-1 bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent/60 disabled:opacity-50"
             />
             <button
               onClick={sendSuperuserMessage}
               disabled={!superInput.trim() || !current || sending}
-              className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-4 py-2 rounded-lg text-sm font-medium"
+              className="bg-superuser hover:bg-superuser/80 disabled:opacity-50 px-4 py-2 rounded-lg text-sm font-medium text-surface-0"
             >
-              👑 Send
+              Send
             </button>
           </div>
         </div>
