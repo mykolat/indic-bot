@@ -87,6 +87,13 @@ export interface DbTradeExecution {
   strategy_type?: string;
   commission_usd?: number;
   commission_asset?: string;
+  regime_at_entry?: string;
+  regime_confidence_at_entry?: number;
+  filter_profile_at_entry?: string;
+  confluence_at_entry?: number;
+  was_swarm?: boolean;
+  volume_ratio_at_entry?: number;
+  fear_greed_at_entry?: number;
   opened_at?: string;
 }
 
@@ -100,6 +107,8 @@ export interface DbTradeClose {
   pnl_usd?: number;
   pnl_pct?: number;
   held_hours?: number;
+  regime_at_exit?: string;
+  holding_time_minutes?: number;
   order_id?: number;
   closed_at?: string;
 }

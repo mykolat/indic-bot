@@ -74,12 +74,14 @@ export async function insertTradeDecision(d: Omit<DbTradeDecision, 'id' | 'creat
 
 export async function insertTradeExecution(e: Omit<DbTradeExecution, 'id' | 'opened_at'>): Promise<number> {
   const { rows } = await q().query(
-    `INSERT INTO trade_executions (decision_id, pair, side, action, entry_price, fill_price, quantity, leverage, sl_price, tp_price, order_id, algo_sl_id, algo_tp_id, size_usd, entry_thesis, strategy_type, commission_usd, commission_asset)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+    `INSERT INTO trade_executions (decision_id, pair, side, action, entry_price, fill_price, quantity, leverage, sl_price, tp_price, order_id, algo_sl_id, algo_tp_id, size_usd, entry_thesis, strategy_type, commission_usd, commission_asset, regime_at_entry, regime_confidence_at_entry, filter_profile_at_entry, confluence_at_entry, was_swarm, volume_ratio_at_entry, fear_greed_at_entry)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING id`,
     [e.decision_id, e.pair, e.side, e.action, e.entry_price, e.fill_price,
      e.quantity, e.leverage, e.sl_price, e.tp_price, e.order_id,
      e.algo_sl_id, e.algo_tp_id, e.size_usd, e.entry_thesis, e.strategy_type ?? 'swing',
-     e.commission_usd ?? 0, e.commission_asset ?? 'USDT'],
+     e.commission_usd ?? 0, e.commission_asset ?? 'USDT',
+     e.regime_at_entry, e.regime_confidence_at_entry, e.filter_profile_at_entry,
+     e.confluence_at_entry, e.was_swarm ?? false, e.volume_ratio_at_entry, e.fear_greed_at_entry],
   );
   return rows[0].id;
 }
@@ -88,10 +90,10 @@ export async function insertTradeExecution(e: Omit<DbTradeExecution, 'id' | 'ope
 
 export async function insertTradeClose(c: Omit<DbTradeClose, 'id' | 'closed_at'>): Promise<number> {
   const { rows } = await q().query(
-    `INSERT INTO trade_closes (execution_id, close_decision_id, pair, exit_price, exit_reason, pnl_usd, pnl_pct, held_hours, order_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    `INSERT INTO trade_closes (execution_id, close_decision_id, pair, exit_price, exit_reason, pnl_usd, pnl_pct, held_hours, order_id, regime_at_exit, holding_time_minutes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
     [c.execution_id, c.close_decision_id, c.pair, c.exit_price, c.exit_reason,
-     c.pnl_usd, c.pnl_pct, c.held_hours, c.order_id],
+     c.pnl_usd, c.pnl_pct, c.held_hours, c.order_id, c.regime_at_exit, c.holding_time_minutes],
   );
   return rows[0].id;
 }

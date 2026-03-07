@@ -307,6 +307,17 @@ export class TradingLoop {
               });
             }
             this.saveEpisode(pos.pair, pos.side, 'unknown', new Map(), pos.heldHours, pos.unrealizedPnlPct, closeReason);
+
+            // Save auto-close to DB with attribution
+            insertTradeClose({
+              pair: pos.pair,
+              exit_reason: closeReason.startsWith('max_hold') ? 'auto_max_hold' : 'auto_stale',
+              pnl_usd: pos.unrealizedPnlPct * (pos.sizeUsd / pos.leverage) / 100,
+              pnl_pct: pos.unrealizedPnlPct,
+              held_hours: pos.heldHours,
+              order_id: result.orderId,
+              holding_time_minutes: pos.heldHours * 60,
+            }).catch(() => {});
           }
         }
       }
@@ -987,12 +998,14 @@ export class TradingLoop {
                 insertTradeClose({
                   execution_id: posCtxForClose?.id,
                   pair: decision.pair,
-                  exit_reason: 'LLM_CLOSE',
+                  exit_reason: 'llm_close',
                   pnl_usd: parseFloat(pnlUsd.toFixed(2)),
                   pnl_pct: pos.unrealizedPnlPct,
                   held_hours: pos.heldHours,
                   order_id: result.orderId,
                   close_decision_id: decisionId,
+                  regime_at_exit: pairRegimes.get(decision.pair)?.regime ?? marketRegime,
+                  holding_time_minutes: pos.heldHours * 60,
                 }).catch(e => console.error('[DB] close insert error:', e.message));
               }
 
@@ -1165,6 +1178,13 @@ export class TradingLoop {
                 strategy_type: (pairRegimes.get(decision.pair)?.regime ?? marketRegime) === MarketRegime.Scalping ? 'scalping' : 'swing',
                 commission_usd: result.commissionUsd,
                 commission_asset: result.commissionAsset,
+                regime_at_entry: pairRegimes.get(decision.pair)?.regime ?? marketRegime,
+                regime_confidence_at_entry: pairRegimes.get(decision.pair)?.confidence ?? regimeConfidence,
+                filter_profile_at_entry: pairRegimes.get(decision.pair)?.regime ?? marketRegime,
+                confluence_at_entry: pairConfluence.get(decision.pair)?.score,
+                was_swarm: currentLayer === 1 && useSwarm,
+                volume_ratio_at_entry: btcInd?.volumeRatio,
+                fear_greed_at_entry: fearGreed?.value,
               }).catch(e => console.error('[DB] execution insert error:', e.message));
             }
 
