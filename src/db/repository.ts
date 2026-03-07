@@ -61,12 +61,13 @@ export async function insertLlmConversation(c: Omit<DbLlmConversation, 'id' | 'c
 
 export async function insertTradeDecision(d: Omit<DbTradeDecision, 'id' | 'created_at'>): Promise<number> {
   const { rows } = await q().query(
-    `INSERT INTO trade_decisions (conversation_id, cycle_id, pair, action, size_pct, leverage, stop_loss_pct, take_profit_pct, confidence, reasoning, regime, regime_confidence, regime_override, volume_ratio, confluence_score, confluence_factors)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+    `INSERT INTO trade_decisions (conversation_id, cycle_id, pair, action, size_pct, leverage, stop_loss_pct, take_profit_pct, confidence, reasoning, regime, regime_confidence, regime_override, volume_ratio, confluence_score, confluence_factors, session, session_pattern_active, session_fit_score, session_role, session_reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id`,
     [d.conversation_id, d.cycle_id, d.pair, d.action, d.size_pct, d.leverage,
      d.stop_loss_pct, d.take_profit_pct, d.confidence, d.reasoning,
      d.regime, d.regime_confidence, d.regime_override,
-     d.volume_ratio, d.confluence_score, d.confluence_factors],
+     d.volume_ratio, d.confluence_score, d.confluence_factors,
+     d.session, d.session_pattern_active, d.session_fit_score, d.session_role, d.session_reason],
   );
   return rows[0].id;
 }

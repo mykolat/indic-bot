@@ -1045,6 +1045,11 @@ export class TradingLoop {
               volume_ratio: btcInd?.volumeRatio,
               confluence_score: confluenceResult?.score,
               confluence_factors: confluenceResult?.factors,
+              session: getMarketSession(new Date()),
+              session_pattern_active: decision.session_context?.session_pattern_active,
+              session_fit_score: decision.session_context?.session_fit_score,
+              session_role: decision.session_context?.session_role,
+              session_reason: decision.session_context?.session_reason,
             });
             insertRiskValidation({
               decision_id: decisionId,

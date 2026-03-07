@@ -64,6 +64,11 @@ export interface DbTradeDecision {
   volume_ratio?: number;
   confluence_score?: number;
   confluence_factors?: string[];
+  session?: string;
+  session_pattern_active?: boolean;
+  session_fit_score?: number;
+  session_role?: string;
+  session_reason?: string;
   created_at?: string;
 }
 
