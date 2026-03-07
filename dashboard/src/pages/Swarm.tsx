@@ -43,6 +43,12 @@ function extractSummary(judgeResponse?: string): string {
     const parsed = JSON.parse(judgeResponse);
     if (parsed.decisions?.[0]) {
       const d = parsed.decisions[0];
+      if (typeof d === 'string') {
+        // Blackboard format: ["HOLD", "SHORT"]
+        const unique = [...new Set(parsed.decisions as string[])];
+        return `${unique.join('/')} ${parsed.verdict ? parsed.verdict.slice(0, 40) : ''}`.trim();
+      }
+      // Legacy format: [{pair, action, confidence}]
       return `${d.action} ${d.pair ?? ''} conf:${d.confidence ?? '?'}`;
     }
     if (parsed.verdict) return parsed.verdict.slice(0, 60);
@@ -388,8 +394,32 @@ export function Swarm() {
         {/* Scrollable content */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-6">
           {loadingDetail ? (
-            <div className="flex items-center justify-center h-40">
-              <div className="text-zinc-600 text-sm font-mono animate-pulse">Loading debate...</div>
+            <div className="space-y-6 animate-pulse">
+              {/* Context skeleton */}
+              <div className="bg-surface-1 rounded-xl border border-border p-5">
+                <div className="h-3 bg-surface-3 rounded w-24 mb-3" />
+                <div className="grid grid-cols-5 gap-3">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i}>
+                      <div className="h-2 bg-surface-2 rounded w-12 mb-1" />
+                      <div className="h-4 bg-surface-3 rounded w-16" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Chat bubbles skeleton */}
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full bg-surface-3 shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 bg-surface-3 rounded w-28" />
+                    <div className="bg-surface-2 rounded-2xl p-4 space-y-2">
+                      <div className="h-3 bg-surface-3 rounded w-full" />
+                      <div className="h-3 bg-surface-3 rounded w-3/4" />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : currentDetail ? (
             <>
