@@ -107,6 +107,7 @@ export class TradingLoop {
   private cycleCount = 0;
   private lastClosedAt = new Map<string, number>();
   private lastOI = new Map<string, number>();
+  private spreadHistory = new Map<string, number[]>();
   private lastMacroRefresh = 0;
   private lastMacroAnalysis: MacroAnalysis | undefined;
   private binanceCircuitBreaker = new CircuitBreaker(3);
@@ -339,13 +340,41 @@ export class TradingLoop {
       this.binanceCircuitBreaker.recordSuccess();
 
       // Attach OI delta (% change vs previous cycle)
-      const snapshots = rawSnapshots.map(snap => {
+      const allSnapshots = rawSnapshots.map(snap => {
         const oiNum = parseFloat(snap.openInterest);
         const prevOI = this.lastOI.get(snap.pair);
         const oiDeltaPct = prevOI ? ((oiNum - prevOI) / prevOI) * 100 : 0;
         this.lastOI.set(snap.pair, oiNum);
         return { ...snap, openInterestDelta: oiDeltaPct };
       });
+
+      // Stale data guard — skip snapshots older than 5 minutes
+      const MAX_SNAPSHOT_AGE_MS = 5 * 60 * 1000;
+      const now = Date.now();
+      const snapshots = allSnapshots.filter(s => {
+        if (s.fetchedAt && (now - s.fetchedAt) > MAX_SNAPSHOT_AGE_MS) {
+          console.warn(`[Loop] Stale snapshot for ${s.pair}: ${((now - s.fetchedAt) / 1000).toFixed(0)}s old — skipping`);
+          return false;
+        }
+        return true;
+      });
+      if (snapshots.length === 0) {
+        console.error('[Loop] ALL_SNAPSHOTS_STALE: All market snapshots older than 5 minutes');
+        return;
+      }
+
+      // Track spread history per pair (rolling window of 50)
+      for (const snap of snapshots) {
+        if (snap.spreadPct != null) {
+          let history = this.spreadHistory.get(snap.pair);
+          if (!history) {
+            history = [];
+            this.spreadHistory.set(snap.pair, history);
+          }
+          history.push(snap.spreadPct);
+          if (history.length > 50) history.shift();
+        }
+      }
 
       // 2. Get portfolio state + real sessionPnl from Binance balance
       let portfolio: PortfolioState;
@@ -1014,7 +1043,21 @@ export class TradingLoop {
             };
           }
         }
-        const validation = riskManager.validate(decision, portfolio, validationCtx, adjustCtx);
+        // Build spread context for this pair
+        const pairSpreadHistory = this.spreadHistory.get(decision.pair) ?? [];
+        const pairSnap = snapshots.find(s => s.pair === decision.pair);
+        let medianSpreadPct: number | undefined;
+        if (pairSpreadHistory.length > 0) {
+          const sorted = [...pairSpreadHistory].sort((a, b) => a - b);
+          medianSpreadPct = sorted[Math.floor(sorted.length / 2)];
+        }
+
+        const validation = riskManager.validate(decision, portfolio, validationCtx, adjustCtx, {
+          dailyRealizedPnl: todayRealizedPnl,
+          spreadPct: pairSnap?.spreadPct,
+          medianSpreadPct,
+          spreadSampleSize: pairSpreadHistory.length,
+        });
 
         // Save trade decision + risk validation to DB
         let decisionId: number | undefined;

@@ -66,6 +66,14 @@ interface RiskConfig {
   maxLossUsd: number;
   maxLossPct: number;  // % of balance; overrides maxLossUsd if > 0
   minConfidence?: number;  // reject decisions below this confidence (default 55)
+  maxDailyLossPct?: number;  // % of balance — daily loss limit (survives restart)
+}
+
+export interface RiskExtraContext {
+  dailyRealizedPnl?: number;
+  spreadPct?: number;
+  medianSpreadPct?: number;
+  spreadSampleSize?: number;
 }
 
 export interface ValidationContext {
@@ -111,7 +119,7 @@ export const BETA_TO_BTC: Record<string, number> = {
 export class RiskManager {
   constructor(private config: RiskConfig) { }
 
-  validate(decision: TradeDecision, portfolio: PortfolioState, ctx?: ValidationContext, adjustCtx?: AdjustContext): ValidationResult {
+  validate(decision: TradeDecision, portfolio: PortfolioState, ctx?: ValidationContext, adjustCtx?: AdjustContext, extra?: RiskExtraContext): ValidationResult {
     if (decision.action === 'HOLD' || decision.action === 'CLOSE' || decision.action === 'FETCH_NEWS') {
       return { approved: true };
     }
@@ -170,6 +178,14 @@ export class RiskManager {
 
     if (portfolio.sessionPnl <= -effectiveMaxLoss) {
       return { approved: false, reason: `Session loss exceeded max $${effectiveMaxLoss.toFixed(2)} — shutdown triggered`, shutdown: true };
+    }
+
+    // Daily loss limit (DB-backed, survives restart)
+    if (this.config.maxDailyLossPct && this.config.maxDailyLossPct > 0 && extra?.dailyRealizedPnl != null) {
+      const dailyLimit = portfolio.balanceUsd * this.config.maxDailyLossPct / 100;
+      if (extra.dailyRealizedPnl <= -dailyLimit) {
+        return { approved: false, reason: `Daily loss $${Math.abs(extra.dailyRealizedPnl).toFixed(2)} exceeded limit $${dailyLimit.toFixed(2)} (${this.config.maxDailyLossPct}%) — shutdown triggered`, shutdown: true };
+      }
     }
 
     if (portfolio.drawdownPct >= this.config.maxDrawdownPct) {
@@ -279,6 +295,17 @@ export class RiskManager {
     );
     if (existingSameDirection) {
       return { approved: false, reason: `Already ${decision.action} on ${decision.pair}` };
+    }
+
+    // Abnormal spread guard
+    const SPREAD_MULTIPLIER = 2.5;
+    const MIN_SPREAD_SAMPLES = 20;
+    if (extra?.spreadPct != null && extra?.medianSpreadPct != null && extra.medianSpreadPct > 0) {
+      if ((extra.spreadSampleSize ?? 0) >= MIN_SPREAD_SAMPLES) {
+        if (extra.spreadPct > extra.medianSpreadPct * SPREAD_MULTIPLIER) {
+          return { approved: false, reason: `Abnormal spread: ${(extra.spreadPct * 100).toFixed(3)}% vs median ${(extra.medianSpreadPct * 100).toFixed(3)}% (${SPREAD_MULTIPLIER}x threshold)` };
+        }
+      }
     }
 
     return { approved: true };

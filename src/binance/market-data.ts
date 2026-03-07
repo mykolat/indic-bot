@@ -36,6 +36,8 @@ export interface MarketSnapshot {
   orderBookAskPct: number;
   openInterestDelta?: number;
   liquidityProfile?: LiquidityProfile;
+  fetchedAt: number;
+  spreadPct?: number;
 }
 
 export interface QuickSnapshot {
@@ -105,6 +107,12 @@ export class MarketDataFetcher {
 
     const liquidityProfile: LiquidityProfile = { buyVolume, sellVolume, imbalancePct, supportLevel, resistanceLevel };
 
+    // Spread from top-of-book
+    const bestBid = parseFloat((orderBook.bids as [string, string][])[0]?.[0] ?? '0');
+    const bestAsk = parseFloat((orderBook.asks as [string, string][])[0]?.[0] ?? '0');
+    const midPrice = (bestBid + bestAsk) / 2;
+    const spreadPct = midPrice > 0 ? (bestAsk - bestBid) / midPrice : 0;
+
     const lsData = Array.isArray(lsRatio) && lsRatio.length > 0 ? lsRatio[0] : null;
 
     return {
@@ -123,6 +131,8 @@ export class MarketDataFetcher {
       orderBookBidPct: totalDepth > 0 ? (bids / totalDepth) * 100 : 50,
       orderBookAskPct: totalDepth > 0 ? (asks / totalDepth) * 100 : 50,
       liquidityProfile,
+      fetchedAt: Date.now(),
+      spreadPct,
     };
   }
 

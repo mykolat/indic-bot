@@ -60,6 +60,22 @@ describe('MarketDataFetcher', () => {
     expect(state.positions).toHaveLength(0);
   });
 
+  it('getSnapshot includes fetchedAt timestamp', async () => {
+    const before = Date.now();
+    const snapshot = await fetcher.getSnapshot('BTCUSDT');
+    const after = Date.now();
+
+    expect(snapshot.fetchedAt).toBeGreaterThanOrEqual(before);
+    expect(snapshot.fetchedAt).toBeLessThanOrEqual(after);
+  });
+
+  it('getSnapshot includes spreadPct from order book', async () => {
+    const snapshot = await fetcher.getSnapshot('BTCUSDT');
+    expect(snapshot.spreadPct).toBeDefined();
+    expect(typeof snapshot.spreadPct).toBe('number');
+    expect(snapshot.spreadPct).toBeGreaterThanOrEqual(0);
+  });
+
   it('getSnapshot includes candles15m and fundingHistory', async () => {
     const snapshot = await fetcher.getSnapshot('BTCUSDT');
 
