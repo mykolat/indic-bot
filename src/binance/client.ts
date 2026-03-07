@@ -13,6 +13,7 @@ export function createBinanceClient(config: BinanceConfig): USDMClient {
   return new USDMClient({
     api_key: config.apiKey,
     api_secret: config.apiSecret,
+    recvWindow: 10000,
     ...(config.testnet && { baseUrl: 'https://demo-fapi.binance.com' }),
   });
 }

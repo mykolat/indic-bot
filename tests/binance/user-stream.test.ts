@@ -2,52 +2,49 @@ import { describe, it, expect } from 'vitest';
 import { parseOrderUpdate, isSlTpFill } from '../../src/binance/user-stream.js';
 
 describe('parseOrderUpdate', () => {
-  it('extracts fields from ORDER_TRADE_UPDATE', () => {
+  it('parses Binance ORDER_TRADE_UPDATE event', () => {
     const event = {
-      e: 'ORDER_TRADE_UPDATE',
       o: {
         s: 'BTCUSDT',
         S: 'SELL',
         o: 'STOP_MARKET',
         X: 'FILLED',
-        ap: '65000.5',
-        rp: '12.34',
+        ap: '50000.5',
+        rp: '-12.34',
         cp: true,
-        T: 1709827200000,
+        T: 1700000000000,
       },
     };
     const parsed = parseOrderUpdate(event);
-    expect(parsed).toEqual({
-      symbol: 'BTCUSDT',
-      side: 'SELL',
-      orderType: 'STOP_MARKET',
-      status: 'FILLED',
-      avgPrice: 65000.5,
-      realizedPnl: 12.34,
-      closePosition: true,
-      tradeTime: 1709827200000,
-    });
+    expect(parsed.symbol).toBe('BTCUSDT');
+    expect(parsed.side).toBe('SELL');
+    expect(parsed.orderType).toBe('STOP_MARKET');
+    expect(parsed.status).toBe('FILLED');
+    expect(parsed.avgPrice).toBeCloseTo(50000.5);
+    expect(parsed.realizedPnl).toBeCloseTo(-12.34);
+    expect(parsed.closePosition).toBe(true);
+    expect(parsed.tradeTime).toBe(1700000000000);
   });
 });
 
 describe('isSlTpFill', () => {
-  it('identifies SL fill', () => {
+  it('returns true for filled STOP_MARKET with closePosition', () => {
     expect(isSlTpFill({ orderType: 'STOP_MARKET', status: 'FILLED', closePosition: true })).toBe(true);
   });
 
-  it('identifies TP fill', () => {
+  it('returns true for filled TAKE_PROFIT_MARKET with closePosition', () => {
     expect(isSlTpFill({ orderType: 'TAKE_PROFIT_MARKET', status: 'FILLED', closePosition: true })).toBe(true);
   });
 
-  it('rejects regular market order', () => {
-    expect(isSlTpFill({ orderType: 'MARKET', status: 'FILLED', closePosition: false })).toBe(false);
-  });
-
-  it('rejects non-filled SL', () => {
+  it('returns false for non-filled orders', () => {
     expect(isSlTpFill({ orderType: 'STOP_MARKET', status: 'NEW', closePosition: true })).toBe(false);
   });
 
-  it('rejects non-closePosition SL', () => {
+  it('returns false for MARKET orders', () => {
+    expect(isSlTpFill({ orderType: 'MARKET', status: 'FILLED', closePosition: true })).toBe(false);
+  });
+
+  it('returns false when closePosition is false', () => {
     expect(isSlTpFill({ orderType: 'STOP_MARKET', status: 'FILLED', closePosition: false })).toBe(false);
   });
 });
