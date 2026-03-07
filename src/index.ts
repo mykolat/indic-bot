@@ -312,6 +312,14 @@ async function main() {
     console.log('[Watchdog] Started — 1-min market snapshots + TP1 monitoring');
   }
 
+  // Start Binance User Data Stream (real-time SL/TP detection)
+  try {
+    const { startUserStream } = await import('./binance/user-stream.js');
+    await startUserStream(binanceClient);
+  } catch (err: any) {
+    console.warn('[UserStream] Failed to start:', err.message, '— reconciliation will catch SL/TP closes');
+  }
+
   // Run loop
   console.log('Starting trading loop...\n');
 

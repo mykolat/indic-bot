@@ -1,3 +1,5 @@
+import { computeAllowedSlRange } from './sl-tightening-rules.js';
+
 export interface TradeDecision {
   pair: string;
   action: 'LONG' | 'SHORT' | 'CLOSE' | 'HOLD' | 'FETCH_NEWS' | 'ADJUST';
@@ -55,6 +57,7 @@ interface RiskConfig {
 
 export interface ValidationContext {
   indicators4h?: Map<string, { trend: string }>;
+  indicators1h?: Map<string, { atr: number; trend: string }>;
   fearGreed?: { value: number };
   fearGreedLeverageCap?: number;
 }
@@ -119,14 +122,20 @@ export class RiskManager {
         return { approved: false, reason: `Ratchet violation: new SL $${newSlPrice.toFixed(4)} > current $${currentSlPrice.toFixed(4)}` };
       }
 
-      // Breakeven lock: if PnL >= 5%, SL must be at or beyond entry
+      // Tiered SL tightening: prevent premature profit-killing
       const pos = portfolio.positions.find(p => p.pair === decision.pair);
-      if (pos && pos.unrealizedPnlPct >= 5) {
-        if (side === 'LONG' && newSlPrice < entryPrice) {
-          return { approved: false, reason: `Breakeven lock: PnL ${pos.unrealizedPnlPct.toFixed(1)}% >= 5% but SL below entry` };
+      if (pos && ctx?.indicators1h) {
+        const ind1h = ctx.indicators1h.get(decision.pair);
+        const markPrice = entryPrice * (1 + (side === 'LONG' ? 1 : -1) * pos.unrealizedPnlPct / 100);
+        const atrPct = ind1h ? (ind1h.atr / markPrice) * 100 : 1.5;
+
+        const range = computeAllowedSlRange({ side, entryPrice, currentPrice: markPrice, atrPct });
+
+        if (side === 'LONG' && newSlPrice > range.maxSlPrice) {
+          return { approved: false, reason: `SL too tight [${range.tier}]: max $${range.maxSlPrice.toFixed(4)}, requested $${newSlPrice.toFixed(4)}` };
         }
-        if (side === 'SHORT' && newSlPrice > entryPrice) {
-          return { approved: false, reason: `Breakeven lock: PnL ${pos.unrealizedPnlPct.toFixed(1)}% >= 5% but SL above entry` };
+        if (side === 'SHORT' && newSlPrice < range.maxSlPrice) {
+          return { approved: false, reason: `SL too tight [${range.tier}]: max $${range.maxSlPrice.toFixed(4)}, requested $${newSlPrice.toFixed(4)}` };
         }
       }
 

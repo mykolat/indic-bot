@@ -27,7 +27,8 @@ import type { DecisionJournal, JournalEntry } from './logging/decision-journal.j
 import type { TradeStoryLogger } from './logging/trade-story.js';
 import type { CryptoNews } from './news/types.js';
 import type { SwarmAgent } from './llm/swarm-agent.js';
-import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp, getRecentLiquidations } from './db/repository.js';
+import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getDbOpenPositions, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp, getRecentLiquidations } from './db/repository.js';
+import { detectGhostPositions } from './position-reconciler.js';
 import type { AdjustContext } from './risk/manager.js';
 import { buildWatchdogSummary } from './watchdog-summary.js';
 import { buildDiversityContext, type PairDecisionEntry } from './market/pair-diversity.js';
@@ -364,6 +365,22 @@ export class TradingLoop {
       const sessionPnl = portfolio.balanceUsd - startBalance;
       portfolio.sessionPnl = sessionPnl;
       portfolio.drawdownPct = hwm > 0 ? ((hwm - portfolio.balanceUsd) / hwm) * 100 : 0;
+
+      // Reconcile: detect positions closed on Binance (SL/TP) but still "open" in DB
+      try {
+        const dbOpen = await getDbOpenPositions();
+        const ghosts = detectGhostPositions(dbOpen, portfolio.positions);
+        for (const ghost of ghosts) {
+          console.log(`[Reconcile] Ghost position: ${ghost.pair} ${ghost.side} (exec #${ghost.id}) — closed on Binance, recording in DB`);
+          insertTradeClose({
+            execution_id: ghost.id,
+            pair: ghost.pair,
+            exit_reason: 'sl_tp_triggered',
+          }).catch(() => {});
+        }
+      } catch (err: any) {
+        console.error('[Reconcile] Error:', err?.message);
+      }
 
       // Auto-exit stale positions
       const staleHours = this.deps.tradingConfig.stalePositionHours ?? 8;
@@ -981,6 +998,7 @@ export class TradingLoop {
         // 6. Risk check
         const validationCtx = {
           indicators4h: indicators4h.size > 0 ? indicators4h as Map<string, { trend: string }> : undefined,
+          indicators1h: indicators.size > 0 ? indicators as Map<string, { atr: number; trend: string }> : undefined,
           fearGreed,
           fearGreedLeverageCap: this.deps.tradingConfig.fearGreedLeverageCap,
         };

@@ -83,8 +83,15 @@ CONSTRAINTS:
 - Minimum take-profit: ${config.minTakeProfitPct}%
 - This is LIVE money. Be selective.
 - Do NOT scalp. Target swing moves.
-- For open positions: use ADJUST to move SL/TP levels. SL can only tighten (protect more). When position is profitable, lock gains by moving SL closer to or above entry.
-- ADJUST example: position +8% ROI, momentum fading → set stop_loss_pct to -3 (locks 3% profit) and take_profit_pct to 9
+- For open positions: use ADJUST to move SL/TP levels. SL can only tighten (protect more).
+- SL ADJUST TIERS (hard-enforced by risk layer — violations REJECTED):
+  * <5% unrealized profit: DO NOT tighten SL. Keep original. Let the position breathe.
+  * 5-10% profit: Move SL to breakeven (entry price) maximum.
+  * 10-20% profit: Lock up to 40% of profit (e.g. +15% profit → SL locks +6%).
+  * 20%+ profit: Lock up to 60% of profit (e.g. +25% profit → SL locks +15%).
+  * SL must ALWAYS be at least 1.5x ATR away from current price.
+- Premature SL tightening kills winners. A position at +2% that dips to -1% is NORMAL — do not panic-tighten.
+- ADJUST example: position +20% ROI → set stop_loss_pct to -12 (locks 12% profit)
 - Negative stop_loss_pct = profit lock (SL beyond entry in profitable direction)
 
 Respond ONLY with valid JSON:

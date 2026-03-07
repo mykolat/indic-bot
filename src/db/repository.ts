@@ -402,6 +402,34 @@ export async function getOpenPositionContexts(pairs: string[]): Promise<OpenPosi
   return rows;
 }
 
+// --- Position Reconciliation ---
+
+export async function getDbOpenPositions(): Promise<Array<{id: number; pair: string; side: string}>> {
+  const { rows } = await q().query(`
+    SELECT te.id, te.pair, te.side
+    FROM trade_executions te
+    LEFT JOIN trade_closes tc ON tc.execution_id = te.id
+    WHERE tc.id IS NULL
+      AND te.fill_price IS NOT NULL
+      AND te.opened_at > NOW() - INTERVAL '48 hours'
+    ORDER BY te.opened_at DESC
+  `);
+  return rows;
+}
+
+export async function findOpenExecutionByPair(pair: string, side: string): Promise<{id: number; fill_price: string; opened_at: string} | null> {
+  const { rows } = await q().query(`
+    SELECT te.id, te.fill_price::text, te.opened_at::text
+    FROM trade_executions te
+    LEFT JOIN trade_closes tc ON tc.execution_id = te.id
+    WHERE tc.id IS NULL AND te.pair = $1 AND te.side = $2
+      AND te.fill_price IS NOT NULL
+      AND te.opened_at > NOW() - INTERVAL '48 hours'
+    ORDER BY te.opened_at DESC LIMIT 1
+  `, [pair, side]);
+  return rows[0] ?? null;
+}
+
 // --- SL/TP Adjustments ---
 
 export async function insertSlTpAdjustment(a: Omit<DbSlTpAdjustment, 'id' | 'created_at'>): Promise<number> {

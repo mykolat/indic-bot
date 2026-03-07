@@ -15,7 +15,8 @@
     "soul:insight": "tsx scripts/soul-insight.ts",
     "deploy": "bash scripts/deploy.sh",
     "audit:md": "tsx scripts/audit-md.ts",
-    "audit:db": "tsx scripts/audit-db.ts"
+    "audit:db": "tsx scripts/audit-db.ts",
+    "sync:positions": "tsx scripts/sync-ghost-positions.ts"
   },
   "keywords": [],
   "author": "",
