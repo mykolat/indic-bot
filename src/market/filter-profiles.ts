@@ -22,7 +22,7 @@ const PROFILES: Record<MarketRegime, FilterProfile> = {
     },
     [MarketRegime.BearTrend]: {
         rsiRange: [20, 55],
-        volumeMin: 0.6,
+        volumeMin: 0.4,
         confluenceMin: 2,
         leverageMultiplier: 1,
         minConfidence: 55,
@@ -49,7 +49,7 @@ const PROFILES: Record<MarketRegime, FilterProfile> = {
     },
     [MarketRegime.Capitulation]: {
         rsiRange: [0, 100],  // any RSI
-        volumeMin: 0.8,
+        volumeMin: 0.35,
         confluenceMin: 1,
         leverageMultiplier: 0.25,
         minConfidence: 45,
