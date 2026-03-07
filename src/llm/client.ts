@@ -7,6 +7,7 @@ import type { TradingViewSignal } from '../webhook/signal-buffer.js';
 import { SYSTEM_PROMPT, buildUserPrompt, buildSystemPrompt, type EnrichedPromptData } from './prompts.js';
 import { TokenLogger } from './token-logger.js';
 import { insertLlmConversation } from '../db/repository.js';
+import { parseDecisions } from './decision-schema.js';
 
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex/responses';
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
@@ -312,30 +313,12 @@ export class LLMClient {
   }
 
   private parseResponse(content: string): { decisions: TradeDecision[]; nextCheckMinutes?: number } | null {
-    try {
-      // Try targeted regex first: look for object containing "decisions" array
-      let jsonMatch = content.match(/\{[^{}]*"decisions"\s*:\s*\[[\s\S]*?\]\s*[^{}]*\}/);
-      if (!jsonMatch) {
-        // Fallback: greedy match (handles nested objects in reasoning)
-        jsonMatch = content.match(/\{[\s\S]*"decisions"[\s\S]*\}/);
-      }
-      if (!jsonMatch) {
-        this.logParseError(content, 'No JSON with "decisions" key found');
-        return null;
-      }
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsed.decisions)) {
-        this.logParseError(content, 'decisions is not an array');
-        return null;
-      }
-      const ncm = parsed.next_check_minutes;
-      const nextCheckMinutes = typeof ncm === 'number' && ncm >= 10 && ncm <= 30 ? ncm : undefined;
-      return { decisions: parsed.decisions, nextCheckMinutes };
-    } catch (err: any) {
-      this.logParseError(content, err.message);
+    const result = parseDecisions(content);
+    if (!result) {
+      this.logParseError(content, 'parseDecisions returned null');
       return null;
     }
+    return { decisions: result.decisions, nextCheckMinutes: result.nextCheckMinutes };
   }
 
   private logParseError(content: string, reason: string): void {
