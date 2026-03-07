@@ -51,7 +51,7 @@ const PROFILES: Record<MarketRegime, FilterProfile> = {
         rsiRange: [0, 100],  // any RSI
         volumeMin: 0.35,
         confluenceMin: 1,
-        leverageMultiplier: 0.25,
+        leverageMultiplier: 0.75,
         minConfidence: 45,
         slStyle: 'fixed',
         tpStyle: 'dca',
@@ -60,7 +60,7 @@ const PROFILES: Record<MarketRegime, FilterProfile> = {
         rsiRange: [30, 70],
         volumeMin: 0.15,
         confluenceMin: 1,
-        leverageMultiplier: 0.1,   // maxLeverage 20 → 2x max
+        leverageMultiplier: 0.5,
         minConfidence: 72,          // high bar — low liquidity = more false signals
         slStyle: 'fixed',
         tpStyle: 'fixed',
