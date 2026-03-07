@@ -872,8 +872,8 @@ export class TradingLoop {
       const hasPositions = portfolio.positions.length > 0;
       if (hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes < 10)) {
         nextCheckMinutes = 10;
-      } else if (!hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes < 20)) {
-        nextCheckMinutes = 20;
+      } else if (!hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes < 30)) {
+        nextCheckMinutes = 30;
       }
 
       // Safety guard: in Layer 2/3, filter out any LONG/SHORT decisions
@@ -881,20 +881,8 @@ export class TradingLoop {
         decisions = decisions.filter(d => d.action === 'HOLD' || d.action === 'CLOSE');
       }
 
-      // Apply regime_override if LLM suggested one
-      for (const d of decisions) {
-        const rawOverride = (d as any).regime_override;
-        if (rawOverride) {
-          // Match case-insensitively: LLM may return 'capitulation' but enum is 'Capitulation'
-          const matched = Object.values(MarketRegime).find(v => v.toLowerCase() === String(rawOverride).toLowerCase());
-          if (matched) {
-            console.log(`[Loop] LLM regime override: ${marketRegime} → ${matched}`);
-            marketRegime = matched;
-            activeProfile = getFilterProfile(marketRegime);
-            break;
-          }
-        }
-      }
+      // regime_override removed — classifier is the single source of truth.
+      // LLM controls actions/confidence/sizing, not system filters.
 
       // Save indicator snapshots to DB
       if (cycleId) {
