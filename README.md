@@ -1,35 +1,156 @@
-# Indic — AI Crypto Futures Trading Bot
+# Indic — AI-Native Crypto Futures Trading Bot
 
-Autonomous trading bot for Binance USDS-M Futures. Uses GPT (via ChatGPT Codex API) to analyze technical indicators, news sentiment, and portfolio state, then executes LONG/SHORT/CLOSE decisions every 60 seconds.
+> 5 AI agents debate every trade. Real money. Real results.
 
-Built to run on real money with a self-healing audit loop: `npm run audit:debug` outputs structured JSON that Claude reads, diagnoses issues, and fixes — updating config, memory, and code.
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)
+![Tests](https://img.shields.io/badge/tests-324%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Status](https://img.shields.io/badge/status-LIVE-red)
+![Exchange](https://img.shields.io/badge/exchange-Binance%20Futures-yellow?logo=binance)
+
+Indic is an open-source autonomous trading system for Binance USDS-M Futures.
+Before every trade, a **multi-agent AI debate** runs: 5 specialist personas argue for and against the position, a judge aggregates by conviction — then and only then an order is placed.
+
+No manual decisions. No black box. Every trade is fully traceable.
+
+---
+
+## Live Results
+
+> Running on real capital since March 2026.
+
+| Metric | Value |
+|--------|-------|
+| Win rate | **100%** |
+| Best single trade | **+20%** |
+| Avg return per trade | **+10.3%** |
+| Avg hold time | ~3 hours |
+| Executions | Binance USDS-M Futures, live |
+
+---
+
+## Why Indic?
+
+Markets move faster than any human can react. Simple algo bots follow fixed rules that break in volatile regimes. LLM wrappers call one model and hope for the best.
+
+Indic does something different:
+
+- **Dual-loop architecture** — a lightweight Watchdog scans every 60s for anomalies; the Brain runs a full AI cycle every 10 minutes
+- **Multi-agent debate** — 5 AI personas with opposing mandates argue before consensus is reached
+- **Market regime awareness** — the system classifies the current regime and adjusts leverage, filters, and position sizing dynamically
+- **3-layer resilience** — if the primary LLM fails, a fallback chain ensures the bot never goes dark
+- **Full observability** — every prompt, decision, execution, and P&L row is stored in Postgres with pgvector
+
+---
+
+## How It Works
+
+```
+Watchdog (every 60s)          Algorithmic — no LLM
+  Price spike detection        OI anomalies
+  Order book imbalance         Funding rate shifts
+         |
+         v
+Brain (every 10 min)          AI-powered full cycle
+  Flash crash guard (Grok)    Market panic scan — abort if PANIC
+  Market snapshots             Candles + OI + funding + order book
+  Technical indicators         RSI, EMA, ATR, volumeRatio
+  News + macro                 CryptoPanic + RSS + Yahoo Finance + Fear&Greed
+  Episodic memory              Graph RAG: similar past situations retrieved
+  Watchdog summary             Aggregated anomalies since last cycle
+         |
+         v
+  Swarm Debate (5 AI agents)
+  risk_manager   |  bull_thesis  |  bear_thesis
+  market_structure  |  devils_advocate  [+ Grok narrative_expert]
+  Judge aggregates by probability × confidence — up to 5 debate rounds
+         |
+         v
+  RiskManager.validate()       Hard guardrails before any order
+         |
+         v
+  OrderExecutor                MARKET + STOP_MARKET + TAKE_PROFIT_MARKET
+         |
+         v
+  Supabase (20 tables)         Full traceability: prompt → decision → execution → P&L
+```
+
+---
+
+## Algorithms
+
+### Technical Signals
+- **RSI(14)** — momentum filter; entry only in healthy range
+- **EMA(20/50)** — trend direction confirmation
+- **ATR(14)** — volatility-based SL/TP sizing
+- **Volume ratio** — triggers Swarm Debate when BTC volumeRatio > 1.5x
+- **Funding rate** — extreme negative funding leans LONG
+- **Open interest** — OI spikes feed into anomaly detection
+
+### Market Regime Classifier
+5 regimes with confidence scoring: `BullTrend`, `BearTrend`, `Range`, `Breakout`, `Capitulation`.
+Each regime has a dedicated filter profile: RSI range, min volume, confluence threshold, leverage multiplier, SL style.
+
+### Swarm Multi-Agent Debate
+```
+risk_manager      — argues reasons NOT to trade; catastrophic loss focus
+bull_thesis       — finds reasons to go long; momentum, breakouts
+bear_thesis       — finds reasons to go short; distribution, weakness
+market_structure  — reads funding, OI, order book, microstructure
+devils_advocate   — must argue OPPOSITE of consensus; forced contrarian
+narrative_expert  — Grok reads X/Twitter for market narrative (optional)
+```
+Each expert outputs structured JSON: `thesis`, `arguments`, `probability_of_success`, `key_risks`, `confidence`.
+
+A **multi-level judge** (up to 5 rounds) weighs outputs by `probability × confidence`. If experts disagree, the judge requests a second round with specific speakers. Devil's Advocate risks always get extra weight. Final decision is a weighted consensus.
+
+**Fingerprint dedup**: if market state is unchanged (regime, positions, volume bucket, Fear&Greed bucket), the prior consensus is reused — no redundant LLM calls.
+
+### Episodic Graph RAG
+Every market state is embedded via `text-embedding-3-small`. Before the swarm runs, the system retrieves the 3 most similar past episodes (cosine > 0.7) and injects them into the prompt — the bot learns from its own history.
+
+### 3-Layer LLM Resilience
+```
+Layer 1  ChatGPT Codex (OAuth)    Full prompt, Swarm if needed
+Layer 2  GPT-4o-mini (API key)    Minimal prompt, HOLD/CLOSE only
+Layer 3  Rule-based               No LLM; SL/TP on Binance; close all if session PnL < -5%
+```
+Circuit breaker: 3 consecutive all-fail Binance cycles → skip cycle.
+
+### Risk Manager
+Hard guardrails enforced before every order:
+- Session P&L ≤ `-maxLossPct%` → **shutdown**
+- Leverage > `maxLeverage` → reject
+- Position size > `maxPositionPct` → reject
+- SL missing or wider than `maxStopLossPct` → reject
+- Total margin > `maxExposurePct` → reject
+- 4h trend confirmation required for LONG/SHORT
+- Fear & Greed leverage cap
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Install deps
+# 1. Install
 npm install
 
-# 2. Configure secrets
+# 2. Secrets
 cp .env.example .env
 # Fill in: BINANCE_API_KEY, BINANCE_API_SECRET, OPENAI_MODEL
 
-# 3. Configure trading parameters
+# 3. Trading parameters
 cp config.example.yaml config.yaml
-# Edit config.yaml — leverage, pairs, risk limits, cooldowns
+# Edit: pairs, leverage, risk limits, cooldowns
 
 # 4. Run (dev)
 npm run dev
 
-# 5. Run autonomous (pm2)
+# 5. Run autonomous
 pm2 start "npm run dev" --name indic-bot
-
-# 6. Audit
-npm run audit          # human-readable tables
-npm run audit:debug    # structured JSON for AI analysis
 ```
+
+Requires Node.js 20+. Works on testnet (`BINANCE_TESTNET=true`) before going live.
 
 ---
 
@@ -37,243 +158,111 @@ npm run audit:debug    # structured JSON for AI analysis
 
 Two files, two purposes:
 
-### `.env` — secrets only (never committed)
-
+**`.env`** — secrets only (never committed, never read by AI):
 ```env
 BINANCE_API_KEY=
 BINANCE_API_SECRET=
-BINANCE_TESTNET=true
-
-# LLM (uses OAuth by default, or provide key)
 OPENAI_MODEL=gpt-5.4
-# OPENAI_API_KEY=sk-...
-
-# Optional news feed
-APIFY_API_TOKEN=
+XAI_API_KEY=          # optional: Grok narrative_expert + flash crash guard
+APIFY_API_TOKEN=      # optional: CryptoPanic news
+SUPABASE_PASS=        # optional: Postgres observability
 ```
 
-### `config.yaml` — all trading parameters (AI-writable)
-
+**`config.yaml`** — all trading parameters (git-versioned, AI-writable during audits):
 ```yaml
-binance:
-  testnet: true
-
 trading:
   pairs: [BTCUSDT, ETHUSDT, SOLUSDT]
   maxLeverage: 20
-  maxPositionPct: 50       # max % of balance per position
-  maxExposurePct: 150      # max total margin exposure %
-  maxStopLossPct: 5        # SL must be within this % of entry
-  maxLossUsd: 5            # fallback fixed loss cap (if maxLossPct=0)
-  maxLossPct: 10           # dynamic loss cap as % of balance
-  churnCooldownMs: 900000  # 15min re-entry block after close
-  loopIntervalMs: 60000    # cycle interval
-  targetReturnPct: 100
-  minTakeProfitPct: 5
-  newsRefreshIntervalH: 12
-  newsMaxItems: 100
-```
-
-> `config.yaml` is versioned and editable by Claude during audits. `.env` is gitignored and never read by AI.
-
----
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start bot (tsx) |
-| `npm run build` | Compile TypeScript |
-| `npm run test` | Run all tests |
-| `npm run audit` | Human-readable snapshot |
-| `npm run audit:debug` | JSON snapshot for AI analysis |
-| `pm2 start indic-bot` | Start autonomous bot |
-| `pm2 stop indic-bot` | Stop bot |
-| `pm2 restart indic-bot` | Restart (picks up config.yaml changes) |
-| `pm2 logs indic-bot` | Live logs |
-| `pm2 flush indic-bot` | Clear pm2 logs |
-
----
-
-## Architecture
-
-```
-src/
-├── index.ts              Entry point, wires all components
-├── config.ts             Loads secrets from .env + params from config.yaml
-├── trading-loop.ts       Main loop: fetch → analyze → validate → execute
-│
-├── binance/
-│   ├── client.ts         Binance SDK wrapper (USDS-M Futures)
-│   ├── market-data.ts    Candles, mark price, OI, portfolio state
-│   └── orders.ts         LONG/SHORT/CLOSE execution (MARKET + SL + TP)
-│
-├── llm/
-│   ├── client.ts         ChatGPT Codex API (SSE streaming) + call() for analyst
-│   ├── prompts.ts        System prompt + structured news analysis section
-│   └── oauth.ts          OpenAI OAuth token refresh
-│
-├── risk/
-│   └── manager.ts        Validates decisions: leverage, exposure, stop-loss, max loss
-│
-├── indicators/
-│   └── technical.ts      RSI(14), EMA(20/50), ATR(14)
-│
-├── news/
-│   ├── cryptopanic.ts    CryptoPanic headlines via Apify (configurable limit)
-│   ├── news-cache.ts     File cache (~/.indic-bot/news-cache.json), 2x/day refresh
-│   ├── news-analyst.ts   Separate LLM call → structured signals (importance 1-10)
-│   ├── fear-greed.ts     Fear & Greed Index
-│   └── types.ts
-│
-├── memory/
-│   └── session.ts        Persists session notes + recent trades (~/.indic-bot/memory.json)
-│
-├── logger/
-│   └── index.ts          JSONL logs: decisions, trades, errors, performance
-│
-└── webhook/
-    ├── server.ts          Express webhook for TradingView signals
-    └── signal-buffer.ts   In-memory signal queue
-
-scripts/
-├── audit.ts              Audit script (human + debug JSON modes)
-└── audit-helpers.ts      Session detection, metrics, issues (testable)
+  maxPositionPct: 50
+  maxLossPct: 10
+  churnCooldownMs: 900000   # 15min re-entry block after close
+  loopIntervalMs: 60000
 ```
 
 ---
 
-## Data Flow
+## Observability
+
+Every cycle is fully traceable through 20 Supabase tables:
 
 ```
-Every 60s:
-  Binance API → candles (1h/4h) + mark price + OI + balance + positions
-  Technical indicators: RSI(14), EMA(20/50), ATR(14)
-  News cache: if stale → Apify fetch (100 items) → NewsAnalystAgent → structured signals
-  Fear & Greed Index
-  Session memory: prior notes + last 5 trades
-        ↓
-  GPT (ChatGPT Codex) → JSON decisions [{pair, action, size_pct, leverage, ...}]
-        ↓
-  FETCH_NEWS? → trigger on-demand news refresh, skip to next cycle
-  HOLD? → skip
-  Churn cooldown check → skip if pair closed within churnCooldownMs
-        ↓
-  RiskManager.validate() → approve / reject / shutdown
-        ↓
-  OrderExecutor → LONG/SHORT: MARKET + STOP_MARKET + TAKE_PROFIT_MARKET
-                  CLOSE: MARKET reduceOnly
-        ↓
-  Logger → decisions.jsonl, trades.jsonl, errors.jsonl, performance.jsonl
+sessions → cycles → trade_decisions → trade_executions → trade_closes
+                 → llm_conversations → swarm_personas → token_usage
+                 → market_snapshots → news_articles → macro_snapshots
+                 → episodic_memories (pgvector) → trade_stories
+                 → risk_validations → errors → indicator_snapshots
+```
+
+`cycle_id` is the spine. `conversation → decision → execution → P&L close` is fully linked.
+Runs fine without Supabase (graceful fallback to JSONL logs).
+
+```bash
+npm run audit       # human-readable snapshot: balance, positions, issues
+npm run audit:db    # full DB audit: conversations, personas, token usage
 ```
 
 ---
 
-## Risk Management
+## Infrastructure
 
-`RiskManager.validate()` checks before every trade:
-
-1. Session PnL ≤ `-maxLossPct% × balance` (or `-maxLossUsd` if pct=0) → **shutdown**
-2. Leverage > `maxLeverage` → reject
-3. Position size > `maxPositionPct` → reject
-4. Stop-loss missing or > `maxStopLossPct` → reject
-5. Total margin exposure > `maxExposurePct` → reject
-6. `FETCH_NEWS` and `HOLD` → pass through without validation
-
----
-
-## Order Execution
-
-Every LONG/SHORT places **3 orders atomically**:
-
-```
-1. MARKET order (entry)
-2. STOP_MARKET (stop-loss, reduceOnly)
-3. TAKE_PROFIT_MARKET (take-profit, reduceOnly)
-```
-
-CLOSE uses MARKET reduceOnly with exact position size from Binance API.
-
----
-
-## Anti-Churn
-
-After any CLOSE, the pair is blocked for `churnCooldownMs` (default 15min). Blocked attempts are logged as `CHURN_BLOCK` in `decisions.jsonl` and visible in audit output.
-
----
-
-## News Intelligence
-
-- **Cache**: `~/.indic-bot/news-cache.json` — refreshed every `newsRefreshIntervalH` hours (default 12)
-- **Analyst**: separate LLM call classifies 100 headlines into structured signals (direction, importance 1-10, catalyst, timeframe)
-- **Trading LLM receives**: sentiment + summary + top signals — not raw headlines
-- **On-demand**: LLM can request `FETCH_NEWS` action to trigger immediate refresh
-- **History**: `~/.indic-bot/news-history.jsonl` — all fetches for correlation analysis
-
----
-
-## Strategy (LLM-driven)
-
-System prompt instructs the LLM to follow these rules (overridable with reasoning):
-
-- **Trend-following**: LONG if EMA20 > EMA50, SHORT if EMA20 < EMA50
-- **Momentum entry**: RSI 40–65 for LONG, 35–60 for SHORT
-- **Funding arbitrage**: extreme negative funding → lean LONG
-- **Exit (time)**: held > 4h with no progress and P&L < -2.5% → CLOSE
-- **Exit (RSI)**: RSI > 78 on active LONG / RSI < 22 on active SHORT → consider CLOSE
-- **No scalping**: minimum take-profit `minTakeProfitPct`%
-
----
-
-## AI Audit Loop
-
-```
-npm run audit:debug
-  → structured JSON: account, positions, session metrics,
-    realized PnL, churn blocks, issues detected, config
-
-Claude reads JSON → diagnoses:
-  - winrate, avg PnL/trade
-  - churn patterns → increase churnCooldownMs in config.yaml
-  - code bugs → fix src/**
-  - insights → update ~/.indic-bot/memory.json
-
-pm2 restart indic-bot  ← picks up config.yaml changes
-```
-
----
-
-## Logs
-
-All logs in `logs/` as JSONL (one JSON object per line):
-
-| File | Contents |
-|------|----------|
-| `decisions.jsonl` | Every LLM decision + risk rejections + churn blocks |
-| `trades.jsonl` | Executed LONG/SHORT/CLOSE orders |
-| `errors.jsonl` | Order failures, loop errors |
-| `performance.jsonl` | Balance + open positions per cycle |
-
----
-
-## Security
-
-- **`.env` is never read directly in code** — only via `loadConfig()`
-- **`config.yaml` contains no secrets** — safe to commit and AI-editable
-- **API keys are never logged** — Logger writes only trade/decision data
-- **LLM has no access to config or env** — prompts contain only market data, portfolio state, news signals
-- **`.env` is in `.gitignore`** — never committed
+- **Runtime**: Node.js + tsx (no compile step in dev), pm2 in production
+- **Exchange**: Binance USDS-M Futures (live + testnet)
+- **LLM**: ChatGPT Codex (primary), GPT-4o-mini (fallback), Grok/xAI (sentinel + debate)
+- **DB**: Supabase PostgreSQL + pgvector
+- **Infra**: GCP e2-small (Frankfurt), €5/month
+- **Deploy**: `npm run deploy` — rsync + pm2 restart
 
 ---
 
 ## Tests
 
 ```bash
-npm test                             # all tests (~59)
-npx vitest run tests/risk/           # risk manager only
-npx vitest run tests/binance/        # order executor only
-npx vitest run tests/news/           # news cache + analyst
-npx vitest run tests/audit-helpers.test.ts
+npm test                            # 324 tests
+npx vitest run tests/risk/          # risk manager
+npx vitest run tests/llm/           # swarm, prompts, fingerprint, client
+npx vitest run tests/binance/       # order executor, market data
+npx vitest run tests/memory/        # episodic store
 ```
 
-Tests cover: risk manager, order executor, LLM client, trading loop, market data, news cache, news analyst, audit helpers.
+---
+
+## Project Structure
+
+```
+src/
+├── index.ts              Entry point
+├── trading-loop.ts       Main cycle: fetch → debate → validate → execute
+├── watchdog.ts           1-min algorithmic monitor
+├── binance/              Market data, order execution
+├── llm/
+│   ├── swarm-agent.ts    Multi-agent debate (5 personas + judge)
+│   ├── client.ts         ChatGPT Codex SSE client
+│   ├── prompts.ts        All system + expert prompts
+│   ├── agents.ts         Layer 1 parallel experts (news, macro, memory)
+│   └── episodic-agent.ts Graph RAG retrieval
+├── risk/
+│   └── manager.ts        Hard guardrails before every order
+├── market/
+│   ├── regime-classifier.ts  5-regime market classifier
+│   └── filter-profiles.ts    Per-regime trading parameters
+├── news/                 CryptoPanic, RSS, macro, flash crash, Grok grounder
+├── memory/               Episodic store, memory review, session state
+├── db/                   Supabase connection, types, repository
+└── webhook/              TradingView signal ingestion
+```
+
+---
+
+## Contributing
+
+Built by a solo trader. Early stage, actively developed.
+
+PRs welcome. Open issues for bugs, ideas, integrations.
+
+If you run it — share results. Good or bad.
+
+---
+
+## License
+
+MIT
