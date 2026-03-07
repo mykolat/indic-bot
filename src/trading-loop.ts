@@ -573,6 +573,16 @@ export class TradingLoop {
         this.cycleCount,
       );
 
+      // Decision envelope — precomputed risk bounds for LLM
+      const isWeekendNow = [0, 6].includes(new Date().getUTCDay());
+      const envelope = riskManager.computeEnvelope(portfolio, {
+        fearGreed: fearGreed ?? undefined,
+        fearGreedLeverageCap: this.deps.tradingConfig.fearGreedLeverageCap,
+        isWeekend: isWeekendNow,
+        weekendLeverageMultiplier: this.deps.tradingConfig.weekendLeverageMultiplier,
+        regimeLeverageMultiplier: activeProfile?.leverageMultiplier,
+      });
+
       // Today's realized PnL
       let todayRealizedPnl = 0;
       try {
@@ -609,6 +619,7 @@ export class TradingLoop {
         recentDecisions,
         pairDiversityContext: diversityContext,
         todayRealizedPnl,
+        envelope,
       };
 
       let decisions: TradeDecision[] = [];

@@ -49,6 +49,10 @@ describe('TradingLoop', () => {
     };
     mockRisk = {
       validate: vi.fn().mockReturnValue({ approved: true }),
+      computeEnvelope: vi.fn().mockReturnValue({
+        maxLeverage: 10, recommendedLeverage: [3, 6], maxSizePct: 33, recommendedSizePct: [7, 17],
+        minConfidence: 55, blockedPairs: [], constraints: [],
+      }),
     };
     // 2) Other Mocks
     mockMemoryKeeper = {

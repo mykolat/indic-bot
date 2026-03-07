@@ -57,6 +57,24 @@ export interface ValidationContext {
   fearGreedLeverageCap?: number;
 }
 
+export interface DecisionEnvelope {
+  maxLeverage: number;
+  recommendedLeverage: [number, number];
+  maxSizePct: number;
+  recommendedSizePct: [number, number];
+  minConfidence: number;
+  blockedPairs: string[];
+  constraints: string[];
+}
+
+export interface EnvelopeContext {
+  fearGreed?: { value: number };
+  fearGreedLeverageCap?: number;
+  isWeekend?: boolean;
+  weekendLeverageMultiplier?: number;
+  regimeLeverageMultiplier?: number;
+}
+
 export interface AdjustContext {
   currentSlPrice: number;
   currentTpPrice: number;
@@ -226,5 +244,61 @@ export class RiskManager {
     }
 
     return { approved: true };
+  }
+
+  computeEnvelope(portfolio: PortfolioState, ctx: EnvelopeContext): DecisionEnvelope {
+    let maxLev = this.config.maxLeverage;
+    let maxSize = this.config.maxPositionPct;
+    const constraints: string[] = [];
+
+    // F&G cap
+    if (ctx.fearGreed && (ctx.fearGreed.value < 25 || ctx.fearGreed.value > 85)) {
+      const fgCap = ctx.fearGreedLeverageCap ?? 10;
+      maxLev = Math.min(maxLev, fgCap);
+      constraints.push('extreme_fear_greed');
+    }
+
+    // Session loss scaling
+    if (portfolio.sessionPnl < 0 && portfolio.balanceUsd > 0) {
+      const lossPct = Math.abs(portfolio.sessionPnl) / portfolio.balanceUsd * 100;
+      if (lossPct >= 10) {
+        maxLev = Math.min(5, maxLev);
+        maxSize = Math.min(25, maxSize);
+        constraints.push('session_loss_severe');
+      } else if (lossPct >= 5) {
+        maxLev = Math.floor(maxLev / 2);
+        maxSize = Math.floor(maxSize / 2);
+        constraints.push('session_loss_scaling');
+      }
+    }
+
+    // Weekend
+    if (ctx.isWeekend && ctx.weekendLeverageMultiplier) {
+      maxLev = Math.floor(maxLev * ctx.weekendLeverageMultiplier);
+      constraints.push('weekend_mode');
+    }
+
+    // Regime multiplier
+    if (ctx.regimeLeverageMultiplier != null && ctx.regimeLeverageMultiplier < 1) {
+      maxLev = Math.max(1, Math.round(maxLev * ctx.regimeLeverageMultiplier));
+      constraints.push('regime_reduction');
+    }
+
+    const recLevMin = Math.max(1, Math.round(maxLev * 0.3));
+    const recLevMax = Math.round(maxLev * 0.6);
+    const recSizeMin = Math.max(5, Math.round(maxSize * 0.2));
+    const recSizeMax = Math.round(maxSize * 0.5);
+
+    const blockedPairs = portfolio.positions.map(p => `${p.pair}:${p.side}`);
+
+    return {
+      maxLeverage: maxLev,
+      recommendedLeverage: [recLevMin, recLevMax],
+      maxSizePct: maxSize,
+      recommendedSizePct: [recSizeMin, recSizeMax],
+      minConfidence: this.config.minConfidence ?? 55,
+      blockedPairs,
+      constraints,
+    };
   }
 }

@@ -1,7 +1,7 @@
 import type { MarketSnapshot } from '../binance/market-data.js';
 import type { Indicators } from '../indicators/technical.js';
 import { computeRSI } from '../indicators/technical.js';
-import type { PortfolioState } from '../risk/manager.js';
+import type { PortfolioState, DecisionEnvelope } from '../risk/manager.js';
 import type { CryptoNews, FearGreedData } from '../news/types.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
 import type { TradeRecord } from '../memory/session.js';
@@ -150,6 +150,7 @@ export interface EnrichedPromptData {
     fill_price: number;
   }>;
   watchdogSummary?: string;
+  envelope?: DecisionEnvelope;
   pairDiversityContext?: string;
   todayRealizedPnl?: number;
   recentDecisions?: Array<{
@@ -279,6 +280,17 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
 
   if (data.watchdogSummary) {
     prompt += `## Watchdog Summary (since last Brain cycle)\n${data.watchdogSummary}\n\n`;
+  }
+
+  if (data.envelope) {
+    const e = data.envelope;
+    prompt += `## Decision Envelope (your operating bounds this cycle)\n`;
+    prompt += `Max leverage: ${e.maxLeverage}x | Recommended: ${e.recommendedLeverage[0]}x–${e.recommendedLeverage[1]}x\n`;
+    prompt += `Max position size: ${e.maxSizePct}% | Recommended: ${e.recommendedSizePct[0]}%–${e.recommendedSizePct[1]}%\n`;
+    prompt += `Min confidence for new position: ${e.minConfidence}\n`;
+    if (e.blockedPairs.length) prompt += `Blocked (existing position): ${e.blockedPairs.join(', ')}\n`;
+    if (e.constraints.length) prompt += `Active constraints: ${e.constraints.join(', ')}\n`;
+    prompt += `IMPORTANT: Propose leverage and size WITHIN these bounds. Values outside will be rejected.\n\n`;
   }
 
   if (data.filterWarning) {

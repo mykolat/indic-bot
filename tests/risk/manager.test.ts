@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { RiskManager, TradeDecision, PortfolioState, ValidationContext, AdjustContext, BETA_TO_BTC } from '../../src/risk/manager.js';
+import { RiskManager, TradeDecision, PortfolioState, ValidationContext, AdjustContext, BETA_TO_BTC, DecisionEnvelope } from '../../src/risk/manager.js';
 
 describe('RiskManager', () => {
   const config = {
@@ -281,6 +281,71 @@ describe('RiskManager', () => {
       const result = rm.validate(decision, portfolio);
       expect(result.approved).toBe(false);
       expect(result.reason).toContain('Already LONG');
+    });
+  });
+
+  describe('computeEnvelope', () => {
+    const envPortfolio: PortfolioState = { balanceUsd: 1000, positions: [], sessionPnl: 0, drawdownPct: 0 };
+
+    it('returns base envelope with no constraints', () => {
+      const envelope = rm.computeEnvelope(envPortfolio, {});
+      expect(envelope.maxLeverage).toBe(10);
+      expect(envelope.maxSizePct).toBe(33);
+      expect(envelope.recommendedLeverage[0]).toBeGreaterThan(0);
+      expect(envelope.recommendedLeverage[1]).toBeLessThanOrEqual(10);
+      expect(envelope.constraints).toEqual([]);
+    });
+
+    it('caps leverage on extreme F&G', () => {
+      const envelope = rm.computeEnvelope(envPortfolio, { fearGreed: { value: 20 }, fearGreedLeverageCap: 5 });
+      expect(envelope.maxLeverage).toBe(5);
+      expect(envelope.constraints).toContain('extreme_fear_greed');
+    });
+
+    it('scales down on session loss >= 5%', () => {
+      const lossPortfolio = { ...envPortfolio, balanceUsd: 100, sessionPnl: -6, drawdownPct: 0 };
+      const envelope = rm.computeEnvelope(lossPortfolio, {});
+      expect(envelope.maxLeverage).toBe(5);
+      expect(envelope.maxSizePct).toBe(16);
+      expect(envelope.constraints).toContain('session_loss_scaling');
+    });
+
+    it('applies severe scaling on session loss >= 10%', () => {
+      const lossPortfolio = { ...envPortfolio, balanceUsd: 100, sessionPnl: -11, drawdownPct: 0 };
+      const envelope = rm.computeEnvelope(lossPortfolio, {});
+      expect(envelope.maxLeverage).toBe(5);
+      expect(envelope.maxSizePct).toBe(25);
+      expect(envelope.constraints).toContain('session_loss_severe');
+    });
+
+    it('applies weekend multiplier', () => {
+      const envelope = rm.computeEnvelope(envPortfolio, { isWeekend: true, weekendLeverageMultiplier: 0.5 });
+      expect(envelope.maxLeverage).toBe(5);
+      expect(envelope.constraints).toContain('weekend_mode');
+    });
+
+    it('applies regime reduction', () => {
+      const envelope = rm.computeEnvelope(envPortfolio, { regimeLeverageMultiplier: 0.25 });
+      expect(envelope.maxLeverage).toBe(3);
+      expect(envelope.constraints).toContain('regime_reduction');
+    });
+
+    it('lists blocked pairs from existing positions', () => {
+      const portfolio = {
+        ...envPortfolio,
+        positions: [{ pair: 'BTCUSDT', sizeUsd: 500, leverage: 5, side: 'LONG' as const, entryPrice: 50000, unrealizedPnlPct: 1, heldHours: 2 }],
+      };
+      const envelope = rm.computeEnvelope(portfolio, {});
+      expect(envelope.blockedPairs).toEqual(['BTCUSDT:LONG']);
+    });
+
+    it('stacks multiple constraints', () => {
+      const lossPortfolio = { ...envPortfolio, balanceUsd: 100, sessionPnl: -6, drawdownPct: 0 };
+      const envelope = rm.computeEnvelope(lossPortfolio, { isWeekend: true, weekendLeverageMultiplier: 0.5, fearGreed: { value: 90 }, fearGreedLeverageCap: 8 });
+      expect(envelope.constraints).toContain('extreme_fear_greed');
+      expect(envelope.constraints).toContain('session_loss_scaling');
+      expect(envelope.constraints).toContain('weekend_mode');
+      expect(envelope.maxLeverage).toBeLessThanOrEqual(4);
     });
   });
 
