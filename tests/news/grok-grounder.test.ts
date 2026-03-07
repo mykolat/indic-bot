@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GrokGrounder } from '../../src/news/grok-grounder.js';
+import type { GroundingResult } from '../../src/news/grok-grounder.js';
 
 vi.mock('../../src/utils/fetch-timeout.js', () => ({
   fetchWithTimeout: vi.fn(),
@@ -112,5 +113,61 @@ describe('GrokGrounder', () => {
     const g = new GrokGrounder('key', mockHealth as any);
     await g.verify('test claim');
     expect(mockHealth.recordFailure).toHaveBeenCalledWith('grok-grounder', expect.stringContaining('500'));
+  });
+
+  it('extracts enriched fields (claimType, tradability, sourceQuality)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              verified: true,
+              confidence: 0.9,
+              summary: 'SEC filing confirmed',
+              sources: ['@SECGov'],
+              contradictions: [],
+              claim_type: 'regulatory',
+              tradability: 'actionable',
+              source_quality: 'official',
+            }),
+          },
+        }],
+        usage: { total_tokens: 400 },
+      }),
+    } as any);
+
+    const result = await grounder.verify('SEC approves new crypto rule');
+    expect(result.claimType).toBe('regulatory');
+    expect(result.tradability).toBe('actionable');
+    expect(result.sourceQuality).toBe('official');
+  });
+});
+
+describe('GroundingResult type', () => {
+  it('accepts enriched fields', () => {
+    const result: GroundingResult = {
+      claim: 'BTC to 200k',
+      verified: null,
+      confidence: 0.3,
+      summary: 'Unverified prediction',
+      sources: ['@crypto_guru'],
+      contradictions: [],
+      tokensUsed: 500,
+      claimType: 'prediction',
+      tradability: 'none',
+      sourceQuality: 'influencer',
+    };
+    expect(result.claimType).toBe('prediction');
+    expect(result.tradability).toBe('none');
+    expect(result.sourceQuality).toBe('influencer');
+  });
+
+  it('works without enriched fields (backward compat)', () => {
+    const result: GroundingResult = {
+      claim: 'test',
+      tokensUsed: 0,
+    };
+    expect(result.claimType).toBeUndefined();
   });
 });
