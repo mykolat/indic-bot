@@ -1014,7 +1014,7 @@ export class TradingLoop {
             };
           }
         }
-        const validation = riskManager.validate(decision, portfolio, validationCtx, adjustCtx);
+        const validation = riskManager.validate(decision, portfolio, validationCtx, adjustCtx, { dailyRealizedPnl: todayRealizedPnl });
 
         // Save trade decision + risk validation to DB
         let decisionId: number | undefined;

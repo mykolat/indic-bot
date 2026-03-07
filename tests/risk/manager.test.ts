@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { RiskManager, TradeDecision, PortfolioState, ValidationContext, AdjustContext, BETA_TO_BTC, DecisionEnvelope } from '../../src/risk/manager.js';
+import { RiskManager, TradeDecision, PortfolioState, ValidationContext, AdjustContext, BETA_TO_BTC, DecisionEnvelope, RiskExtraContext } from '../../src/risk/manager.js';
 
 describe('RiskManager', () => {
   const config = {
@@ -346,6 +346,57 @@ describe('RiskManager', () => {
       expect(envelope.constraints).toContain('session_loss_scaling');
       expect(envelope.constraints).toContain('weekend_mode');
       expect(envelope.maxLeverage).toBeLessThanOrEqual(4);
+    });
+  });
+
+  describe('Daily loss limit', () => {
+    const basePortfolio: PortfolioState = { balanceUsd: 1000, positions: [], sessionPnl: 0, drawdownPct: 0 };
+    const baseDecision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'LONG', size_pct: 10, leverage: 5,
+      stop_loss_pct: 2, take_profit_pct: 10, reasoning: 'test', confidence: 70,
+    };
+
+    it('rejects trade when daily loss exceeds limit (shutdown)', () => {
+      const rm = new RiskManager({ ...config, maxDailyLossPct: 5 });
+      const extra: RiskExtraContext = { dailyRealizedPnl: -55 }; // -55 on $1000 = 5.5% > 5%
+      const result = rm.validate(baseDecision, basePortfolio, undefined, undefined, extra);
+      expect(result.approved).toBe(false);
+      expect(result.reason).toContain('Daily loss');
+      expect(result.shutdown).toBe(true);
+    });
+
+    it('allows trade when daily loss is within limit', () => {
+      const rm = new RiskManager({ ...config, maxDailyLossPct: 5 });
+      const extra: RiskExtraContext = { dailyRealizedPnl: -40 }; // -40 on $1000 = 4% < 5%
+      const result = rm.validate(baseDecision, basePortfolio, undefined, undefined, extra);
+      expect(result.approved).toBe(true);
+    });
+  });
+
+  describe('Abnormal spread guard', () => {
+    const basePortfolio: PortfolioState = { balanceUsd: 1000, positions: [], sessionPnl: 0, drawdownPct: 0 };
+    const baseDecision: TradeDecision = {
+      pair: 'BTCUSDT', action: 'LONG', size_pct: 10, leverage: 5,
+      stop_loss_pct: 2, take_profit_pct: 10, reasoning: 'test', confidence: 70,
+    };
+
+    it('rejects when spread > 2.5x median with enough samples', () => {
+      const extra: RiskExtraContext = { spreadPct: 0.003, medianSpreadPct: 0.001, spreadSampleSize: 25 };
+      const result = rm.validate(baseDecision, basePortfolio, undefined, undefined, extra);
+      expect(result.approved).toBe(false);
+      expect(result.reason).toContain('Abnormal spread');
+    });
+
+    it('allows when spread is normal', () => {
+      const extra: RiskExtraContext = { spreadPct: 0.001, medianSpreadPct: 0.001, spreadSampleSize: 25 };
+      const result = rm.validate(baseDecision, basePortfolio, undefined, undefined, extra);
+      expect(result.approved).toBe(true);
+    });
+
+    it('skips check when sample size < 20', () => {
+      const extra: RiskExtraContext = { spreadPct: 0.01, medianSpreadPct: 0.001, spreadSampleSize: 10 };
+      const result = rm.validate(baseDecision, basePortfolio, undefined, undefined, extra);
+      expect(result.approved).toBe(true);
     });
   });
 
