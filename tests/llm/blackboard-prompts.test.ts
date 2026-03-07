@@ -3,6 +3,7 @@ import {
   BB_PERSONA_CODES,
   buildBlackboardExpertPrompt,
   buildBlackboardJudgePrompt,
+  buildDAPrompt,
 } from '../../src/llm/blackboard-prompts.js';
 import type { BlackboardState } from '../../src/llm/swarm-blackboard.js';
 
@@ -129,5 +130,44 @@ describe('buildBlackboardJudgePrompt', () => {
     const prompt = buildBlackboardJudgePrompt(1, emptyBoard);
 
     expect(prompt).toContain('Round 1/3');
+  });
+});
+
+describe('buildDAPrompt', () => {
+  it('includes other votes and aggressive tone', () => {
+    const boardState: BlackboardState = {
+      market: { pairs: ['ETHUSDT'], regime: 'Range', fearGreed: 50, volumeRatio: 1.2 },
+      signals: { bullish: ['ema_bounce'], bearish: [], neutral: [] },
+      votes: {
+        RM: { d: 'HOLD', c: 70, prob: 40, reason: 'too risky' },
+        MS: { d: 'LONG', c: 65, prob: 55, reason: 'breakout forming' },
+      },
+      risks: ['liq_cascade'],
+      conflicts: [],
+    };
+
+    const prompt = buildDAPrompt(boardState);
+    expect(prompt).toContain('PROFIT ADVOCATE');
+    expect(prompt).toContain('NEVER vote HOLD');
+    expect(prompt).toContain('RM: HOLD');
+    expect(prompt).toContain('MS: LONG');
+    expect(prompt).toContain('ETHUSDT');
+  });
+
+  it('includes CLOSE counter-argument instruction when CLOSE vote exists', () => {
+    const boardState: BlackboardState = {
+      market: { pairs: ['BTCUSDT'], regime: 'BullTrend', fearGreed: 60, volumeRatio: 1.5 },
+      signals: { bullish: [], bearish: ['breakdown'], neutral: [] },
+      votes: {
+        RM: { d: 'CLOSE', c: 80, prob: 30, reason: 'cut losses' },
+        MS: { d: 'HOLD', c: 50, prob: 40, reason: 'unclear' },
+      },
+      risks: ['drawdown'],
+      conflicts: [],
+    };
+
+    const prompt = buildDAPrompt(boardState);
+    expect(prompt).toContain('CLOSE');
+    expect(prompt).toContain('AGAINST closing');
   });
 });
