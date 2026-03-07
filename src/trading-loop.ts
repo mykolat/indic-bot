@@ -644,7 +644,7 @@ export class TradingLoop {
       try {
         if (filterWarning) {
           console.log(`[Loop] Pre-flight warning: ${filterWarning} (Passing to LLM as Soft Filter)`);
-          logger.logError('LLM_PREFLIGHT_WARNING', filterWarning);
+
         }
 
         let useSwarm = false;
