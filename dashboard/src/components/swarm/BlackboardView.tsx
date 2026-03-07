@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion';
-import { VerdictBar } from './VerdictBar';
-import { VoteRow } from './VoteRow';
-import { SignalBoard } from './SignalBoard';
+import { VerdictBar } from './VerdictBar.js';
+import { SemiGauge } from './SemiGauge.js';
+import { PersonaDots } from './PersonaDots.js';
+import { RiskSummary } from './RiskSummary.js';
 
 interface BlackboardPersona {
   persona: string;
@@ -28,31 +29,46 @@ export function BlackboardView({ round, personas, judgeRawResponse, isFinalRound
     .filter(p => p.signals)
     .map(p => ({ persona: p.persona, signals: p.signals! }));
 
+  const allBullish = personaSignals.flatMap(p => p.signals.bullish ?? []);
+  const allBearish = personaSignals.flatMap(p => p.signals.bearish ?? []);
+  const uniqueBull = [...new Set(allBullish.map(s => s.toLowerCase().replace(/_/g, ' ')))];
+  const uniqueBear = [...new Set(allBearish.map(s => s.toLowerCase().replace(/_/g, ' ')))];
+
   return (
     <div className="space-y-3">
       {/* Round divider */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3 py-1">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-full bg-surface-3 border border-border flex items-center justify-center">
+          <div className="w-5 h-5 rounded-full border border-border flex items-center justify-center" style={{ backgroundColor: 'var(--surface-3)' }}>
             <span className="text-[9px] font-mono font-bold text-accent">{round}</span>
           </div>
-          <span className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
             {ROUND_LABELS[round] ?? `Round ${round}`}
           </span>
         </div>
-        <div className="flex-1 h-px bg-border" />
+        <div className="flex-1 h-px" style={{ backgroundColor: 'var(--border)' }} />
       </motion.div>
 
-      {/* 1. Verdict FIRST */}
+      {/* 2. Verdict */}
       {judgeRawResponse && (
         <VerdictBar rawResponse={judgeRawResponse} isIntermediate={!isFinalRound} />
       )}
 
-      {/* 2. Compact votes */}
-      <VoteRow votes={personas} />
+      {/* 3. Bull/Bear Gauge */}
+      {(uniqueBull.length > 0 || uniqueBear.length > 0) && (
+        <SemiGauge
+          bullCount={uniqueBull.length}
+          bearCount={uniqueBear.length}
+          bullSignals={uniqueBull}
+          bearSignals={uniqueBear}
+        />
+      )}
 
-      {/* 3. Signal board with persona attribution */}
-      <SignalBoard personaSignals={personaSignals} risks={risks} />
+      {/* 4. Persona dots */}
+      <PersonaDots votes={personas} />
+
+      {/* 5. Risks */}
+      <RiskSummary risks={risks} />
     </div>
   );
 }
