@@ -21,6 +21,9 @@ interface DecisionRow {
   close_pnl_pct?: number;
   close_reason?: string;
   held_hours?: number;
+  peak_pnl_pct?: number;
+  worst_pnl_pct?: number;
+  adjust_count?: number;
   has_swarm?: boolean;
   fill_price?: number;
   fail_reason?: string;
@@ -128,6 +131,11 @@ export function Trades() {
         ? await supabase.from('trade_closes').select('execution_id, pnl_usd, pnl_pct, exit_reason, held_hours').in('execution_id', execIds)
         : { data: [] };
 
+      const { data: tradeStats } = execIds.length
+        ? await supabase.from('trade_stats').select('execution_id, peak_pnl_pct, worst_pnl_pct, adjust_count').in('execution_id', execIds)
+        : { data: [] };
+      const statsMap = new Map((tradeStats ?? []).map((s: any) => [s.execution_id, s]));
+
       const riskMap = new Map((risks.data ?? []).map((r) => [r.decision_id, r]));
       const execMap = new Map((execs.data ?? []).map((e: any) => [e.decision_id, e]));
       const closeMap = new Map((closes ?? []).map((c: any) => [c.execution_id, c]));
@@ -154,6 +162,7 @@ export function Trades() {
         const risk = riskMap.get(d.id);
         const exec = execMap.get(d.id);
         const close = exec ? closeMap.get(exec.id) : undefined;
+        const stat = exec ? statsMap.get(exec.id) : undefined;
         const isOpen = exec && !close;
         let unrealized_pnl: number | undefined;
         let unrealized_pnl_pct: number | undefined;
@@ -183,6 +192,9 @@ export function Trades() {
           unrealized_pnl,
           unrealized_pnl_pct,
           side: exec?.side,
+          peak_pnl_pct: stat?.peak_pnl_pct != null ? Number(stat.peak_pnl_pct) : undefined,
+          worst_pnl_pct: stat?.worst_pnl_pct != null ? Number(stat.worst_pnl_pct) : undefined,
+          adjust_count: stat?.adjust_count != null ? Number(stat.adjust_count) : undefined,
         };
       });
 
@@ -431,6 +443,23 @@ export function Trades() {
                                     <span className="text-zinc-600">hold</span> {d.held_hours.toFixed(1)}h
                                   </span>
                                 )}
+                                {d.peak_pnl_pct != null && (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    <span className="text-zinc-600">peak</span>{' '}
+                                    <span className="text-green-400/70">+{d.peak_pnl_pct.toFixed(1)}%</span>
+                                  </span>
+                                )}
+                                {d.worst_pnl_pct != null && (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    <span className="text-zinc-600">dip</span>{' '}
+                                    <span className="text-red-400/70">{d.worst_pnl_pct.toFixed(1)}%</span>
+                                  </span>
+                                )}
+                                {(d.adjust_count ?? 0) > 0 && (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    <span className="text-zinc-600">adj</span> {d.adjust_count}
+                                  </span>
+                                )}
                                 {d.has_swarm && (
                                   <span className="text-[10px] text-accent/70 font-mono">Swarm</span>
                                 )}
@@ -471,6 +500,30 @@ export function Trades() {
                   </button>
                 )}
               </div>
+              {selectedDecision.executed && (
+                <div className="px-4 py-3 border-b border-border grid grid-cols-4 gap-3">
+                  <div>
+                    <div className="text-[10px] text-zinc-600 uppercase tracking-wider">Entry</div>
+                    <div className="text-xs font-mono text-zinc-300">${selectedDecision.fill_price}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-zinc-600 uppercase tracking-wider">Peak</div>
+                    <div className="text-xs font-mono text-green-400">
+                      {selectedDecision.peak_pnl_pct != null ? `+${selectedDecision.peak_pnl_pct.toFixed(1)}%` : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-zinc-600 uppercase tracking-wider">Worst</div>
+                    <div className="text-xs font-mono text-red-400">
+                      {selectedDecision.worst_pnl_pct != null ? `${selectedDecision.worst_pnl_pct.toFixed(1)}%` : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-zinc-600 uppercase tracking-wider">Adjusts</div>
+                    <div className="text-xs font-mono text-zinc-300">{selectedDecision.adjust_count ?? 0}</div>
+                  </div>
+                </div>
+              )}
               <div className="p-4">
                 <TradeTimeline events={timeline} />
               </div>
