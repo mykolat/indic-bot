@@ -1,105 +1,107 @@
-# Execution Status — Tiered Intelligence v2
+# Execution Status — Indic Bot
 
-> **For Claude:** Read this file first in any new session. It contains full context for continuing work.
-> Use `superpowers:executing-plans` skill to implement remaining issues.
+> **For Claude:** Read this file first in any new session for full context.
 
 ## Current State
 
-**Branch:** `feat/max-info-fetch`
-**Tests:** 269/269 pass (40 files)
-**Last deploy:** 2026-03-06 — GCP VM online with #10 + #12 fixes
+**Branch:** `main` (feat/max-info-fetch merged)
+**Tests:** 324/324 pass (45 files)
+**Last deploy:** 2026-03-07 — GCP VM live, bot trading real capital
+**Open issues:** #21 (EPIC v3 — future work, not blocking)
 
-## Completed
+---
 
-| Issue | Title | Commit |
+## All Completed Work
+
+### Phase 1 — Unlock Trades
+| Issue | Title | Status |
 |-------|-------|--------|
-| #10 | Price rounding per-pair tickSize | `a16da1c`, `af6d416`, `789b471` |
-| #12 | Circuit breaker half-open recovery | `2f2cd2d` |
+| #10 | Price rounding per-pair tickSize | ✓ `a16dc1c`, `af6d416`, `789b471` |
+| #12 | Circuit breaker half-open recovery | ✓ `2f2cd2d` |
+| #11 | Grok wiring (flash crash, swarm narrative) | ✓ |
+| #7  | Episodic memory write in production | ✓ |
+| #13 | Watchdog wake Brain on anomaly | ✓ |
+| #14 | Rich watchdog summary | ✓ |
+| #15 | Per-pair confluence (all 8 pairs) | ✓ |
 
-## Remaining — 16 Issues
+### Phase 2-3 — Intelligence Reform
+| Issue | Title | Status |
+|-------|-------|--------|
+| #16 | Swarm reform (86% HOLD, 28% fail) | ✓ multi-level judge + DA contrarian + dedup |
+| #19 | LLM pair fixation | ✓ pair diversity tracker |
+| #18 | FlashCrash 2-of-3 confirmation | ✓ Grok + price + volume |
 
-All plans are in `docs/plans/2026-03-06-issue-NN-*.md` with full TDD steps.
+### Phase 4 — Polish
+| Issue | Title | Status |
+|-------|-------|--------|
+| #8  | FilterProfile SL/TP styles | ✓ regime-aware SL/TP |
+| #9  | regime_override applied from DB | ✓ |
+| #17 | MemoryReview receives decision log | ✓ |
 
-### Phase 1: Unlock Trades (highest priority)
+### Dashboard
+| Issue | Title | Status |
+|-------|-------|--------|
+| #2  | Margin balance | ✓ |
+| #3  | BNB balance | ✓ |
+| #4  | ROI % + margin per position | ✓ |
+| #5  | Session PnL clarification | ✓ |
+| #6  | Total balance (BNB + earn) | ✓ |
 
-| Issue | Plan file | Tasks | Key files |
-|-------|-----------|-------|-----------|
-| #11 | `issue-11-grok-wiring.md` | 5 | grok-client.ts, flash-crash.ts, swarm-agent.ts, index.ts |
-| #7 | `issue-07-episodic-write.md` | 3 | episodic-store.ts, trading-loop.ts |
-| #13 | `issue-13-watchdog-wake.md` | 4 | watchdog.ts, index.ts |
-| #14 | `issue-14-rich-watchdog-summary.md` | 6 | watchdog-summary.ts |
-| #15 | `issue-15-per-pair-confluence.md` | 8 | trading-loop.ts, prompts.ts, regime-classifier.ts |
+---
 
-### Phase 2-3: Intelligence Reform
+## Shipped Without Issues
 
-| Issue | Plan file | Tasks | Key files |
-|-------|-----------|-------|-----------|
-| #16 | `issue-16-swarm-reform.md` | 10 | swarm-agent.ts |
-| #19 | `issue-19-pair-fixation.md` | 11 | prompts.ts, pair-diversity.ts (new) |
-| #18 | `issue-18-flashcrash-confirm.md` | 6 | flash-crash.ts, market-data.ts |
+Significant work done outside the issue tracker:
 
-### Phase 4: Polish
+| Feature | Commits | Description |
+|---------|---------|-------------|
+| Blackboard SwarmAgent | `ec88177`, `547f0e4` | Shared state, conflict detection, parallel reads, conflict-only reruns |
+| Swarm Chat UI | `bb158b8` | Messenger-style debate viewer, superuser injection, LevelDivider |
+| Dashboard full redesign | `de8e305`, `8c0ff1a`, `87a1160` | 7 pages, Recharts, Framer Motion, ConflictCard, BlackboardStateCard |
+| DA contrarian prompt | `3e0f28b` | Devil's Advocate forced OPPOSITE — must never agree with majority |
+| Fingerprint dedup + TTL | `a445a02`, `c7471d0` | Skip swarm if market state unchanged; 30-min TTL cache |
+| Watchdog dual-loop | `e368557` | Watchdog (1min algo) + Brain (10min AI) separation |
+| DB observability | `d806481` | 20 Supabase tables, pg dual-write across all modules |
+| audit:db script | `907facf` | Full DB audit: conversations, personas, token usage |
+| README pitch deck | `e86a8cf` | Live results, algorithms breakdown, OSS community framing |
 
-| Issue | Plan file | Tasks | Key files |
-|-------|-----------|-------|-----------|
-| #8 | `issue-08-sl-tp-styles.md` | ? | sl-tp-styles.ts (new), orders.ts |
-| #9 | `issue-09-regime-override.md` | ? | trading-loop.ts |
-| #17 | `issue-17-memory-decisions.md` | ? | trading-loop.ts, memory-review.ts |
+---
 
-### Dashboard (independent, any time)
+## Live Results (as of 2026-03-07)
 
-| Issue | Plan file | Tasks | Key files |
-|-------|-----------|-------|-----------|
-| #2 | `issue-02-margin-balance.md` | 4 | market-data.ts, webhook/server.ts |
-| #3 | `issue-03-bnb-balance.md` | 3 | market-data.ts, webhook/server.ts |
-| #4 | `issue-04-roi-margin.md` | 4 | market-data.ts, webhook/server.ts |
-| #5 | `issue-05-session-pnl.md` | 4 | market-data.ts, webhook/server.ts |
-| #6 | `issue-06-total-balance.md` | 5 | market-data.ts, webhook/server.ts, config.ts |
+| Metric | Value |
+|--------|-------|
+| Win rate | 100% (2/2 trades) |
+| Best trade | +20% |
+| Avg return | +10.3% |
+| Avg hold | ~3 hours |
 
-## Parallel Execution Workflow
+---
 
-**Batching by file overlap** — issues in same batch touch different files:
+## Next — EPIC #21
 
-| Batch | Issues | No conflicts because |
-|-------|--------|---------------------|
-| A | #11, #7 | grok-client vs episodic-store |
-| B | #13, #14 | watchdog.ts vs watchdog-summary.ts |
-| C | #15, #17, #9 | regime-classifier vs memory-review vs trading-loop (different sections) |
-| D | #16, #18 | swarm-agent.ts vs flash-crash.ts |
-| E | #19 | standalone (pair-diversity.ts new file + prompts.ts) |
-| F | #8 | standalone (sl-tp-styles.ts new + orders.ts) — AFTER #10 merged |
-| G | #2, #3, #4, #5, #6 | all touch webhook/server.ts — run sequentially or carefully |
+**3-tier sessions + dynamic expert pool** (not blocking, future work):
+- `StrategicSession` — 3x/day, DailyDirective (allowed pairs, bias, exposure caps)
+- `TacticalSession` — hourly, HourlyPlan (entry zones, watchlist)
+- `consult_expert()` tool-call pattern for judge
+- Token budget caps per tier
 
-**Execution per issue:**
-1. Read plan file: `docs/plans/2026-03-06-issue-NN-*.md`
-2. Read source files referenced in plan
-3. Follow TDD steps exactly: failing test -> verify fail -> implement -> verify pass -> commit
-4. Run `npx vitest run` after each issue
-5. Commit with `Closes #NN` in message
+Design doc: `docs/plans/2026-03-06-tiered-intelligence-design.md`
 
-**Key rules:**
+---
+
+## Key Technical Notes
+
 - TypeScript ESM — all imports use `.js` extension
-- Use vitest (`import { describe, it, expect, vi } from 'vitest'`)
-- Binance Futures API uses `submitNewAlgoOrder` with `triggerPrice` (NOT `submitNewOrder` with `stopPrice`)
-- `OrderExecutor` constructor: `(client, stepDecimals?, priceDecimals?)` — 3rd param added by #10
-- `CircuitBreaker` constructor: `(threshold?, cooldownMs?)` — 2nd param added by #12
-- Never read `.env` files
-
-## Design Document
-
-Full architecture: `docs/plans/2026-03-06-tiered-intelligence-design.md`
-
-Key concepts:
-- **3-tier sessions**: Strategic (3x/day + restart), Tactical (hourly), Execution (10min)
-- **Dynamic experts**: GPT strategist + risk_manager + Grok sentinel/challenger/news
-- **Grok prompts**: maximally concise (MOOD/FEAR_EVENT/NARRATIVE/UNUSUAL format)
-- **Escalation**: Tier 3 -> Tier 2 on anomaly, Tier 2 -> Tier 1 on regime shift
-- **DailyDirective**: allowed_pairs, pair_bias, max_exposure, risk_appetite
+- Vitest: `import { describe, it, expect, vi } from 'vitest'`
+- Binance Futures: `submitNewAlgoOrder` with `triggerPrice` (NOT `stopPrice`)
+- Never read `.env` — use `loadConfig()`
+- DB writes are fire-and-forget with `.catch(() => {})`
+- `pm2 restart indic-bot` picks up `config.yaml` changes; `--update-env` for `.env` changes
 
 ## Deploy
 
 ```bash
-npm run deploy  # rsync to GCP + pm2 restart
-# Or manual:
-ssh -i ~/.ssh/google_compute_engine mykolat@34.179.171.213 'pm2 logs indic-bot --lines 20'
+npm run deploy   # rsync to GCP + pm2 restart
+npm run test     # 324 tests before deploying
 ```
