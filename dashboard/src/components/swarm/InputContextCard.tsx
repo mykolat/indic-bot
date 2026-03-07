@@ -30,15 +30,16 @@ export function InputContextCard({ userPrompt, pair, regime, fearGreed, volumeRa
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
-            { label: 'Pair', value: pair, color: 'text-white' },
-            { label: 'Regime', value: regime, color: 'text-accent' },
-            { label: 'F&G', value: String(fearGreed), color: fearGreed < 25 ? 'text-red-400' : fearGreed > 60 ? 'text-green-400' : 'text-yellow-400' },
-            { label: 'Volume', value: `${volumeRatio.toFixed(2)}x`, color: volumeRatio > 1.5 ? 'text-green-400' : 'text-zinc-300' },
-            { label: 'Session', value: sessionPnl, color: sessionPnl.includes('-') ? 'text-red-400' : 'text-green-400' },
-          ].map(({ label, value, color }) => (
+            { label: 'Pair', value: pair, sub: '', color: 'text-white' },
+            { label: 'Regime', value: regime, sub: '', color: 'text-accent' },
+            { label: 'Fear & Greed', value: String(fearGreed), sub: fearGreed < 25 ? 'Extreme Fear' : fearGreed < 45 ? 'Fear' : fearGreed < 56 ? 'Neutral' : fearGreed < 76 ? 'Greed' : 'Extreme Greed', color: fearGreed < 25 ? 'text-red-400' : fearGreed > 60 ? 'text-green-400' : 'text-yellow-400' },
+            { label: 'Volume Ratio', value: `${volumeRatio.toFixed(2)}x`, sub: volumeRatio > 1.5 ? 'High' : volumeRatio < 0.5 ? 'Low' : 'Normal', color: volumeRatio > 1.5 ? 'text-green-400' : 'text-zinc-300' },
+            { label: 'Session PnL', value: sessionPnl, sub: '', color: sessionPnl.includes('-') ? 'text-red-400' : 'text-green-400' },
+          ].map(({ label, value, sub, color }) => (
             <div key={label}>
               <div className="text-[10px] text-zinc-600 uppercase tracking-wide">{label}</div>
               <div className={`text-sm font-mono font-semibold ${color}`}>{value}</div>
+              {sub && <div className="text-[10px] text-zinc-600">{sub}</div>}
             </div>
           ))}
         </div>

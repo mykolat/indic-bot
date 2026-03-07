@@ -50,7 +50,7 @@ export function Chat() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
-      <h1 className="text-xl font-bold mb-4">Bot Assistant</h1>
+      <h1 className="text-lg font-semibold text-zinc-200 mb-4">Bot Assistant</h1>
 
       <div className="flex-1 overflow-y-auto space-y-3 mb-4">
         {messages.length === 0 && (
@@ -61,7 +61,7 @@ export function Chat() {
                 <button
                   key={s}
                   onClick={() => sendMessage(s)}
-                  className="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-full"
+                  className="text-xs bg-surface-2 hover:bg-surface-3 text-zinc-300 px-3 py-1.5 rounded-full border border-border"
                 >
                   {s}
                 </button>
@@ -83,7 +83,7 @@ export function Chat() {
           onKeyDown={(e) => e.key === 'Enter' && sendMessage(input)}
           placeholder="Ask about the bot..."
           disabled={isStreaming}
-          className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-zinc-500"
+          className="flex-1 bg-surface-2 border border-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-accent/40"
         />
         <button
           onClick={() => sendMessage(input)}

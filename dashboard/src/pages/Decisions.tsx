@@ -114,14 +114,14 @@ export function Decisions() {
     });
   }, []);
 
-  const tt = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8 };
+  const tt = { background: '#16161f', border: '1px solid #252535', borderRadius: 8 };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">Decision Analytics</h1>
+      <h1 className="text-lg font-semibold text-zinc-200">Decision Analytics</h1>
 
       {funnel.data && (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+        <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Decision Pipeline Funnel</h3>
           <FunnelBar steps={[
             { label: 'Cycles', count: funnel.data.totalCycles, color: '#71717a' },
@@ -136,7 +136,7 @@ export function Decisions() {
       )}
 
       {funnel.data && funnel.data.rejectionReasons.length > 0 && (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+        <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Rejection Breakdown</h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={funnel.data.rejectionReasons} layout="vertical" margin={{ left: 120 }}>
@@ -151,7 +151,7 @@ export function Decisions() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {confDist.length > 0 && (
-          <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+          <div className="bg-surface-1 rounded-xl border border-border p-5">
             <h3 className="text-sm font-semibold text-zinc-300 mb-4">Confidence Distribution</h3>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={confDist}>
@@ -166,7 +166,7 @@ export function Decisions() {
         )}
 
         {volumeTrend.length > 0 && (
-          <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+          <div className="bg-surface-1 rounded-xl border border-border p-5">
             <h3 className="text-sm font-semibold text-zinc-300 mb-4">Preflight Rejections Over Time</h3>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={volumeTrend}>
@@ -180,7 +180,7 @@ export function Decisions() {
         )}
 
         {layerUsage.length > 0 && (
-          <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+          <div className="bg-surface-1 rounded-xl border border-border p-5">
             <h3 className="text-sm font-semibold text-zinc-300 mb-4">LLM Layer Usage</h3>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={layerUsage}>
@@ -195,15 +195,15 @@ export function Decisions() {
       </div>
 
       {regimePerf.length > 0 && (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+        <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Regime Performance</h3>
           <table className="w-full text-sm">
-            <thead><tr className="text-zinc-400 border-b border-zinc-800 text-left">
+            <thead><tr className="text-zinc-400 border-b border-border text-left">
               <th className="p-2">Regime</th><th className="p-2 text-right">Decisions</th><th className="p-2 text-right">Conv%</th><th className="p-2 text-right">Win Rate</th><th className="p-2 text-right">Total PnL</th>
             </tr></thead>
             <tbody>
               {regimePerf.map((r) => (
-                <tr key={r.regime} className="border-b border-zinc-800/50">
+                <tr key={r.regime} className="border-b border-border/50">
                   <td className="p-2 font-mono">{r.regime}</td><td className="p-2 text-right">{r.decisions}</td><td className="p-2 text-right">{r.convPct}%</td>
                   <td className="p-2 text-right">{r.executed > 0 ? `${r.winRate}%` : '—'}</td>
                   <td className={`p-2 text-right font-mono ${r.totalPnl > 0 ? 'text-green-400' : r.totalPnl < 0 ? 'text-red-400' : ''}`}>{r.totalPnl !== 0 ? `$${r.totalPnl.toFixed(2)}` : '—'}</td>
@@ -215,15 +215,15 @@ export function Decisions() {
       )}
 
       {pairPerf.length > 0 && (
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+        <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Pair Performance</h3>
           <table className="w-full text-sm">
-            <thead><tr className="text-zinc-400 border-b border-zinc-800 text-left">
+            <thead><tr className="text-zinc-400 border-b border-border text-left">
               <th className="p-2">Pair</th><th className="p-2 text-right">Trades</th><th className="p-2 text-right">Win Rate</th><th className="p-2 text-right">Avg Hold</th><th className="p-2 text-right">Total PnL</th>
             </tr></thead>
             <tbody>
               {pairPerf.map((p) => (
-                <tr key={p.pair} className="border-b border-zinc-800/50">
+                <tr key={p.pair} className="border-b border-border/50">
                   <td className="p-2 font-mono">{p.pair}</td><td className="p-2 text-right">{p.trades}</td><td className="p-2 text-right">{p.winRate}%</td><td className="p-2 text-right">{p.avgHold}h</td>
                   <td className={`p-2 text-right font-mono ${p.totalPnl > 0 ? 'text-green-400' : 'text-red-400'}`}>${p.totalPnl.toFixed(2)}</td>
                 </tr>

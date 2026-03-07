@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { DebateSidebar } from '../components/swarm/DebateSidebar';
 import { InputContextCard } from '../components/swarm/InputContextCard';
@@ -98,6 +99,7 @@ function CopyButton({ item, detail }: { item: SidebarItem; detail: DebateDetail 
 // ── Main Component ──
 
 export function Swarm() {
+  const [searchParams] = useSearchParams();
   const [sidebarItems, setSidebarItems] = useState<SidebarItem[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [currentDetail, setCurrentDetail] = useState<DebateDetail | null>(null);
@@ -132,8 +134,15 @@ export function Swarm() {
         });
       }
       setSidebarItems(items);
+
+      // Auto-select from ?cycle= param
+      const cycleParam = searchParams.get('cycle');
+      if (cycleParam) {
+        const idx = items.findIndex(i => i.cycleId === Number(cycleParam));
+        if (idx >= 0) setSelectedIdx(idx);
+      }
     })();
-  }, []);
+  }, [searchParams]);
 
   // ── Load detail for selected debate (lazy) ──
   const loadDetail = useCallback(async (idx: number) => {

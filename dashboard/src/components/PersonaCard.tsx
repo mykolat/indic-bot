@@ -17,7 +17,7 @@ const personaColors: Record<string, string> = {
 export function PersonaCard({ persona, vote, confidence, reasoning }: PersonaCardProps) {
   const border = personaColors[persona] || 'border-zinc-600';
   return (
-    <div className={`bg-zinc-900 rounded-lg border-l-4 ${border} p-4`}>
+    <div className={`bg-surface-1 rounded-xl border-l-4 ${border} p-4`}>
       <div className="flex justify-between items-center mb-2">
         <span className="font-semibold text-sm">{persona.replace(/_/g, ' ').toUpperCase()}</span>
         <div className="flex gap-2 text-xs">

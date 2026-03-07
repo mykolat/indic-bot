@@ -50,33 +50,33 @@ export function LlmCosts() {
     });
   }, []);
 
-  const tt = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8 };
+  const tt = { background: '#16161f', border: '1px solid #252535', borderRadius: 8 };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">LLM & Costs</h1>
+      <h1 className="text-lg font-semibold text-zinc-200">LLM & Costs</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+        <div className="bg-surface-1 rounded-xl p-4 border border-border">
           <div className="text-zinc-400 text-sm">Total Cost</div>
           <div className="text-2xl font-mono font-bold text-yellow-400">${totalCost.toFixed(3)}</div>
         </div>
-        <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+        <div className="bg-surface-1 rounded-xl p-4 border border-border">
           <div className="text-zinc-400 text-sm">Tokens In</div>
           <div className="text-2xl font-mono font-bold">{(totalTokens.in / 1000).toFixed(0)}K</div>
         </div>
-        <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+        <div className="bg-surface-1 rounded-xl p-4 border border-border">
           <div className="text-zinc-400 text-sm">Tokens Out</div>
           <div className="text-2xl font-mono font-bold">{(totalTokens.out / 1000).toFixed(0)}K</div>
         </div>
-        <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+        <div className="bg-surface-1 rounded-xl p-4 border border-border">
           <div className="text-zinc-400 text-sm">LLM Calls</div>
           <div className="text-2xl font-mono font-bold">{parseErrors.reduce((s, d) => s + d.total, 0)}</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+        <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Daily Token Usage</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={tokensByDay}>
@@ -88,7 +88,7 @@ export function LlmCosts() {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+        <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Cost by Method ($)</h3>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
@@ -100,7 +100,7 @@ export function LlmCosts() {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+        <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Daily Cost ($)</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={tokensByDay}>
@@ -112,7 +112,7 @@ export function LlmCosts() {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-5">
+        <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Parse Error Rate</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={parseErrors}>

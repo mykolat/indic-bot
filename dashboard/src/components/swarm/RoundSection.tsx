@@ -60,7 +60,7 @@ export function RoundSection({ round, personas, judgeRawResponse, isFinalRound, 
         <div className="flex flex-wrap gap-1.5 pl-12">
           {blackboardSignals.bullish.map(s => <span key={s} className="text-[10px] px-2 py-0.5 rounded-full bg-green-900/30 text-green-400 font-mono">{s.replace(/_/g, ' ')}</span>)}
           {blackboardSignals.bearish.map(s => <span key={s} className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/30 text-red-400 font-mono">{s.replace(/_/g, ' ')}</span>)}
-          {blackboardSignals.neutral.map(s => <span key={s} className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-500 font-mono">{s.replace(/_/g, ' ')}</span>)}
+          {blackboardSignals.neutral.map(s => <span key={s} className="text-[10px] px-2 py-0.5 rounded-full bg-surface-2 text-zinc-500 font-mono">{s.replace(/_/g, ' ')}</span>)}
         </div>
       )}
 

@@ -44,20 +44,20 @@ export function Market() {
   const regimeColors: Record<string, string> = {
     BullTrend: '#4ade80', BearTrend: '#f87171', Range: '#eab308', Breakout: '#a78bfa', Capitulation: '#ef4444',
   };
-  const tt = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8 };
+  const tt = { background: '#16161f', border: '1px solid #252535', borderRadius: 8 };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-xl font-bold">Market Data</h1>
+        <h1 className="text-lg font-semibold text-zinc-200">Market Data</h1>
         <select value={selectedPair} onChange={(e) => setSelectedPair(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm">
+          className="bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-300 focus:outline-none focus:border-accent/40">
           {pairs.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
           <h3 className="text-sm font-semibold text-zinc-300 mb-2">{selectedPair} Price (24h)</h3>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={priceData}>
@@ -69,7 +69,7 @@ export function Market() {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
           <h3 className="text-sm font-semibold text-zinc-300 mb-2">Funding Rate %</h3>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={fundingData}>
@@ -81,7 +81,7 @@ export function Market() {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
           <h3 className="text-sm font-semibold text-zinc-300 mb-2">Open Interest</h3>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={oiData}>
@@ -93,7 +93,7 @@ export function Market() {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+        <div className="bg-surface-1 rounded-xl border border-border p-4">
           <h3 className="text-sm font-semibold text-zinc-300 mb-2">Regime Over Time</h3>
           <div className="flex gap-px h-8 rounded overflow-hidden mb-2">
             {regimeData.map((d, i) => (
