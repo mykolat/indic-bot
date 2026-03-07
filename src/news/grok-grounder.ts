@@ -1,6 +1,6 @@
 import { fetchWithTimeout } from '../utils/fetch-timeout.js';
 
-const XAI_API_URL = 'https://api.x.ai/v1/chat/completions';
+const XAI_RESPONSES_URL = 'https://api.x.ai/v1/responses';
 
 const GROUNDING_PROMPT = `You are a crypto news fact-checker with real-time X/Twitter access.
 Given a claim about crypto markets, search X for verification.
@@ -64,7 +64,7 @@ export class GrokGrounder {
   async verify(claim: string): Promise<GroundingResult> {
     try {
       const response = await fetchWithTimeout(
-        XAI_API_URL,
+        XAI_RESPONSES_URL,
         {
           method: 'POST',
           headers: {
@@ -73,12 +73,15 @@ export class GrokGrounder {
           },
           body: JSON.stringify({
             model: 'grok-4-1-fast-non-reasoning',
-            messages: [
+            input: [
               { role: 'system', content: GROUNDING_PROMPT },
               { role: 'user', content: `Verify this crypto claim using X/Twitter search:\n\n"${claim}"` },
             ],
             temperature: 0,
-            search_parameters: { mode: 'on', return_citations: true },
+            tools: [
+              { type: 'web_search' },
+              { type: 'x_search' },
+            ],
           }),
         },
         30_000,
@@ -90,8 +93,13 @@ export class GrokGrounder {
       }
 
       const data = (await response.json()) as any;
-      const content = data.choices?.[0]?.message?.content ?? '';
-      const tokensUsed = data.usage?.total_tokens ?? 0;
+      // /v1/responses format: output_text or output array
+      let content = data.output_text ?? '';
+      if (!content && Array.isArray(data.output)) {
+        const msg = data.output.find((o: any) => o.type === 'message');
+        content = msg?.content?.[0]?.text ?? '';
+      }
+      const tokensUsed = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0);
 
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {

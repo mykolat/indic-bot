@@ -1020,7 +1020,7 @@ export class TradingLoop {
 
         // Save trade decision + risk validation to DB
         let decisionId: number | undefined;
-        if (cycleId) {
+        if (cycleId && decision.pair) {
           try {
             decisionId = await insertTradeDecision({
               cycle_id: cycleId,
