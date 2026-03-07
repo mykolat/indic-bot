@@ -58,15 +58,17 @@ Read the blackboard. Analyze the market data provided separately. Write YOUR sec
 OUTPUT (JSON only):
 {
   "signals": { "bullish": ["tag1"], "bearish": ["tag2"], "neutral": [] },
-  "vote": { "d": "HOLD|LONG|SHORT|CLOSE", "c": <0-100>, "prob": <0-100>, "reason": "<slug>" },
+  "vote": { "d": "HOLD|LONG|SHORT|CLOSE", "c": <0-100>, "prob": <0-100>, "reason": "<1-2 sentence explanation>" },
   "risks": ["risk_tag"],
   "conflicts_with": { "<CODE>": "<reason_slug>" }
 }
 
 RULES:
-- Tags only, no prose. Max 5 words per tag.
+- signals: short tags, max 5 words per tag.
+- vote.reason: 1-2 full sentences explaining your position. NOT a slug.
+- risks: short tags.
 - conflicts_with: reference persona CODEs you disagree with. Empty {} if no conflict.
-- NO natural language. ONLY valid JSON.`;
+- ONLY valid JSON.`;
 }
 
 // ── Judge prompt ───────────────────────────────────────────────────────
@@ -104,5 +106,10 @@ DECISION RULES:
 - If final round, MUST produce decision
 
 OUTPUT (JSON only):
-{"continue": true|false, "verdict": "slug", "next_speakers": ["CODE"], "decisions": [...], "next_check_minutes": N}`;
+{"continue": true|false, "verdict": "<1-sentence summary>", "next_speakers": ["CODE"], "decisions": [{"pair": "<PAIR>", "action": "HOLD|LONG|SHORT|CLOSE", "confidence": <0-100>, "reasoning": "<1-sentence>", "leverage": <number>, "stop_loss_pct": <number>, "take_profit_pct": <number>, "size_pct": <number>}], "next_check_minutes": <1-30>}
+
+RULES:
+- decisions array: one object per pair from the blackboard market.pairs list.
+- For HOLD: leverage, stop_loss_pct, take_profit_pct, size_pct = 0.
+- verdict: human-readable sentence, not a slug.`;
 }

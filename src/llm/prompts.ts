@@ -5,6 +5,7 @@ import type { PortfolioState, DecisionEnvelope } from '../risk/manager.js';
 import type { CryptoNews, FearGreedData } from '../news/types.js';
 import type { TradingViewSignal } from '../webhook/signal-buffer.js';
 import type { TradeRecord } from '../memory/session.js';
+import type { DbLiquidation } from '../db/types.js';
 
 export interface MacroAnalysis {
   macro_summary: string;
@@ -151,6 +152,8 @@ export interface EnrichedPromptData {
     fill_price: number;
   }>;
   watchdogSummary?: string;
+  liquidations?: DbLiquidation[];
+  newsMarketFusion?: string;
   envelope?: DecisionEnvelope;
   pairDiversityContext?: string;
   todayRealizedPnl?: number;
@@ -239,11 +242,13 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
 
   if (data.regime) {
     prompt += `## Market Regime Persona & Override\n`;
-    if (data.regime === 'bull_trend') prompt += '>>> REGIME: Bull Trend. You are an aggressive trend-follower. Hold winners longer. Ignore minor bearish divergences.\n\n';
-    else if (data.regime === 'bear_trend') prompt += '>>> REGIME: Bear Trend. You are an aggressive trend-follower in a bear market. Press shorts. Ignore minor bullish divergences.\n\n';
-    else if (data.regime === 'range') prompt += '>>> REGIME: Range. You are a cautious market-maker. Buy support, sell resistance. Take quick scalps. Tighten TP.\n\n';
-    else if (data.regime === 'capitulation') prompt += '>>> REGIME: Capitulation. You are in extreme caution mode. Look for high-volume climax bottoms. Prioritize capital preservation.\n\n';
-    else if (data.regime === 'breakout') prompt += '>>> REGIME: Breakout. Price is expanding rapidly. Trade momentum in direction of the break. Wider stops.\n\n';
+    const regimeLower = String(data.regime).toLowerCase();
+    if (regimeLower === 'bulltrend') prompt += '>>> REGIME: Bull Trend. You are an aggressive trend-follower. Hold winners longer. Ignore minor bearish divergences.\n\n';
+    else if (regimeLower === 'beartrend') prompt += '>>> REGIME: Bear Trend. You are an aggressive trend-follower in a bear market. Press shorts. Ignore minor bullish divergences.\n\n';
+    else if (regimeLower === 'range') prompt += '>>> REGIME: Range. You are a cautious market-maker. Buy support, sell resistance. Take quick scalps. Tighten TP.\n\n';
+    else if (regimeLower === 'capitulation') prompt += '>>> REGIME: Capitulation. You are in extreme caution mode. Look for high-volume climax bottoms. Prioritize capital preservation.\n\n';
+    else if (regimeLower === 'breakout') prompt += '>>> REGIME: Breakout. Price is expanding rapidly. Trade momentum in direction of the break. Wider stops.\n\n';
+    else if (regimeLower === 'scalping') prompt += '>>> REGIME: Scalping. Low volume dead zone. Only high-confidence micro-trades with tight stops.\n\n';
     else prompt += '>>> REGIME: Unknown. Standard aggressive crypto futures trader.\n\n';
     prompt += `NOTE: If your narrative reading strongly contradicts this regime, use the 'regime_override' field to change it.\n\n`;
   }
@@ -281,6 +286,16 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
 
   if (data.watchdogSummary) {
     prompt += `## Watchdog Summary (since last Brain cycle)\n${data.watchdogSummary}\n\n`;
+  }
+
+  if (data.liquidations?.length) {
+    prompt += formatLiquidationBlock(data.liquidations);
+    prompt += '\n';
+  }
+
+  if (data.newsMarketFusion) {
+    prompt += data.newsMarketFusion;
+    prompt += '\n';
   }
 
   if (data.envelope) {
@@ -628,6 +643,37 @@ You MUST respond with ONLY this JSON (no markdown, no explanation):
 
 For multiple pairs, return an array of these objects.
 Output ONLY valid JSON. No text before or after.`;
+
+function formatUsd(value: number): string {
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  return `$${Math.round(value / 1000)}K`;
+}
+
+export function formatLiquidationBlock(liqs: DbLiquidation[]): string {
+  if (!liqs.length) return '';
+
+  // Group by pair
+  const grouped = new Map<string, { longUsd: number; shortUsd: number; maxSpike: number }>();
+  for (const l of liqs) {
+    const existing = grouped.get(l.pair);
+    if (existing) {
+      existing.longUsd += l.long_liq_usd;
+      existing.shortUsd += l.short_liq_usd;
+      existing.maxSpike = Math.max(existing.maxSpike, l.spike_ratio);
+    } else {
+      grouped.set(l.pair, { longUsd: l.long_liq_usd, shortUsd: l.short_liq_usd, maxSpike: l.spike_ratio });
+    }
+  }
+
+  let out = '## Recent Liquidations (last 15min)\n';
+  for (const [pair, data] of grouped) {
+    const label = data.longUsd > 2 * data.shortUsd ? 'LONG SQUEEZE'
+      : data.shortUsd > 2 * data.longUsd ? 'SHORT SQUEEZE'
+      : 'MIXED';
+    out += `${pair}: ${formatUsd(data.longUsd)} long liquidated, ${formatUsd(data.shortUsd)} short liquidated | spike ${data.maxSpike.toFixed(1)}x | ${label}\n`;
+  }
+  return out;
+}
 
 export function buildExpertSystemPrompt(persona: SwarmPersona): string {
   let personaPrefix = '';

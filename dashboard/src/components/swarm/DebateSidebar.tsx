@@ -52,7 +52,22 @@ export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarP
         );
       })}
       {debates.length === 0 && (
-        <div className="p-6 text-zinc-600 text-xs text-center">No debates</div>
+        <div className="space-y-0 animate-pulse">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="px-4 py-3 border-b border-border-subtle">
+              <div className="flex justify-between mb-1.5">
+                <div className="h-3 bg-surface-3 rounded w-12" />
+                <div className="h-3 bg-surface-2 rounded w-10" />
+              </div>
+              <div className="flex gap-1 mb-1.5">
+                {Array.from({ length: 5 }).map((_, j) => (
+                  <div key={j} className="w-2 h-2 rounded-full bg-surface-3" />
+                ))}
+              </div>
+              <div className="h-2.5 bg-surface-2 rounded w-3/4" />
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -11,7 +11,10 @@ Return ONLY valid JSON:
   "confidence": <0-1>,
   "summary": "1-2 sentences: what you found on X",
   "sources": ["@account1", "@account2"],
-  "contradictions": ["any contradicting evidence"]
+  "contradictions": ["any contradicting evidence"],
+  "claim_type": "<one of: rumor, prediction, official_event, market_data, exchange_incident, regulatory, influencer_noise>",
+  "tradability": "<one of: none, context_only, watch, actionable>",
+  "source_quality": "<one of: official, mainstream_media, crypto_media, influencer, anonymous, unknown>"
 }
 
 Rules:
@@ -19,7 +22,27 @@ Rules:
 - verified=false: contradicted by official sources or clearly fake
 - verified=null: insufficient data to determine
 - confidence: 0=no data, 0.5=mixed signals, 1.0=certain
-- sources: X accounts that discuss this claim`;
+- sources: X accounts that discuss this claim
+- claim_type: classify the nature of the claim
+  - rumor: unverified gossip or leak
+  - prediction: price target or forecast
+  - official_event: confirmed announcement from project/exchange/regulator
+  - market_data: on-chain or exchange data point (liquidations, flows, etc.)
+  - exchange_incident: hack, outage, withdrawal freeze
+  - regulatory: government/regulator action or statement
+  - influencer_noise: opinion or hype from social media personality
+- tradability: should this affect trading decisions?
+  - none: noise, prediction, or unverifiable — ignore for trading
+  - context_only: useful background but not directly tradable
+  - watch: may become actionable soon, monitor closely
+  - actionable: clear market-moving event with confirmed impact
+- source_quality: credibility tier of the primary source
+  - official: exchange, project team, or regulator direct communication
+  - mainstream_media: Reuters, Bloomberg, WSJ, etc.
+  - crypto_media: CoinDesk, CoinTelegraph, The Block, etc.
+  - influencer: known crypto personality with large following
+  - anonymous: anonymous source or unattributed leak
+  - unknown: cannot determine source origin`;
 
 export interface GroundingResult {
   claim: string;
@@ -30,6 +53,9 @@ export interface GroundingResult {
   contradictions?: string[];
   tokensUsed: number;
   error?: string;
+  claimType?: 'rumor' | 'prediction' | 'official_event' | 'market_data' | 'exchange_incident' | 'regulatory' | 'influencer_noise';
+  tradability?: 'none' | 'context_only' | 'watch' | 'actionable';
+  sourceQuality?: 'official' | 'mainstream_media' | 'crypto_media' | 'influencer' | 'anonymous' | 'unknown';
 }
 
 export class GrokGrounder {
@@ -82,6 +108,9 @@ export class GrokGrounder {
         sources: parsed.sources,
         contradictions: parsed.contradictions,
         tokensUsed,
+        claimType: parsed.claim_type,
+        tradability: parsed.tradability,
+        sourceQuality: parsed.source_quality,
       };
     } catch (err: any) {
       if (!err?.message?.includes('timeout') && !err?.message?.includes('401')) {
