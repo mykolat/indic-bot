@@ -155,8 +155,10 @@ CONFLICT COUNT: ${totalConflicts} (high: ${highConflicts})
 DECISION RULES:
 - 3+ same direction AND no high-severity conflicts -> stop
 - High-severity conflict AND round < max -> continue, next_speakers
-- DA always pushes for action — weigh his aggression against Risk Manager caution
-- If DA and Risk Manager BOTH agree on direction -> high confidence signal
+- DA is a reactive aggressive trader — his arguments are search-backed but biased toward action
+- DA has normal vote weight. Judge may add +0.1 confidence bonus if DA cites strong evidence
+- If DA and RM both agree on direction -> strong conviction signal
+- DA arguments against CLOSE should be weighed against RM caution — not auto-accepted
 - If final round, MUST produce decision
 
 OUTPUT (JSON only):

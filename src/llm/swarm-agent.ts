@@ -115,14 +115,14 @@ Confidence: ${eo.confidence}/100`;
 
 Below are structured opinions from expert analysts after ${debateStage}. Weigh their arguments by probability_of_success and confidence scores.
 Higher probability + higher confidence = more weight.
-The Devil's Advocate's job is to find flaws — give extra weight to risks they identify.
+The Profit Advocate (DA) always pushes for action — his arguments are search-backed. Weigh DA aggression against Risk Manager caution.
 Experts who changed their mind after critique show intellectual honesty — weight their revised view higher.
 
 ${sections.join('\n\n')}
 
 Based on these expert opinions, produce the final consensus trading decision.
 If experts strongly disagree, lean towards HOLD.
-If the Risk Manager flags critical danger AND the Devil's Advocate agrees, lean towards CLOSE or HOLD.
+If the Risk Manager flags critical danger, lean towards CLOSE or HOLD regardless of DA.
 
 You MUST respond with valid JSON:
 {"decisions": [{"pair": "<pair>", "action": "LONG|SHORT|HOLD|CLOSE", "size_pct": <number>, "leverage": <number>, "stop_loss_pct": <number>, "take_profit_pct": <number>, "confidence": <0-100>, "reasoning": "<string>"}], "next_check_minutes": <1-30>}`;
@@ -212,7 +212,7 @@ export class SwarmAgent {
         const systemPrompt = buildBlackboardExpertPrompt(p, bb.getState());
         const isGrok = p === 'narrative_expert' && this.grokLlm;
         return isGrok
-          ? this.grokLlm.call(systemPrompt, userPrompt, 'grok-4-1-fast-reasoning')
+          ? this.grokLlm.call(systemPrompt, userPrompt, 'grok-4-1-fast-non-reasoning', { search: true })
           : this.llm.call(systemPrompt, userPrompt);
       });
 

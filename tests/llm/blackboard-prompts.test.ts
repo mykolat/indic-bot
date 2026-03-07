@@ -118,7 +118,7 @@ describe('buildBlackboardJudgePrompt', () => {
 
     expect(prompt).toContain('DECISION RULES:');
     expect(prompt).toContain('3+ same direction');
-    expect(prompt).toContain('Risk Manager');
+    expect(prompt).toContain('RM');
   });
 
   it('judge rules do not force HOLD when DA agrees with RM', () => {
