@@ -3,7 +3,7 @@ export const PERSONA_CONFIG = {
   bear_thesis:      { code: 'BA', label: 'Bear Thesis',      emoji: '\u{1F43B}', color: '#f87171' },
   risk_manager:     { code: 'RM', label: 'Risk Manager',     emoji: '\u{1F6E1}\uFE0F', color: '#eab308' },
   market_structure: { code: 'MS', label: 'Market Structure',  emoji: '\u{1F52C}', color: '#60a5fa' },
-  devils_advocate:  { code: 'DA', label: "Devil's Advocate",  emoji: '\u{1F608}', color: '#a78bfa' },
+  devils_advocate:  { code: 'DA', label: "Profit Advocate",   emoji: '\u{1F4B0}', color: '#22c55e' },
   narrative_expert: { code: 'NE', label: 'Narrative Expert',  emoji: '\u{1F4F0}', color: '#fb923c' },
   judge:            { code: 'JG', label: 'Judge',             emoji: '\u{2696}\uFE0F', color: '#e2e8f0' },
   superuser:        { code: 'SU', label: 'Superuser',         emoji: '\u{1F451}', color: '#f59e0b' },

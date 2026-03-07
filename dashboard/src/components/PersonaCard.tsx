@@ -10,7 +10,7 @@ const personaColors: Record<string, string> = {
   bull_thesis: 'border-green-500',
   bear_thesis: 'border-red-500',
   market_structure: 'border-blue-500',
-  devils_advocate: 'border-purple-500',
+  devils_advocate: 'border-green-500',
   narrative_expert: 'border-orange-500',
 };
 
