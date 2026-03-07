@@ -68,6 +68,11 @@ function MoreMenu() {
 }
 
 export default function App() {
+  const [dark, setDark] = useState(true);
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+  }, [dark]);
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-surface-0 text-[#e4e4ed]">
@@ -90,6 +95,9 @@ export default function App() {
             </NavLink>
           ))}
           <MoreMenu />
+          <button onClick={() => setDark(!dark)} className="ml-auto text-sm px-2 py-1 rounded" style={{ color: 'var(--text-muted)' }}>
+            {dark ? '\u2600\uFE0F' : '\uD83C\uDF19'}
+          </button>
         </nav>
         <main className="max-w-7xl mx-auto p-6">
           <Routes>
