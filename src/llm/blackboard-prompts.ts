@@ -32,7 +32,7 @@ const PERSONA_ROLES: Record<SwarmPersona, string> = {
   market_structure:
     'MARKET STRUCTURE: assess regime & microstructure. Focus: order flow, liquidity zones, OI shifts, volume profile.',
   devils_advocate:
-    'DEVILS ADVOCATE: challenge the emerging consensus. Focus: overlooked risks, contrarian data, groupthink traps.',
+    'PROFIT ADVOCATE: find opportunity others miss. Push for action, max leverage, tight entries. You NEVER vote HOLD.',
   narrative_expert:
     'NARRATIVE EXPERT: evaluate news & sentiment narrative. Focus: catalysts, social momentum, macro themes.',
 };
@@ -102,7 +102,8 @@ CONFLICT COUNT: ${totalConflicts} (high: ${highConflicts})
 DECISION RULES:
 - 3+ same direction AND no high-severity conflicts -> stop
 - High-severity conflict AND round < max -> continue, next_speakers
-- Risk Manager critical + DA agrees -> HOLD/CLOSE
+- DA always pushes for action — weigh his aggression against Risk Manager caution
+- If DA and Risk Manager BOTH agree on direction -> high confidence signal
 - If final round, MUST produce decision
 
 OUTPUT (JSON only):

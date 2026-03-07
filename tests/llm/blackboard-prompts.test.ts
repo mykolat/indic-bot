@@ -71,8 +71,14 @@ describe('buildBlackboardExpertPrompt', () => {
     const prompt = buildBlackboardExpertPrompt('devils_advocate', emptyBoard);
 
     expect(prompt).toContain('RULES:');
-    expect(prompt).toContain('Tags only');
+    expect(prompt).toContain('short tags');
     expect(prompt).toContain('ONLY valid JSON');
+  });
+
+  it('DA role description mentions profit and opportunity', () => {
+    const prompt = buildBlackboardExpertPrompt('devils_advocate', emptyBoard);
+    expect(prompt).toContain('PROFIT ADVOCATE');
+    expect(prompt).toContain('opportunity');
   });
 });
 
@@ -111,7 +117,12 @@ describe('buildBlackboardJudgePrompt', () => {
 
     expect(prompt).toContain('DECISION RULES:');
     expect(prompt).toContain('3+ same direction');
-    expect(prompt).toContain('Risk Manager critical');
+    expect(prompt).toContain('Risk Manager');
+  });
+
+  it('judge rules do not force HOLD when DA agrees with RM', () => {
+    const prompt = buildBlackboardJudgePrompt(1, emptyBoard, 3);
+    expect(prompt).not.toContain('DA agrees -> HOLD');
   });
 
   it('defaults maxRounds to 3 when not provided', () => {
