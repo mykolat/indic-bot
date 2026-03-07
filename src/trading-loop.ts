@@ -339,13 +339,28 @@ export class TradingLoop {
       this.binanceCircuitBreaker.recordSuccess();
 
       // Attach OI delta (% change vs previous cycle)
-      const snapshots = rawSnapshots.map(snap => {
+      const allSnapshots = rawSnapshots.map(snap => {
         const oiNum = parseFloat(snap.openInterest);
         const prevOI = this.lastOI.get(snap.pair);
         const oiDeltaPct = prevOI ? ((oiNum - prevOI) / prevOI) * 100 : 0;
         this.lastOI.set(snap.pair, oiNum);
         return { ...snap, openInterestDelta: oiDeltaPct };
       });
+
+      // Stale data guard — skip snapshots older than 5 minutes
+      const MAX_SNAPSHOT_AGE_MS = 5 * 60 * 1000;
+      const now = Date.now();
+      const snapshots = allSnapshots.filter(s => {
+        if (s.fetchedAt && (now - s.fetchedAt) > MAX_SNAPSHOT_AGE_MS) {
+          console.warn(`[Loop] Stale snapshot for ${s.pair}: ${((now - s.fetchedAt) / 1000).toFixed(0)}s old — skipping`);
+          return false;
+        }
+        return true;
+      });
+      if (snapshots.length === 0) {
+        console.error('[Loop] ALL_SNAPSHOTS_STALE: All market snapshots older than 5 minutes');
+        return;
+      }
 
       // 2. Get portfolio state + real sessionPnl from Binance balance
       let portfolio: PortfolioState;
