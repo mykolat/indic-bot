@@ -25,28 +25,58 @@ const ACTOR_ID = 'vaclavrut~stock-price-yahoo-finance';
 export class MacroFetcher {
   constructor(private apifyToken: string) { }
 
+  private async triggerAndWait(tickers: string[]): Promise<string> {
+    const runUrl = `https://api.apify.com/v2/acts/${ACTOR_ID}/runs?token=${this.apifyToken}`;
+    const runRes = await fetchWithTimeout(runUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers }),
+    }, 15_000);
+    if (!runRes.ok) throw new Error(`Failed to trigger macro actor: ${runRes.status}`);
+    const runData = (await runRes.json()) as any;
+    const runId = runData.data?.id;
+    if (!runId) throw new Error('No runId returned from actor trigger');
+    console.log(`[MacroFetcher] Triggered run ${runId}, waiting...`);
+
+    // Poll until SUCCEEDED or FAILED (max 60s)
+    const statusUrl = `https://api.apify.com/v2/actor-runs/${runId}?token=${this.apifyToken}`;
+    for (let i = 0; i < 12; i++) {
+      await new Promise(r => setTimeout(r, 5_000));
+      const statusRes = await fetchWithTimeout(statusUrl, {}, 10_000).catch(() => null);
+      if (!statusRes?.ok) continue;
+      const statusData = (await statusRes.json()) as any;
+      const status = statusData.data?.status;
+      if (status === 'SUCCEEDED') return statusData.data.defaultDatasetId;
+      if (status === 'FAILED' || status === 'ABORTED') throw new Error(`Macro actor run ${status}`);
+    }
+    throw new Error('Macro actor run timed out after 60s');
+  }
+
   async fetch(): Promise<MacroSnapshot[]> {
     try {
       const tickers = SYMBOLS.map(s => s.symbol);
       let datasetId: string | undefined;
 
-      // Fetch the latest successful run (Actors are scheduled externally)
+      // Check for a recent successful run (< 3h old)
       const runsUrl = `https://api.apify.com/v2/acts/${ACTOR_ID}/runs?token=${this.apifyToken}&desc=true&limit=5`;
       const runsRes = await fetchWithTimeout(runsUrl, {}, 10_000).catch(() => null);
 
       if (runsRes && runsRes.ok) {
         const runsData = (await runsRes.json()) as any;
         const recentRuns = runsData.data?.items || [];
-        const lastSuccess = recentRuns.find((r: any) => r.status === 'SUCCEEDED');
-
+        const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1000;
+        const lastSuccess = recentRuns.find((r: any) =>
+          r.status === 'SUCCEEDED' && new Date(r.finishedAt).getTime() > threeHoursAgo,
+        );
         if (lastSuccess) {
-          console.log(`[MacroFetcher] Using dataset from scheduled run: ${lastSuccess.id}`);
+          console.log(`[MacroFetcher] Using cached run: ${lastSuccess.id}`);
           datasetId = lastSuccess.defaultDatasetId;
         }
       }
 
       if (!datasetId) {
-        throw new Error(`No successful runs found for actor ${ACTOR_ID}`);
+        console.log('[MacroFetcher] No recent run — triggering on-demand...');
+        datasetId = await this.triggerAndWait(tickers);
       }
 
       const datasetUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${this.apifyToken}`;
