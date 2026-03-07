@@ -66,6 +66,7 @@ interface TradingLoopDeps {
     minConfidence?: number;
     fearGreedLeverageCap?: number;
     weekendLeverageMultiplier?: number;
+    swarmVolumeThreshold?: number;
     layer3EmergencyPct?: number;  // default -5 — threshold for Layer 3 emergency close
   };
   macroFetcher?: MacroFetcher;
@@ -829,7 +830,7 @@ export class TradingLoop {
           const btcSnapTemp = snapshots.find(s => s.pair === 'BTCUSDT');
           if (btcSnapTemp) {
             const btcIndTemp = indicators.get(btcSnapTemp.pair);
-            if (btcIndTemp && btcIndTemp.volumeRatio > 1.5) {
+            if (btcIndTemp && btcIndTemp.volumeRatio > (this.deps.tradingConfig.swarmVolumeThreshold ?? 0.8)) {
               useSwarm = true;
             }
           }

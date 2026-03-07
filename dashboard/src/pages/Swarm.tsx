@@ -174,10 +174,10 @@ export function Swarm() {
         items.push({
           cycleId: latest.id,
           createdAt: latest.created_at,
-          summary: `Skip — Vol ${vol}x < 1.5x`,
+          summary: `Skip — Vol ${vol}x (low)`,
           votes: [],
           isSkip: true,
-          skipReason: `Vol ${vol}x (need >1.5x) · ${latest.regime}`,
+          skipReason: `Vol ${vol}x below swarm threshold · ${latest.regime}`,
         });
         seen.add(latest.id);
       }

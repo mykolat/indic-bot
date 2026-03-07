@@ -20,6 +20,7 @@ trading:
   stalePositionHours: 8
   maxHoldHours: 24
   maxDailyLossPct: 5          # % of balance — daily loss limit (survives restart)
+  swarmVolumeThreshold: 0.8
   fearGreedLeverageCap: 10
   weekendLeverageMultiplier: 0.5
   useLimitEntry: false        # Enable at balance > $5K

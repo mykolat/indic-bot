@@ -273,6 +273,7 @@ async function main() {
       ...promptConfig,
       stalePositionHours: config.trading.stalePositionHours,
       maxHoldHours: config.trading.maxHoldHours,
+      swarmVolumeThreshold: config.trading.swarmVolumeThreshold,
     },
     macroFetcher,
     macroAnalyst,

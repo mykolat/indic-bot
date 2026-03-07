@@ -48,6 +48,7 @@ export interface Config {
     stalePositionHours: number;
     maxHoldHours: number;
     maxDailyLossPct: number;
+    swarmVolumeThreshold: number;
     fearGreedLeverageCap: number;
     weekendLeverageMultiplier: number;
     useLimitEntry: boolean;
@@ -129,6 +130,7 @@ export function loadConfig(): Config {
       stalePositionHours: t.stalePositionHours ?? 8,
       maxHoldHours: t.maxHoldHours ?? 24,
       maxDailyLossPct: t.maxDailyLossPct ?? 5,
+      swarmVolumeThreshold: t.swarmVolumeThreshold ?? 0.8,
       fearGreedLeverageCap: t.fearGreedLeverageCap ?? 10,
       weekendLeverageMultiplier: t.weekendLeverageMultiplier ?? 0.5,
       useLimitEntry: t.useLimitEntry ?? false,
