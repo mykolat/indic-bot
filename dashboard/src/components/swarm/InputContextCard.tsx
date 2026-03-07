@@ -18,7 +18,6 @@ function extractField(text: string, field: string): string {
 export function InputContextCard({ userPrompt, pair, regime, fearGreed, volumeRatio }: InputContextCardProps) {
   const [expanded, setExpanded] = useState(false);
   const sessionPnl = extractField(userPrompt, 'Session P&L');
-  const riskStatus = extractField(userPrompt, 'Risk status');
   const time = extractField(userPrompt, 'Current time');
   const lastOrder = extractField(userPrompt, 'Last order');
 
