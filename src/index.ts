@@ -38,6 +38,7 @@ import { TradeStoryLogger } from './logging/trade-story.js';
 import { FlashCrashScanner } from './news/flash-crash.js';
 import { GrokClient } from './llm/grok-client.js';
 import { runGrokHealthCheck } from './utils/grok-startup.js';
+import { warnIfClockSkewed } from './utils/clock-check.js';
 import { initPool, closePool } from './db/connection.js';
 import { insertSession, insertMarketSnapshot, getLatestMarketSnapshot } from './db/repository.js';
 import { Watchdog } from './watchdog.js';
@@ -45,6 +46,9 @@ import { Watchdog } from './watchdog.js';
 async function main() {
   const config = loadConfig();
   const logger = new Logger('logs');
+
+  // NTP clock check — warn if local clock is skewed vs Binance
+  await warnIfClockSkewed();
 
   // Initialize database if configured
   let sessionId: string | undefined;
