@@ -47,6 +47,7 @@ export interface Config {
     minConfidence: number;
     stalePositionHours: number;
     maxHoldHours: number;
+    maxDailyLossPct: number;
     fearGreedLeverageCap: number;
     weekendLeverageMultiplier: number;
     useLimitEntry: boolean;
@@ -127,6 +128,7 @@ export function loadConfig(): Config {
       minConfidence: t.minConfidence ?? 55,
       stalePositionHours: t.stalePositionHours ?? 8,
       maxHoldHours: t.maxHoldHours ?? 24,
+      maxDailyLossPct: t.maxDailyLossPct ?? 5,
       fearGreedLeverageCap: t.fearGreedLeverageCap ?? 10,
       weekendLeverageMultiplier: t.weekendLeverageMultiplier ?? 0.5,
       useLimitEntry: t.useLimitEntry ?? false,

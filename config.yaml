@@ -19,6 +19,7 @@ trading:
   newsMaxItems: 100
   stalePositionHours: 8
   maxHoldHours: 24
+  maxDailyLossPct: 5          # % of balance — daily loss limit (survives restart)
   fearGreedLeverageCap: 10
   weekendLeverageMultiplier: 0.5
   useLimitEntry: false        # Enable at balance > $5K

@@ -170,6 +170,7 @@ async function main() {
     maxLossUsd: config.trading.maxLossUsd,
     maxLossPct: config.trading.maxLossPct,
     minConfidence: config.trading.minConfidence,
+    maxDailyLossPct: config.trading.maxDailyLossPct,
   });
 
   const signalBuffer = new SignalBuffer({ maxSize: 50, ttlMs: 30 * 60 * 1000 });
