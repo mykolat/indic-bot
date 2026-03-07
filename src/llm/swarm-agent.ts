@@ -1,8 +1,12 @@
 import type { LLMClient } from './client.js';
 import type { TradeDecision } from '../risk/manager.js';
-import { buildUserPrompt, type EnrichedPromptData, buildExpertSystemPrompt, buildCritiquePrompt, buildRevisePrompt, buildLevelJudgePrompt, type SwarmPersona, type ExpertSummary } from './prompts.js';
+import { buildUserPrompt, type EnrichedPromptData, type SwarmPersona } from './prompts.js';
 import { insertSwarmPersona, insertLlmConversation } from '../db/repository.js';
 import { buildSwarmFingerprint, hasChanged } from './swarm-fingerprint.js';
+import { SwarmBlackboard, type PersonaUpdate } from './swarm-blackboard.js';
+import { buildBlackboardExpertPrompt, buildBlackboardJudgePrompt, BB_PERSONA_CODES } from './blackboard-prompts.js';
+
+// ── Legacy interfaces (kept for backward compatibility) ───────────────
 
 export interface ExpertOutput {
   persona: string;
@@ -70,62 +74,7 @@ export function parseExpertOutput(raw: string, persona: string): ExpertOutput | 
   return null;
 }
 
-function parseCritiqueOutput(raw: string, persona: string): CritiqueOutput | null {
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed.critiques)) return { ...parsed, persona };
-  } catch {
-    const match = raw.match(/\{[\s\S]*"critiques"[\s\S]*\}/);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[0]);
-        if (Array.isArray(parsed.critiques)) return { ...parsed, persona };
-      } catch { /* ignore */ }
-    }
-  }
-  console.warn(`[Swarm] Failed to parse ${persona} critique output`);
-  return null;
-}
-
-function parseReviseOutput(raw: string, persona: string): ReviseOutput | null {
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed.revised_probability === 'number') return { ...parsed, persona };
-  } catch {
-    const match = raw.match(/\{[\s\S]*"revised_probability"[\s\S]*\}/);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[0]);
-        if (typeof parsed.revised_probability === 'number') return { ...parsed, persona };
-      } catch { /* ignore */ }
-    }
-  }
-  console.warn(`[Swarm] Failed to parse ${persona} revise output`);
-  return null;
-}
-
-function toExpertSummary(eo: ExpertOutput): ExpertSummary {
-  return {
-    persona: eo.persona,
-    thesis: eo.thesis,
-    position: eo.position,
-    probability_of_success: eo.probability_of_success,
-    arguments: eo.arguments,
-    key_risks: eo.key_risks,
-  };
-}
-
-function isHighStakes(data: EnrichedPromptData): boolean {
-  for (const pos of data.portfolio.positions) {
-    if (Math.abs(pos.unrealizedPnlPct) > 3) return true;
-  }
-  const totalMargin = data.portfolio.positions.reduce(
-    (sum, p) => sum + (p.entryPrice * (p as any).quantity || 0) / (p.leverage || 1),
-    0,
-  );
-  if (data.portfolio.balanceUsd > 0 && totalMargin / data.portfolio.balanceUsd > 0.3) return true;
-  return false;
-}
+// ── Legacy judge prompt (kept for backward compat) ────────────────────
 
 export function buildJudgePrompt(expertOutputs: (ExpertOutput | null)[], rawTexts: string[], personas: SwarmPersona[], critiqueOutputs?: (CritiqueOutput | null)[], reviseOutputs?: (ReviseOutput | null)[]): string {
   const sections: string[] = [];
@@ -179,6 +128,32 @@ You MUST respond with valid JSON:
 {"decisions": [{"pair": "<pair>", "action": "LONG|SHORT|HOLD|CLOSE", "size_pct": <number>, "leverage": <number>, "stop_loss_pct": <number>, "take_profit_pct": <number>, "confidence": <0-100>, "reasoning": "<string>"}], "next_check_minutes": <1-30>}`;
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────
+
+/** Reverse lookup: persona code → SwarmPersona name */
+const CODE_TO_PERSONA: Record<string, SwarmPersona> = {};
+for (const [name, code] of Object.entries(BB_PERSONA_CODES)) {
+  CODE_TO_PERSONA[code] = name as SwarmPersona;
+}
+
+function parsePersonaUpdate(raw: string): PersonaUpdate | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed?.vote) return parsed;
+  } catch {
+    const match = raw.match(/\{[\s\S]*"vote"[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (parsed?.vote) return parsed;
+      } catch { /* */ }
+    }
+  }
+  return null;
+}
+
+// ── SwarmAgent (Blackboard Pattern) ───────────────────────────────────
+
 export class SwarmAgent {
   sessionId: string | undefined;
   cycleId: number | undefined;
@@ -210,60 +185,91 @@ export class SwarmAgent {
     }
 
     const userPrompt = buildUserPrompt(data);
-    const MAX_LEVELS = 5;
+    const MAX_ROUNDS = 3;
     const allPersonas: SwarmPersona[] = ['risk_manager', 'market_structure', 'devils_advocate'];
     if (this.grokLlm) allPersonas.push('narrative_expert');
 
+    // Initialize blackboard with market context
+    const bb = new SwarmBlackboard({
+      pairs: data.snapshots.map(s => s.pair),
+      regime: data.regime ?? '',
+      fearGreed: data.fearGreed?.value ?? 50,
+      volumeRatio: data.snapshots[0]?.volumeRatio ?? 0,
+    });
+
+    // Keep conversation history for DB backward compatibility
     const conversationHistory: Array<{ persona: string; content: string; vote?: string; phase: number }> = [];
-    const pendingPersonasByLevel = new Map<number, Array<{ persona: string; model: string; raw_response: string; vote?: string; confidence?: number; reasoning?: string; phase: number }>>();
 
     let finalDecisions: TradeDecision[] = [];
     let nextSpeakers: SwarmPersona[] = allPersonas;
 
-    for (let level = 1; level <= MAX_LEVELS; level++) {
-      const speakers = level === 1 ? allPersonas : nextSpeakers;
-      console.log(`[Swarm] Level ${level}: ${speakers.join(', ')}`);
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      const speakers = round === 1 ? allPersonas : nextSpeakers;
+      console.log(`[Swarm] Round ${round}: ${speakers.join(', ')}`);
 
-      const contextSuffix = level > 1
-        ? '\n\n== PRIOR DEBATE MESSAGES ==\n' + conversationHistory
-          .map(m => `[L${m.phase}] ${m.persona.toUpperCase()}${m.vote ? ` (${m.vote})` : ''}: ${m.content}`)
-          .join('\n\n')
-        : '';
-
+      // Each persona reads the blackboard and writes a structured update
       const expertCalls = speakers.map(p => {
+        const systemPrompt = buildBlackboardExpertPrompt(p, bb.getState());
         const isGrok = p === 'narrative_expert' && this.grokLlm;
         return isGrok
-          ? this.grokLlm.call(buildExpertSystemPrompt(p), userPrompt + contextSuffix, 'grok-4-1-fast-reasoning')
-          : this.llm.call(buildExpertSystemPrompt(p), userPrompt + contextSuffix);
+          ? this.grokLlm.call(systemPrompt, userPrompt, 'grok-4-1-fast-reasoning')
+          : this.llm.call(systemPrompt, userPrompt);
       });
 
       const results = await Promise.allSettled(expertCalls);
-      const levelPending: typeof pendingPersonasByLevel extends Map<number, infer V> ? V : never = [];
+      const levelPending: Array<{ persona: string; model: string; raw_response: string; vote?: string; confidence?: number; reasoning?: string; phase: number; conflicts_with?: Record<string, string>; signals?: { bullish?: string[]; bearish?: string[]; neutral?: string[] } }> = [];
 
       for (let i = 0; i < results.length; i++) {
         const res = results[i];
         if (res.status === 'fulfilled') {
-          const eo = parseExpertOutput(res.value, speakers[i]);
+          const raw = res.value;
+          const update = parsePersonaUpdate(raw);
           if (speakers[i] === 'narrative_expert') this.sourceHealth?.recordSuccess('grok-narrative');
-          conversationHistory.push({
-            persona: speakers[i],
-            content: eo?.thesis || res.value.slice(0, 500),
-            vote: eo?.position,
-            phase: level,
-          });
-          if (this.sessionId) {
-            levelPending.push({
+
+          if (update?.vote) {
+            const code = BB_PERSONA_CODES[speakers[i]] ?? speakers[i].slice(0, 2).toUpperCase();
+            bb.mergePersonaUpdate(code, update);
+
+            conversationHistory.push({
               persona: speakers[i],
-              model: speakers[i] === 'narrative_expert' ? 'grok' : 'codex',
-              raw_response: res.value,
-              vote: eo?.position,
-              confidence: eo?.confidence,
-              reasoning: eo?.thesis || res.value.slice(0, 500),
-              phase: level,
+              content: raw.slice(0, 500),
+              vote: update.vote.d,
+              phase: round,
             });
+
+            if (this.sessionId) {
+              levelPending.push({
+                persona: speakers[i],
+                model: speakers[i] === 'narrative_expert' ? 'grok' : 'codex',
+                raw_response: raw,
+                vote: update.vote.d,
+                confidence: update.vote.c,
+                reasoning: update.vote.reason || raw.slice(0, 500),
+                phase: round,
+                conflicts_with: update.conflicts_with,
+                signals: update.signals,
+              });
+            }
+          } else {
+            // Parse failed but response came back
+            console.warn(`[Swarm] ${speakers[i]} returned unparseable update at round ${round}`);
+            conversationHistory.push({
+              persona: speakers[i],
+              content: raw.slice(0, 500),
+              phase: round,
+            });
+            if (this.sessionId) {
+              levelPending.push({
+                persona: speakers[i],
+                model: speakers[i] === 'narrative_expert' ? 'grok' : 'codex',
+                raw_response: raw,
+                reasoning: raw.slice(0, 500),
+                phase: round,
+              });
+            }
           }
         } else {
-          console.warn(`[Swarm] ${speakers[i]} failed at L${level}:`, results[i].status === 'rejected' ? (results[i] as PromiseRejectedResult).reason : '');
+          console.warn(`[Swarm] ${speakers[i]} failed at round ${round}:`, results[i].status === 'rejected' ? (results[i] as PromiseRejectedResult).reason : '');
           if (speakers[i] === 'narrative_expert') {
             const reason = results[i].status === 'rejected' ? (results[i] as PromiseRejectedResult).reason : new Error('unknown');
             this.sourceHealth?.recordFailure('grok-narrative', reason?.message ?? String(reason));
@@ -271,24 +277,22 @@ export class SwarmAgent {
         }
       }
 
-      pendingPersonasByLevel.set(level, levelPending);
-
-      if (conversationHistory.filter(m => m.phase === level).length === 0) {
-        console.error('[Swarm] All sub-agents failed at level', level);
+      if (conversationHistory.filter(m => m.phase === round).length === 0) {
+        console.error('[Swarm] All sub-agents failed at round', round);
         throw new Error('Swarm failure');
       }
 
-      // Judge for this level
-      const judgePrompt = buildLevelJudgePrompt(level, conversationHistory, MAX_LEVELS);
+      // Judge reads the blackboard
+      const judgePrompt = buildBlackboardJudgePrompt(round, bb.getState(), MAX_ROUNDS);
       let rawJudge: string;
       try {
         rawJudge = await this.llm.call(judgePrompt, userPrompt);
       } catch (e) {
-        console.error(`[Swarm] Judge failed at L${level}:`, e);
+        console.error(`[Swarm] Judge failed at round ${round}:`, e);
         return [];
       }
 
-      conversationHistory.push({ persona: 'judge', content: rawJudge.slice(0, 500), phase: level });
+      conversationHistory.push({ persona: 'judge', content: rawJudge.slice(0, 500), phase: round });
 
       // Parse judge response
       let judgeResult: any;
@@ -300,18 +304,18 @@ export class SwarmAgent {
       }
 
       if (!judgeResult) {
-        console.error(`[Swarm] Judge parse failed at L${level}`);
+        console.error(`[Swarm] Judge parse failed at round ${round}`);
         return [];
       }
 
-      console.log(`[Swarm] L${level} Judge: continue=${judgeResult.continue}, verdict="${(judgeResult.verdict || '').slice(0, 80)}"`);
+      console.log(`[Swarm] Round ${round} Judge: continue=${judgeResult.continue}, verdict="${(judgeResult.verdict || '').slice(0, 80)}"`);
 
       const ncm = judgeResult.next_check_minutes;
       if (typeof ncm === 'number' && Number.isFinite(ncm) && ncm >= 1 && ncm <= 30) {
         this.llm.lastNextCheckMinutes = ncm;
       }
 
-      // Store DB for this level
+      // Store DB for this round
       if (this.sessionId) {
         if (!this.cycleId) {
           console.warn('[Swarm] WARNING: cycleId is null — conversation will not be linked to cycle');
@@ -322,10 +326,11 @@ export class SwarmAgent {
           layer: 1,
           model: 'codex',
           method: 'swarm_consensus',
-          label: `judge_level_${level}`,
+          label: `judge_round_${round}`,
           system_prompt: judgePrompt,
           user_prompt: userPrompt,
           raw_response: rawJudge,
+          blackboard_state: JSON.parse(bb.toJSON()),
         }).then((convId) => {
           for (const pp of levelPending) {
             insertSwarmPersona({ ...pp, conversation_id: convId }).catch(() => {});
@@ -333,16 +338,31 @@ export class SwarmAgent {
         }).catch(() => {});
       }
 
-      if (!judgeResult.continue || level >= MAX_LEVELS) {
+      if (!judgeResult.continue || round >= MAX_ROUNDS) {
         finalDecisions = judgeResult.decisions || [];
         break;
       }
 
-      // Prepare next speakers
-      const requestedSpeakers = judgeResult.next_speakers ?? [];
-      nextSpeakers = requestedSpeakers.length > 0
-        ? requestedSpeakers.filter((s: string) => allPersonas.includes(s as SwarmPersona)) as SwarmPersona[]
-        : allPersonas;
+      // Determine next speakers from blackboard conflicts
+      const conflictingCodes = bb.getConflictingSpeakers();
+      if (conflictingCodes.length > 0) {
+        // Map codes back to persona names
+        const conflictPersonas = conflictingCodes
+          .map(code => CODE_TO_PERSONA[code])
+          .filter((p): p is SwarmPersona => !!p && allPersonas.includes(p));
+        nextSpeakers = conflictPersonas.length > 0 ? conflictPersonas : allPersonas;
+      } else {
+        // Judge may also provide next_speakers as persona codes or names
+        const requestedSpeakers = judgeResult.next_speakers ?? [];
+        if (requestedSpeakers.length > 0) {
+          nextSpeakers = requestedSpeakers
+            .map((s: string) => CODE_TO_PERSONA[s] ?? s)
+            .filter((s: string) => allPersonas.includes(s as SwarmPersona)) as SwarmPersona[];
+          if (nextSpeakers.length === 0) nextSpeakers = allPersonas;
+        } else {
+          nextSpeakers = allPersonas;
+        }
+      }
     }
 
     this.lastFingerprint = fp;
