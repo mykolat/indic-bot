@@ -75,25 +75,49 @@ Layer 4: Risk Manager     — hard guardrails, can veto any decision (already ex
 Layer 5: Position Manager — partial TP, trailing, scale out (NEW - #34)
 ```
 
-**Critical insight**: LLM can and should decide BUY/SELL/HOLD/CLOSE — but as a **constrained action selector**, not as a rule source. The quant cage (regime + filters + risk manager) defines the envelope; LLM operates within it.
+### Architecture Principle
 
-This is already how Indicbot works: LLM doesn't trade freely. It reasons within regime context, filter warnings, risk guardrails, and swarm debate. The system is "discretionary portfolio manager inside a quant cage."
+> **Give LLM more context, but not more sovereignty.**
 
-**Where LLM adds unique value** (things algorithms can't do well):
+LLM = action brain. Risk engine = safety brain. Execution = no brain needed.
+
+The decision envelope (regime + filters + risk manager) defines what's possible. LLM selects the best action within it. This is risk-bounded autonomy — not a cage for a dumb model, but an operating envelope for a strong one.
+
+### Three-layer separation
+
+| Layer | Owner | Examples |
+|-------|-------|----------|
+| **Deterministic** (never LLM) | Risk engine + Executor | Position sizing, leverage caps, SL/TP constraints, exposure math, order types, retry, reconciliation, hard invalidation (no SL = no trade, cooldown, dupes) |
+| **LLM discretionary** (action brain) | LLM + Swarm | Action selection (BUY/SELL/HOLD/CLOSE/WAIT/REDUCE), thesis generation & invalidation, cross-signal conflict resolution, event/news interpretation, gray-zone decisions |
+| **External intelligence** | Grok + news sources | Real-time news/narrative, sentiment, pair-specific event detection — a separate signal family alongside market data, technical, and derivatives |
+
+### Where LLM adds unique value
+
 - Weighing contradictory signals in gray zones (HOLD vs CLOSE)
 - Recognizing when a move is extended despite valid trend
 - Deciding "do nothing" is the right action with reasoning
-- Integrating news/macro context into position decisions
+- News-to-market interpretation (event-risk asymmetry)
+- Cross-signal conflict resolution (bearish structure + bullish catalyst)
+- Thesis persistence — knowing when original thesis is still valid
 
-**Where LLM must NOT have authority**:
-- Inventing signals from scratch (bypassing regime/filters)
-- Setting risk size without hard limits
-- Overriding system rules (SL, max exposure, session loss caps)
-- Changing thesis post-factum to justify actions
+### Four hard boundaries (LLM never controls)
 
-**Action trust levels**:
-- High-trust (LLM discretion): HOLD, CLOSE, reduce risk, skip cycle, wait for confirmation
-- Constrained (hard guardrails): BUY, SELL, re-add, increase size, reverse position
+1. **Position sizing** — LLM proposes, risk engine decides (size, leverage, exposure, correlation)
+2. **Hard invalidation** — no SL = no trade, exposure cap, cooldown, duplicate rejection
+3. **Execution** — order type, retry policy, reconciliation, exchange state
+4. **Performance truth** — LLM must not self-assess. External attribution layer measures edge.
+
+### Action trust levels
+
+- **High-trust** (LLM discretion): HOLD, CLOSE, reduce risk, skip cycle, wait for confirmation
+- **Constrained** (hard guardrails required): BUY, SELL, re-add, increase size, reverse position
+
+### News layer validation criteria
+
+When evaluating whether news/Grok adds value, measure:
+1. Does news layer actually change actions? (not just enrich explanations)
+2. Do those changes improve PnL / reduce drawdown?
+3. Does it work out-of-sample, not just in dramatic cases?
 
 ### What we already have (implicit strategy system)
 
