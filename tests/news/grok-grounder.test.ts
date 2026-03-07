@@ -9,6 +9,16 @@ vi.mock('../../src/utils/fetch-timeout.js', () => ({
 import { fetchWithTimeout } from '../../src/utils/fetch-timeout.js';
 const mockFetch = vi.mocked(fetchWithTimeout);
 
+function mockResponsesApi(content: string, inputTokens = 200, outputTokens = 100) {
+  return {
+    ok: true,
+    json: async () => ({
+      output_text: content,
+      usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+    }),
+  } as any;
+}
+
 describe('GrokGrounder', () => {
   let grounder: GrokGrounder;
 
@@ -17,24 +27,17 @@ describe('GrokGrounder', () => {
     grounder = new GrokGrounder('test-xai-key');
   });
 
-  it('verifies a claim via xAI API', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              verified: true,
-              confidence: 0.95,
-              summary: 'Confirmed by @SECGov and @Bloomberg.',
-              sources: ['@SECGov', '@Bloomberg'],
-              contradictions: [],
-            }),
-          },
-        }],
-        usage: { prompt_tokens: 200, completion_tokens: 100, total_tokens: 300 },
+  it('verifies a claim via xAI Responses API', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponsesApi(
+      JSON.stringify({
+        verified: true,
+        confidence: 0.95,
+        summary: 'Confirmed by @SECGov and @Bloomberg.',
+        sources: ['@SECGov', '@Bloomberg'],
+        contradictions: [],
       }),
-    } as any);
+      200, 100,
+    ));
 
     const result = await grounder.verify('SEC approves spot BTC ETF');
 
@@ -45,10 +48,10 @@ describe('GrokGrounder', () => {
     expect(result.tokensUsed).toBe(300);
 
     const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe('https://api.x.ai/v1/chat/completions');
+    expect(url).toBe('https://api.x.ai/v1/responses');
     const body = JSON.parse(opts!.body as string);
     expect(body.model).toBe('grok-4-1-fast-non-reasoning');
-    expect(body.search_parameters).toEqual({ mode: 'on', return_citations: true });
+    expect(body.tools).toEqual([{ type: 'web_search' }, { type: 'x_search' }]);
     expect((opts!.headers as any)['Authorization']).toBe('Bearer test-xai-key');
   });
 
@@ -75,13 +78,7 @@ describe('GrokGrounder', () => {
   });
 
   it('handles malformed JSON in response', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: 'Not valid JSON at all' } }],
-        usage: { total_tokens: 50 },
-      }),
-    } as any);
+    mockFetch.mockResolvedValueOnce(mockResponsesApi('Not valid JSON at all', 30, 20));
 
     const result = await grounder.verify('Claim');
     expect(result.claim).toBe('Claim');
@@ -89,14 +86,25 @@ describe('GrokGrounder', () => {
     expect(result.tokensUsed).toBe(50);
   });
 
-  it('records success in sourceHealth on verify', async () => {
+  it('handles output array fallback when output_text is empty', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: '{"verified": true, "confidence": 0.9, "summary": "confirmed"}' } }],
-        usage: { total_tokens: 100 },
+        output: [{ type: 'message', content: [{ text: '{"verified": true, "confidence": 0.8, "summary": "ok"}' }] }],
+        usage: { input_tokens: 50, output_tokens: 50 },
       }),
     } as any);
+
+    const result = await grounder.verify('test');
+    expect(result.verified).toBe(true);
+    expect(result.tokensUsed).toBe(100);
+  });
+
+  it('records success in sourceHealth on verify', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponsesApi(
+      '{"verified": true, "confidence": 0.9, "summary": "confirmed"}',
+      50, 50,
+    ));
     const mockHealth = { recordSuccess: vi.fn(), recordFailure: vi.fn() };
     const g = new GrokGrounder('key', mockHealth as any);
     await g.verify('test claim');
@@ -116,26 +124,19 @@ describe('GrokGrounder', () => {
   });
 
   it('extracts enriched fields (claimType, tradability, sourceQuality)', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              verified: true,
-              confidence: 0.9,
-              summary: 'SEC filing confirmed',
-              sources: ['@SECGov'],
-              contradictions: [],
-              claim_type: 'regulatory',
-              tradability: 'actionable',
-              source_quality: 'official',
-            }),
-          },
-        }],
-        usage: { total_tokens: 400 },
+    mockFetch.mockResolvedValueOnce(mockResponsesApi(
+      JSON.stringify({
+        verified: true,
+        confidence: 0.9,
+        summary: 'SEC filing confirmed',
+        sources: ['@SECGov'],
+        contradictions: [],
+        claim_type: 'regulatory',
+        tradability: 'actionable',
+        source_quality: 'official',
       }),
-    } as any);
+      200, 200,
+    ));
 
     const result = await grounder.verify('SEC approves new crypto rule');
     expect(result.claimType).toBe('regulatory');
