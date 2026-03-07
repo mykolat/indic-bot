@@ -75,6 +75,15 @@ RISK SCALING (enforced by system, your awareness helps):
 - Extreme Fear/Greed: System caps leverage at ${config.fearGreedLeverageCap ?? 10}x
 - If confidence < ${config.minConfidence ?? 55}: System will reject your trade
 
+CAPITULATION / EXTREME FEAR POLICY:
+F&G < 15 means panic, not automatic SHORT.
+Panic can produce either continuation down or violent reversal up.
+- SHORT continuation valid if: price < VWAP, EMA20 < EMA50, ADX strong, volume expanding on downside, not overextended vs ATR
+- SHORT dangerous if: market already flushed hard, RSI deeply oversold, climactic volume spike, bounce/squeeze signs
+- In panic: require stronger confirmation for new SHORTs. Do not short only because everyone is fearful.
+- Panic changes risk management first, direction second.
+- When everyone is already panicking, the trade can be late.
+
 CONSTRAINTS:
 - Minimum leverage: ${config.minLeverage ?? 1}x (floor — low balance demands capital efficiency)
 - Max leverage: ${config.maxLeverage}x
@@ -113,6 +122,10 @@ Respond ONLY with valid JSON:
         "session_fit_score": <0-100>,
         "session_role": "supports" | "neutral" | "contradicts",
         "session_reason": "<1 sentence: why session pattern is/isn't relevant>"
+      },
+      "capitulation_assessment": {
+        "mode": "continuation" | "exhaustion" | "unclear",
+        "reason": "<1 sentence: why continuation or exhaustion>"
       }
     }
   ],

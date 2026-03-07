@@ -88,10 +88,16 @@ describe('classifyRegime', () => {
     expect(result.regime).toBe(MarketRegime.Breakout);
   });
 
-  it('detects capitulation (F&G < 15)', () => {
-    const ind = makeIndicators({ adx: 30, ema20: 105, ema50: 100, vwap: 99 });
+  it('detects capitulation (F&G < 15 + volume > 1.5x)', () => {
+    const ind = makeIndicators({ adx: 30, ema20: 105, ema50: 100, vwap: 99, volumeRatio: 1.8 });
     const result = classifyRegime(ind, 104, { value: 10 });
     expect(result.regime).toBe(MarketRegime.Capitulation);
+  });
+
+  it('F&G < 15 alone does NOT trigger capitulation', () => {
+    const ind = makeIndicators({ adx: 30, ema20: 105, ema50: 100, vwap: 99 });
+    const result = classifyRegime(ind, 104, { value: 10 });
+    expect(result.regime).not.toBe(MarketRegime.Capitulation);
   });
 
   it('detects capitulation from extreme volume (> 3x)', () => {
@@ -101,12 +107,13 @@ describe('classifyRegime', () => {
   });
 
   it('capitulation overrides other regimes', () => {
-    // Bull trend conditions + capitulation F&G
+    // Bull trend conditions + capitulation F&G + volume
     const ind = makeIndicators({
       ema20: 105,
       ema50: 100,
       adx: 30,
       vwap: 99,
+      volumeRatio: 1.8,
     });
     const result = classifyRegime(ind, 104, { value: 8 });
     expect(result.regime).toBe(MarketRegime.Capitulation);
@@ -160,10 +167,10 @@ describe('classifyRegime — Scalping', () => {
     expect(result.confidence).toBeGreaterThan(0);
   });
 
-  it('does NOT detect Scalping when F&G < 15 (Capitulation takes priority)', () => {
+  it('F&G < 15 with low volume detects Scalping, not Capitulation', () => {
     const ind = makeIndicators({ volumeRatio: 0.3, adx: 14 });
     const result = classifyRegime(ind, 100, { value: 10 });
-    expect(result.regime).toBe(MarketRegime.Capitulation);
+    expect(result.regime).toBe(MarketRegime.Scalping);
   });
 
   it('does NOT detect Scalping when volume >= 0.5', () => {

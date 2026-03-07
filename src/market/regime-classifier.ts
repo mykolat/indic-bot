@@ -28,13 +28,15 @@ export function classifyRegime(
   const factors: string[] = [];
 
   // --- Priority 1: Capitulation ---
-  const isFgCapitulation = fearGreed.value < 15;
+  // F&G alone does NOT trigger Capitulation — panic is not a directional signal.
+  // Capitulation requires extreme volume (real sell-off) OR F&G < 15 + volume > 1.5x.
   const isVolumeCapitulation = indicators.volumeRatio > 3;
+  const isFgPlusVolume = fearGreed.value < 15 && indicators.volumeRatio > 1.5;
 
-  if (isFgCapitulation || isVolumeCapitulation) {
-    if (isFgCapitulation) factors.push(`F&G extreme fear (${fearGreed.value})`);
+  if (isVolumeCapitulation || isFgPlusVolume) {
     if (isVolumeCapitulation) factors.push(`extreme volume (${indicators.volumeRatio.toFixed(1)}x avg)`);
-    const confidence = isFgCapitulation && isVolumeCapitulation ? 95 : 80;
+    if (fearGreed.value < 15) factors.push(`F&G extreme fear (${fearGreed.value})`);
+    const confidence = isVolumeCapitulation ? 90 : 75;
     return { regime: MarketRegime.Capitulation, confidence, factors };
   }
 

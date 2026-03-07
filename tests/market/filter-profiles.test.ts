@@ -30,7 +30,7 @@ describe('getFilterProfile', () => {
     it('returns capitulation profile with minimal filters', () => {
         const profile = getFilterProfile(MarketRegime.Capitulation);
         expect(profile.confluenceMin).toBe(1);
-        expect(profile.leverageMultiplier).toBe(0.25);
+        expect(profile.leverageMultiplier).toBe(0.75);
         expect(profile.minConfidence).toBe(45);
     });
 
