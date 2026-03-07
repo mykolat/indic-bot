@@ -186,7 +186,7 @@ export class SwarmAgent {
 
     const userPrompt = buildUserPrompt(data);
     const MAX_ROUNDS = 4;
-    const allPersonas: SwarmPersona[] = ['risk_manager', 'market_structure', 'devils_advocate'];
+    const allPersonas: SwarmPersona[] = ['risk_manager', 'market_structure'];
     if (this.grokLlm) allPersonas.push('narrative_expert');
 
     // Initialize blackboard with market context
@@ -280,6 +280,40 @@ export class SwarmAgent {
       if (conversationHistory.filter(m => m.phase === round).length === 0) {
         console.error('[Swarm] All sub-agents failed at round', round);
         throw new Error('Swarm failure');
+      }
+
+      // ── Reactive DA activation (round 1 only) ──
+      if (round === 1) {
+        const { shouldActivateDA } = await import('./da-activation.js');
+        if (shouldActivateDA(bb.getState().votes)) {
+          console.log('[Swarm] DA activated — searching for arguments via Grok');
+          const { buildDAPrompt } = await import('./blackboard-prompts.js');
+          const daPrompt = buildDAPrompt(bb.getState());
+          try {
+            const daRaw = this.grokLlm
+              ? await this.grokLlm.call(daPrompt, userPrompt, 'grok-4-1-fast-non-reasoning', { search: true })
+              : await this.llm.call(daPrompt, userPrompt);
+            const daUpdate = parsePersonaUpdate(daRaw);
+            if (daUpdate?.vote) {
+              bb.mergePersonaUpdate('DA', daUpdate);
+              conversationHistory.push({ persona: 'devils_advocate', content: daRaw.slice(0, 500), vote: daUpdate.vote.d, phase: round });
+              if (this.sessionId) {
+                levelPending.push({
+                  persona: 'devils_advocate', model: this.grokLlm ? 'grok' : 'codex',
+                  raw_response: daRaw, vote: daUpdate.vote.d, confidence: daUpdate.vote.c,
+                  reasoning: daUpdate.vote.reason || daRaw.slice(0, 500), phase: round,
+                  conflicts_with: daUpdate.conflicts_with, signals: daUpdate.signals,
+                });
+              }
+            }
+            this.sourceHealth?.recordSuccess('grok-da');
+          } catch (e: any) {
+            console.warn('[Swarm] DA failed:', e.message);
+            this.sourceHealth?.recordFailure('grok-da', e.message ?? String(e));
+          }
+        } else {
+          console.log('[Swarm] DA skipped — activation condition not met');
+        }
       }
 
       // Judge reads the blackboard
