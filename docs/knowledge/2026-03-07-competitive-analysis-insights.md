@@ -102,7 +102,7 @@ The decision envelope (regime + filters + risk manager) defines what's possible.
 
 ### Four hard boundaries (LLM never controls)
 
-1. **Position sizing** — LLM proposes, risk engine decides (size, leverage, exposure, correlation)
+1. **Position sizing** — Risk engine sets bounds (min/max leverage, max exposure %), LLM selects within range (e.g. risk says 20-30x, LLM picks 20 or 25 based on conviction/context)
 2. **Hard invalidation** — no SL = no trade, exposure cap, cooldown, duplicate rejection
 3. **Execution** — order type, retry policy, reconciliation, exchange state
 4. **Performance truth** — LLM must not self-assess. External attribution layer measures edge.
