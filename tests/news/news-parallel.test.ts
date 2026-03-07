@@ -78,12 +78,8 @@ describe('TradingLoop News Parallel Fetch', () => {
         expect(mockMacro.fetch).toHaveBeenCalled();
         expect(mockMacroAnalyst.analyze).toHaveBeenCalled();
 
-        // Check LLM calls (runLayer1Experts calls llm.call 3 times)
-        expect(mockDeps.llm.call).toHaveBeenCalledTimes(3);
-
-        // Verify one of the calls contains news data
-        const newsCall = mockDeps.llm.call.mock.calls.find((c: any) => c[0].includes('NewsExpert'));
-        expect(newsCall[1]).toContain('data');
+        // Check LLM calls (runLayer1Experts calls llm.call 2 times: MacroExpert + MemoryExpert)
+        expect(mockDeps.llm.call).toHaveBeenCalledTimes(2);
 
         // Verify one of the calls contains macro data
         const macroCall = mockDeps.llm.call.mock.calls.find((c: any) => c[0].includes('MacroExpert'));

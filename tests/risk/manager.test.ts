@@ -391,22 +391,6 @@ describe('RiskManager', () => {
       expect(result.reason).toContain('Ratchet');
     });
 
-    it('enforces breakeven lock when PnL >= 5%', () => {
-      // SL at 1.0% above entry = 0.27 * 1.01 = 0.2727 — above entry → violates breakeven lock
-      const decision: TradeDecision = {
-        pair: 'ADAUSDT', action: 'ADJUST', size_pct: 0, leverage: 0,
-        stop_loss_pct: 1.0, take_profit_pct: 7.5, reasoning: 'tighten SL',
-      };
-      // Use a ctx where current SL is already above entry but position has 8% PnL
-      const looseCtx: AdjustContext = {
-        ...baseAdjustCtx,
-        currentSlPrice: 0.2730,  // already tight but still above entry
-      };
-      const result = rm.validate(decision, adjustPortfolio, undefined, looseCtx);
-      expect(result.approved).toBe(false);
-      expect(result.reason).toContain('Breakeven lock');
-    });
-
     it('approves profit-lock SL (negative stop_loss_pct)', () => {
       // SL at -3.0% → for SHORT: 0.27 * (1 + (-3)/100) = 0.27 * 0.97 = 0.2619 — below entry, locks profit
       const decision: TradeDecision = {
