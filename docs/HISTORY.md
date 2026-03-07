@@ -2,7 +2,7 @@
 
 ## Overview
 
-Indic Bot is a production crypto futures trading bot built in 36 hours (2026-03-04 02:27 to 2026-03-05 13:08) by a single developer using Claude Code as the primary AI collaborator. 174 commits. The system runs live on Binance Futures with a 3-layer LLM resilience stack, Grok-powered risk guards, multi-persona swarm consensus, graph RAG episodic memory, and a 19-table PostgreSQL observability backend. It trades multiple pairs with configurable leverage, stops, and take-profits — fully autonomous.
+Indic Bot is a production crypto futures trading bot built over 4 days (2026-03-04 02:27 to 2026-03-07 20:12) by a single developer using Claude Code as the primary AI collaborator. 318 commits. The system runs live on Binance Futures with a 3-layer LLM resilience stack, Grok-powered risk guards, multi-persona swarm consensus, graph RAG episodic memory, and a 19-table PostgreSQL observability backend. It trades multiple pairs with configurable leverage, stops, and take-profits — fully autonomous.
 
 ---
 
@@ -28,7 +28,7 @@ Indic Bot is a production crypto futures trading bot built in 36 hours (2026-03-
 | Test suite (Vitest, 15+ test files) | 1–2 weeks |
 | **Total** | **34–47 weeks** |
 
-Claude Code compressed 34–47 weeks of solo engineering into 36 hours. The key acceleration factors were: Claude generating scaffolding, tests, and documentation in parallel with design decisions rather than sequentially; the developer acting as architect and reviewer rather than implementer; bite-sized commits keeping context sharp; and a skill-based workflow (`brainstorm-indic`, `audit-report`) that packaged multi-step workflows into single prompts. At 40-hour work weeks, the 34–47 week pre-LLM estimate represents 1,360–1,880 hours of solo engineering. Compressed into 36 hours with Claude Code as AI collaborator, the acceleration factor is approximately 38–52x.
+Claude Code compressed 34–47 weeks of solo engineering into 4 days. The key acceleration factors were: Claude generating scaffolding, tests, and documentation in parallel with design decisions rather than sequentially; the developer acting as architect and reviewer rather than implementer; bite-sized commits keeping context sharp; and a skill-based workflow (`brainstorm-indic`, `audit-report`) that packaged multi-step workflows into single prompts. At 40-hour work weeks, the 34–47 week pre-LLM estimate represents 1,360–1,880 hours of solo engineering. Compressed into 36 hours with Claude Code as AI collaborator, the acceleration factor is approximately 38–52x.
 
 ---
 
@@ -173,9 +173,9 @@ The swarm system was rebuilt around a **blackboard architecture**: a shared `Bla
 
 | Metric | Value |
 |---|---|
-| Total duration | 36 hours (2026-03-04 02:27 to 2026-03-05 13:08) |
-| Total commits | 174 |
-| Files changed / created | 178 |
+| Total duration | 4 days (2026-03-04 02:27 to 2026-03-07 20:12) |
+| Total commits | 318 |
+| Files changed / created | 377 |
 | Pre-LLM estimate (2021 solo) | 34–47 weeks |
 | Acceleration factor | ~38–52x |
 | LLM layers | 3 (Codex OAuth, OpenAI fallback, rule-based) |
@@ -191,11 +191,11 @@ The swarm system was rebuilt around a **blackboard architecture**: a shared `Bla
 
 ## What Made This Possible
 
-- **Design-first with an LLM collaborator**: The MVP design document and implementation plan (Phase 0) became the context anchor for every session. Without them, 174 commits across 36 hours would have drifted architecturally. With them, each session could resume exactly where the last ended.
+- **Design-first with an LLM collaborator**: The MVP design document and implementation plan (Phase 0) became the context anchor for every session. Without them, 318 commits across 4 days would have drifted architecturally. With them, each session could resume exactly where the last ended.
 
 - **TDD from the start**: Tests were written alongside features, not after. This meant every refactor — and there were many in the wave fixes — had a safety net. The Vitest suite caught SwarmAgent parsing regressions, EpisodicStore growth issues, and confluence scoring bugs before they reached production.
 
-- **Bite-sized commits**: 174 commits over 36 hours is one commit every 12 minutes on average. Small, focused commits kept the LLM's context sharp (each commit message was a precise description of intent) and made `git bisect` viable if a regression appeared.
+- **Bite-sized commits**: 318 commits over 4 days is roughly one commit every 18 minutes of active work. Small, focused commits kept the LLM's context sharp (each commit message was a precise description of intent) and made `git bisect` viable if a regression appeared.
 
 - **LLM as architect, not just coder**: Claude Code was used for architectural reasoning — choosing 3-layer resilience over 2-layer, choosing pure functions for confluence scoring, choosing `Promise.allSettled` over `Promise.all` — not just for generating boilerplate. The developer's role was to question architectural decisions, define constraints, and review outputs.
 
