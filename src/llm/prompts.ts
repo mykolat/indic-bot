@@ -129,13 +129,13 @@ Respond ONLY with valid JSON:
       }
     }
   ],
-  "next_check_minutes": <1-30>
+  "next_check_minutes": <10-30>
 }
 
 next_check_minutes guide: How soon to re-analyze. Consider:
-- Open positions → 1-2 min (monitor SL/TP, exits)
-- High volume (>1x) + strong setup forming → 1-3 min
-- Normal market, no positions → 5-10 min
+- Open positions → 10 min minimum
+- All HOLD, quiet market → 20-30 min
+- Breakout forming, high volume → 10-15 min
 - Low volume (<0.5x), all HOLD, no catalyst → 15-30 min
 - Off-hours, dead tape → 20-30 min
 - Session context: use session tendencies only if confirmed by actual volume/ADX/price action. Do not default to session-typical cadence.

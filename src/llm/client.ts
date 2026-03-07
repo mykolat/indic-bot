@@ -330,7 +330,7 @@ export class LLMClient {
         return null;
       }
       const ncm = parsed.next_check_minutes;
-      const nextCheckMinutes = typeof ncm === 'number' && ncm >= 1 && ncm <= 30 ? ncm : undefined;
+      const nextCheckMinutes = typeof ncm === 'number' && ncm >= 10 && ncm <= 30 ? ncm : undefined;
       return { decisions: parsed.decisions, nextCheckMinutes };
     } catch (err: any) {
       this.logParseError(content, err.message);

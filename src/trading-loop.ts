@@ -870,8 +870,10 @@ export class TradingLoop {
 
       // Hard limits: if open positions → max 2 min, otherwise LLM decides (1-30)
       const hasPositions = portfolio.positions.length > 0;
-      if (hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes > 2)) {
-        nextCheckMinutes = 1;
+      if (hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes < 10)) {
+        nextCheckMinutes = 10;
+      } else if (!hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes < 20)) {
+        nextCheckMinutes = 20;
       }
 
       // Safety guard: in Layer 2/3, filter out any LONG/SHORT decisions
