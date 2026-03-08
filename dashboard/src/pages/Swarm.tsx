@@ -30,13 +30,14 @@ interface SwarmMessage {
   signals?: { bullish?: string[]; bearish?: string[]; neutral?: string[] } | null;
 }
 
-interface SingleLlmDetail {
-  raw_response: string;
-  model: string;
-  tokens_in: number;
-  tokens_out: number;
-  latency_ms: number;
+interface SingleCycleEntry {
+  cycleId: number;
+  createdAt: string;
+  model?: string;
+  latency_ms?: number;
+  tokens?: number;
   decisions: Array<{ pair: string; action: string; confidence?: number; reasoning?: string }>;
+  raw_response?: string;
 }
 
 interface DebateDetail {
@@ -45,7 +46,7 @@ interface DebateDetail {
   messages: SwarmMessage[];
   userPrompt: string;
   blackboardStates: Array<{ phase: number; state: any }>;
-  singleLlm?: SingleLlmDetail;
+  singleCycles?: SingleCycleEntry[];
 }
 
 // ── Helpers ──
@@ -131,18 +132,18 @@ export function Swarm() {
   // ── Load sidebar (fast — single query) ──
   useEffect(() => {
     (async () => {
-      const [{ data: judges }, { data: latestCycle }, { data: allVotes }] = await Promise.all([
+      const [{ data: recentCycles }, { data: judges }, { data: allVotes }] = await Promise.all([
+        supabase
+          .from('cycles')
+          .select('id, volume_ratio, regime, created_at')
+          .order('created_at', { ascending: false })
+          .limit(100),
         supabase
           .from('llm_conversations')
           .select('cycle_id, raw_response, created_at')
           .eq('method', 'swarm_consensus')
           .order('created_at', { ascending: false })
           .limit(60),
-        supabase
-          .from('cycles')
-          .select('id, volume_ratio, regime, created_at')
-          .order('created_at', { ascending: false })
-          .limit(1),
         supabase
           .from('swarm_personas')
           .select('conversation_id, persona, vote, phase')
@@ -155,7 +156,6 @@ export function Swarm() {
       // Build vote lookup: conversation_id → cycle_id via judges
       const cycleVotes = new Map<number, Array<{ persona: string; vote: string | null }>>();
       if (judges?.length && allVotes?.length) {
-        // Get conversation IDs for each cycle
         const { data: convs } = await supabase
           .from('llm_conversations')
           .select('id, cycle_id')
@@ -172,35 +172,33 @@ export function Swarm() {
         }
       }
 
-      // Deduplicate by cycle_id, keep latest per cycle
-      const seen = new Set<number>();
-      const items: SidebarItem[] = [];
-
-      // If latest cycle is NOT a debate, show it as "skip" at top
-      const latestDebateCycleId = judges?.[0]?.cycle_id;
-      const latest = latestCycle?.[0];
-      if (latest && latest.id !== latestDebateCycleId) {
-        const vol = latest.volume_ratio != null ? Number(latest.volume_ratio).toFixed(2) : '?';
-        items.push({
-          cycleId: latest.id,
-          createdAt: latest.created_at,
-          summary: `Skip — Vol ${vol}x (low)`,
-          votes: [],
-          isSkip: true,
-          skipReason: `Vol ${vol}x below swarm threshold · ${latest.regime}`,
-        });
-        seen.add(latest.id);
+      // Build lookup of debate cycles
+      const debateJudge = new Map<number, string>();
+      for (const j of judges ?? []) {
+        if (!debateJudge.has(j.cycle_id)) {
+          debateJudge.set(j.cycle_id, j.raw_response);
+        }
       }
 
-      if (judges?.length) {
-        for (const j of judges) {
-          if (seen.has(j.cycle_id)) continue;
-          seen.add(j.cycle_id);
+      // Build items from ALL recent cycles
+      const items: SidebarItem[] = [];
+      for (const cycle of recentCycles ?? []) {
+        if (debateJudge.has(cycle.id)) {
           items.push({
-            cycleId: j.cycle_id,
-            createdAt: j.created_at,
-            summary: extractSummary(j.raw_response),
-            votes: cycleVotes.get(j.cycle_id) ?? [],
+            cycleId: cycle.id,
+            createdAt: cycle.created_at,
+            summary: extractSummary(debateJudge.get(cycle.id)),
+            votes: cycleVotes.get(cycle.id) ?? [],
+          });
+        } else {
+          const vol = cycle.volume_ratio != null ? Number(cycle.volume_ratio).toFixed(2) : '?';
+          items.push({
+            cycleId: cycle.id,
+            createdAt: cycle.created_at,
+            summary: `Single — Vol ${vol}x · ${cycle.regime ?? '?'}`,
+            votes: [],
+            isSkip: true,
+            skipReason: `Vol ${vol}x below swarm threshold · ${cycle.regime}`,
           });
         }
       }
@@ -230,36 +228,60 @@ export function Swarm() {
 
     setLoadingDetail(true);
 
-    // For skip items, fetch single LLM analysis
+    // For skip items, fetch ALL consecutive single-LLM cycles up to previous debate
     if (item.isSkip) {
+      // Collect consecutive skip cycle IDs from this one downward
+      const skipCycleIds: number[] = [];
+      for (let i = idx; i < sidebarItems.length; i++) {
+        if (!sidebarItems[i].isSkip) break;
+        skipCycleIds.push(sidebarItems[i].cycleId);
+      }
+
       const [{ data: convs }, { data: decisions }] = await Promise.all([
         supabase
           .from('llm_conversations')
-          .select('raw_response, model, tokens_in, tokens_out, latency_ms')
-          .eq('cycle_id', item.cycleId)
+          .select('cycle_id, raw_response, model, tokens_in, tokens_out, latency_ms, created_at')
+          .in('cycle_id', skipCycleIds)
           .eq('method', 'analyze')
-          .order('created_at', { ascending: false })
-          .limit(1),
+          .order('created_at', { ascending: false }),
         supabase
           .from('trade_decisions')
-          .select('pair, action, confidence, reasoning')
-          .eq('cycle_id', item.cycleId),
+          .select('cycle_id, pair, action, confidence, reasoning')
+          .in('cycle_id', skipCycleIds),
       ]);
-      const conv = convs?.[0];
+
+      const convMap = new Map<number, typeof convs extends (infer T)[] | null ? T : never>();
+      for (const c of convs ?? []) {
+        if (!convMap.has(c.cycle_id)) convMap.set(c.cycle_id, c);
+      }
+      const decMap = new Map<number, Array<{ pair: string; action: string; confidence?: number; reasoning?: string }>>();
+      for (const d of decisions ?? []) {
+        const arr = decMap.get(d.cycle_id) ?? [];
+        arr.push(d);
+        decMap.set(d.cycle_id, arr);
+      }
+
+      const singleCycles: SingleCycleEntry[] = skipCycleIds.map(cid => {
+        const si = sidebarItems.find(s => s.cycleId === cid)!;
+        const conv = convMap.get(cid);
+        return {
+          cycleId: cid,
+          createdAt: si.createdAt,
+          model: conv?.model,
+          latency_ms: conv?.latency_ms,
+          tokens: conv ? (conv.tokens_in ?? 0) + (conv.tokens_out ?? 0) : undefined,
+          decisions: decMap.get(cid) ?? [],
+          raw_response: conv?.raw_response,
+        };
+      });
+
       const detail: DebateDetail = {
         cycleId: item.cycleId,
         createdAt: item.createdAt,
         messages: [],
         userPrompt: '',
         blackboardStates: [],
-        singleLlm: conv ? {
-          raw_response: conv.raw_response,
-          model: conv.model,
-          tokens_in: conv.tokens_in,
-          tokens_out: conv.tokens_out,
-          latency_ms: conv.latency_ms,
-          decisions: decisions ?? [],
-        } : undefined,
+        singleCycles,
       };
       detailCache.current.set(item.cycleId, detail);
       setCurrentDetail(detail);
@@ -541,60 +563,53 @@ export function Swarm() {
               {rounds.map(r => (
                 <RoundSection key={r.round} {...r} />
               ))}
-              {rounds.length === 0 && selected?.isSkip && (
-                <div className="max-w-2xl mx-auto mt-4 space-y-4">
-                  <div className="bg-yellow-950/20 border border-yellow-800/30 rounded-xl px-5 py-3 flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-semibold text-yellow-500">Single LLM</span>
-                      <span className="text-xs text-zinc-500 ml-3">{selected.skipReason}</span>
-                    </div>
-                    {currentDetail?.singleLlm && (
-                      <div className="flex gap-3 text-xs text-zinc-600 font-mono">
-                        <span>{currentDetail.singleLlm.model}</span>
-                        <span>{currentDetail.singleLlm.latency_ms ? `${(currentDetail.singleLlm.latency_ms / 1000).toFixed(1)}s` : ''}</span>
-                        <span>{currentDetail.singleLlm.tokens_in + currentDetail.singleLlm.tokens_out} tok</span>
+              {rounds.length === 0 && selected?.isSkip && currentDetail?.singleCycles && (
+                <div className="max-w-2xl mx-auto space-y-3">
+                  {currentDetail.singleCycles.map((sc) => (
+                    <div key={sc.cycleId} className="bg-surface-1 border border-border rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-zinc-500">#{sc.cycleId}</span>
+                          <span className="text-xs text-zinc-600">
+                            {new Date(sc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div className="flex gap-3 text-xs text-zinc-600 font-mono">
+                          {sc.model && <span>{sc.model}</span>}
+                          {sc.latency_ms != null && <span>{(sc.latency_ms / 1000).toFixed(1)}s</span>}
+                          {sc.tokens != null && <span>{sc.tokens} tok</span>}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                  {currentDetail?.singleLlm ? (
-                    <>
-                      {currentDetail.singleLlm.decisions.map((d, i) => (
-                        <div key={i} className="bg-surface-1 border border-border rounded-xl p-5">
-                          <div className="flex items-baseline gap-3 mb-3">
-                            <span className={`text-2xl font-bold ${
+                      {sc.decisions.length > 0 ? sc.decisions.map((d, di) => (
+                        <div key={di} className={di > 0 ? 'mt-3 pt-3 border-t border-border' : ''}>
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className={`text-lg font-bold ${
                               d.action === 'HOLD' ? 'text-zinc-500' :
                               d.action === 'LONG' ? 'text-green-400' :
                               d.action === 'SHORT' ? 'text-red-400' :
                               d.action === 'CLOSE' ? 'text-yellow-400' : 'text-zinc-400'
                             }`}>{d.action}</span>
-                            <span className="text-lg text-zinc-300 font-mono">{d.pair}</span>
+                            <span className="text-sm text-zinc-300 font-mono">{d.pair}</span>
                             {d.confidence != null && (
-                              <span className="text-sm text-zinc-500">conf:{d.confidence}</span>
+                              <span className="text-xs text-zinc-500">conf:{d.confidence}</span>
                             )}
                           </div>
                           {d.reasoning && (
-                            <p className="text-sm text-zinc-400 leading-relaxed">{d.reasoning}</p>
+                            <p className="text-xs text-zinc-400 leading-relaxed">{d.reasoning}</p>
                           )}
                         </div>
-                      ))}
-                      {currentDetail.singleLlm.decisions.length === 0 && (
-                        <div className="bg-surface-1 border border-border rounded-xl p-5">
-                          <p className="text-xs text-zinc-600 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto">
-                            {(() => {
-                              try {
-                                return JSON.stringify(JSON.parse(currentDetail.singleLlm!.raw_response), null, 2);
-                              } catch {
-                                return currentDetail.singleLlm!.raw_response;
-                              }
-                            })()}
-                          </p>
-                        </div>
+                      )) : (
+                        <p className="text-xs text-zinc-600 italic">No decisions recorded</p>
                       )}
-                    </>
-                  ) : (
-                    <div className="text-sm text-zinc-600 text-center py-8">No single LLM data for this cycle</div>
+                    </div>
+                  ))}
+                  {currentDetail.singleCycles.length === 0 && (
+                    <div className="text-sm text-zinc-600 text-center py-8">No single LLM data found</div>
                   )}
                 </div>
+              )}
+              {rounds.length === 0 && selected?.isSkip && !currentDetail?.singleCycles && (
+                <div className="text-sm text-zinc-600 text-center py-8">No data for this cycle</div>
               )}
               {rounds.length === 0 && !selected?.isSkip && (
                 <div className="text-zinc-600 text-sm text-center mt-8">No expert data for this debate</div>
