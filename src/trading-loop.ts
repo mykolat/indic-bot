@@ -30,6 +30,7 @@ import type { TradeStoryLogger } from './logging/trade-story.js';
 import type { CryptoNews } from './news/types.js';
 import type { SwarmAgent } from './llm/swarm-agent.js';
 import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getDbOpenPositions, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp, getRecentLiquidations } from './db/repository.js';
+import { getPool } from './db/connection.js';
 import { detectGhostPositions } from './position-reconciler.js';
 import type { AdjustContext } from './risk/manager.js';
 import { buildWatchdogSummary } from './watchdog-summary.js';
@@ -408,10 +409,44 @@ export class TradingLoop {
         const ghosts = detectGhostPositions(dbOpen, portfolio.positions);
         for (const ghost of ghosts) {
           console.log(`[Reconcile] Ghost position: ${ghost.pair} ${ghost.side} (exec #${ghost.id}) — closed on Binance, recording in DB`);
+
+          // Enrich with execution data
+          let exitPrice: number | undefined;
+          let pnlUsd: number | undefined;
+          let pnlPct: number | undefined;
+          let heldHours: number | undefined;
+          try {
+            const { rows } = await getPool().query(
+              'SELECT fill_price, leverage, quantity, created_at FROM trade_executions WHERE id = $1',
+              [ghost.id],
+            );
+            if (rows[0]) {
+              const entry = parseFloat(rows[0].fill_price);
+              const qty = parseFloat(rows[0].quantity);
+              const lev = parseFloat(rows[0].leverage);
+              const entryTime = new Date(rows[0].created_at).getTime();
+              heldHours = (Date.now() - entryTime) / 3600000;
+
+              // Use current mark price as approximate exit price
+              const snap = snapshots.find(s => s.pair === ghost.pair);
+              if (snap) {
+                exitPrice = snap.price;
+                const direction = ghost.side === 'BUY' ? 1 : -1;
+                pnlUsd = (exitPrice - entry) * qty * direction;
+                const margin = (entry * qty) / lev;
+                pnlPct = margin > 0 ? (pnlUsd / margin) * 100 : undefined;
+              }
+            }
+          } catch { /* best effort */ }
+
           insertTradeClose({
             execution_id: ghost.id,
             pair: ghost.pair,
             exit_reason: 'sl_tp_triggered',
+            exit_price: exitPrice,
+            pnl_usd: pnlUsd,
+            pnl_pct: pnlPct,
+            held_hours: heldHours,
           }).catch(() => {});
         }
       } catch (err: any) {
