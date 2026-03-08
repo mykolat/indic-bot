@@ -62,11 +62,16 @@ export class PreScreener {
     return { pair, verdict: 'pass' };
   }
 
-  screenAll(inputs: ScreenInput[]): ScreenAllResult {
+  screenAll(inputs: ScreenInput[], opts?: { exposureFull?: boolean }): ScreenAllResult {
     const passed: ScreenVerdict[] = [];
     const held: ScreenVerdict[] = [];
 
     for (const input of inputs) {
+      // If portfolio exposure is already maxed, skip new-position candidates
+      if (opts?.exposureFull && !input.hasPosition) {
+        held.push({ pair: input.pair, verdict: 'hold', reason: 'exposure_full' });
+        continue;
+      }
       const result = this.screen(input);
       if (result.verdict === 'hold') {
         held.push(result);

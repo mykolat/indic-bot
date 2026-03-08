@@ -5,6 +5,7 @@ import { join } from 'path';
 import { runLayer1Experts } from './llm/agents.js';
 import type { LLMClient } from './llm/client.js';
 import type { RiskManager, TradeDecision, PortfolioState } from './risk/manager.js';
+import { BETA_TO_BTC } from './risk/manager.js';
 import type { SignalBuffer } from './webhook/signal-buffer.js';
 import type { Logger } from './logger/index.js';
 import type { NewsFetcher } from './news/news-fetcher.js';
@@ -69,6 +70,7 @@ interface TradingLoopDeps {
     weekendLeverageMultiplier?: number;
     swarmVolumeThreshold?: number;
     layer3EmergencyPct?: number;  // default -5 — threshold for Layer 3 emergency close
+    maxExposurePct?: number;      // default 150 — mirrors RiskManager config
   };
   macroFetcher?: MacroFetcher;
   macroAnalyst?: MacroAnalystAgent;
@@ -744,7 +746,23 @@ export class TradingLoop {
           confluence: pairConfluence.get(snap.pair)?.score ?? 0,
           hasPosition: openPairSet.has(snap.pair),
         }));
-        screenResult = this.deps.preScreener.screenAll(screenInputs);
+        // Compute current beta-adjusted exposure to skip new positions if already maxed
+        const getBeta = (pair: string) => BETA_TO_BTC[pair] ?? 1.0;
+        let longExp = 0, shortExp = 0;
+        for (const p of portfolio.positions) {
+          const margin = p.sizeUsd / p.leverage;
+          if (p.side === 'LONG') longExp += margin * getBeta(p.pair);
+          else shortExp += margin * getBeta(p.pair);
+        }
+        const netExp = Math.abs(longExp - shortExp);
+        const grossExp = longExp + shortExp;
+        const currentExposurePct = (Math.max(netExp, grossExp * 0.5) / portfolio.balanceUsd) * 100;
+        const maxExposurePct = this.deps.tradingConfig.maxExposurePct ?? 150;
+        const exposureFull = currentExposurePct >= maxExposurePct;
+        if (exposureFull) {
+          console.log(`[PreScreen] Exposure ${currentExposurePct.toFixed(1)}% >= max ${maxExposurePct}% — skipping new positions`);
+        }
+        screenResult = this.deps.preScreener.screenAll(screenInputs, { exposureFull });
 
         const passedPairs = new Set(screenResult.passed.map(v => v.pair));
         filteredSnapshots = snapshots.filter(s => passedPairs.has(s.pair));

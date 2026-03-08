@@ -275,6 +275,7 @@ async function main() {
       stalePositionHours: config.trading.stalePositionHours,
       maxHoldHours: config.trading.maxHoldHours,
       swarmVolumeThreshold: config.trading.swarmVolumeThreshold,
+      maxExposurePct: config.trading.maxExposurePct,
     },
     macroFetcher,
     macroAnalyst,
