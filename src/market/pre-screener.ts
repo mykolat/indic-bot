@@ -29,6 +29,11 @@ export class PreScreener {
       return { pair, verdict: 'manage' };
     }
 
+    // BTC always passes — market barometer
+    if (pair === 'BTCUSDT') {
+      return { pair, verdict: 'pass' };
+    }
+
     if (!ind1h) {
       return { pair, verdict: 'hold', reason: 'no_data' };
     }
@@ -68,6 +73,12 @@ export class PreScreener {
       } else {
         passed.push(result);
       }
+    }
+
+    // Safety: if nothing passed, force first pair through
+    if (passed.length === 0 && held.length > 0) {
+      const forced = held.shift()!;
+      passed.push({ ...forced, verdict: 'pass' });
     }
 
     return { passed, held };

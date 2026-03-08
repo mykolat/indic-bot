@@ -114,6 +114,18 @@ describe('PreScreener', () => {
     expect(result.verdict).toBe('pass');
   });
 
+  it('always passes BTC even if filters fail', () => {
+    const result = screener.screen({
+      pair: 'BTCUSDT',
+      ind1h: makeInd({ trend: 'bearish', volumeRatio: 0.1 }),
+      ind4h: makeInd({ trend: 'bullish' }),
+      regime: 'Range',
+      confluence: 0,
+      hasPosition: false,
+    });
+    expect(result.verdict).toBe('pass');
+  });
+
   it('screenAll returns categorized results', () => {
     const results = screener.screenAll([
       { pair: 'BTCUSDT', ind1h: makeInd(), ind4h: makeInd(), regime: 'Range', confluence: 3, hasPosition: true },
