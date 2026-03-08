@@ -801,6 +801,16 @@ export class TradingLoop {
         regimeLeverageMultiplier: activeProfile?.leverageMultiplier,
       });
 
+      // Low margin: double leverage to compensate small position size
+      if (screenResult?.marginMode === 'low_margin' && envelope) {
+        envelope.maxLeverage = Math.min(envelope.maxLeverage * 2, this.deps.tradingConfig.maxLeverage);
+        envelope.recommendedLeverage = [
+          envelope.recommendedLeverage[0] * 2,
+          Math.min(envelope.recommendedLeverage[1] * 2, envelope.maxLeverage),
+        ];
+        console.log(`[PreScreen] Low margin — leverage doubled: max ${envelope.maxLeverage}x`);
+      }
+
       // Today's realized PnL
       let todayRealizedPnl = 0;
       try {
