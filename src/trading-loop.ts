@@ -427,7 +427,7 @@ export class TradingLoop {
 
         if (pos.heldHours > maxHoldHours) {
           closeReason = `max_hold_${maxHoldHours}h`;
-        } else if (pos.heldHours > staleHours && Math.abs(pos.unrealizedPnlPct) < 1) {
+        } else if (pos.heldHours > staleHours && pos.unrealizedPnlPct < 1) {
           closeReason = `stale_${staleHours}h`;
         }
 
