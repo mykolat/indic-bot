@@ -133,44 +133,44 @@ export function Swarm() {
   // ── Load sidebar (fast — single query) ──
   useEffect(() => {
     (async () => {
-      const [{ data: recentCycles }, { data: judges }, { data: allVotes }] = await Promise.all([
+      // Fetch debates first to know which cycles have swarm data
+      const { data: judges } = await supabase
+        .from('llm_conversations')
+        .select('id, cycle_id, raw_response, created_at')
+        .eq('method', 'swarm_consensus')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      // Fetch votes for all debate conversations eagerly
+      const debateCycleIds = [...new Set((judges ?? []).map(j => j.cycle_id))];
+      const debateConvIds = (judges ?? []).map(j => j.id);
+
+      const [{ data: recentCycles }, { data: allVotes }] = await Promise.all([
         supabase
           .from('cycles')
           .select('id, volume_ratio, regime, created_at')
           .order('created_at', { ascending: false })
           .limit(100),
-        supabase
-          .from('llm_conversations')
-          .select('cycle_id, raw_response, created_at')
-          .eq('method', 'swarm_consensus')
-          .order('created_at', { ascending: false })
-          .limit(60),
-        supabase
-          .from('swarm_personas')
-          .select('conversation_id, persona, vote, phase')
-          .eq('phase', 1)
-          .neq('persona', 'superuser')
-          .order('created_at', { ascending: false })
-          .limit(500),
+        debateConvIds.length > 0
+          ? supabase
+              .from('swarm_personas')
+              .select('conversation_id, persona, vote, phase')
+              .eq('phase', 1)
+              .neq('persona', 'superuser')
+              .in('conversation_id', debateConvIds)
+          : Promise.resolve({ data: [] as any[] }),
       ]);
 
-      // Build vote lookup: conversation_id → cycle_id via judges
+      // Build vote lookup: conversation_id → cycle_id
       const cycleVotes = new Map<number, Array<{ persona: string; vote: string | null }>>();
-      if (judges?.length && allVotes?.length) {
-        const { data: convs } = await supabase
-          .from('llm_conversations')
-          .select('id, cycle_id')
-          .eq('method', 'swarm_consensus')
-          .in('cycle_id', judges.map(j => j.cycle_id));
-        const convToCycle = new Map<number, number>();
-        for (const c of convs ?? []) convToCycle.set(c.id, c.cycle_id);
-        for (const v of allVotes) {
-          const cid = convToCycle.get(v.conversation_id);
-          if (!cid) continue;
-          const arr = cycleVotes.get(cid) ?? [];
-          arr.push({ persona: v.persona, vote: v.vote });
-          cycleVotes.set(cid, arr);
-        }
+      const convToCycle = new Map<number, number>();
+      for (const j of judges ?? []) convToCycle.set(j.id, j.cycle_id);
+      for (const v of allVotes ?? []) {
+        const cid = convToCycle.get(v.conversation_id);
+        if (!cid) continue;
+        const arr = cycleVotes.get(cid) ?? [];
+        arr.push({ persona: v.persona, vote: v.vote });
+        cycleVotes.set(cid, arr);
       }
 
       // Build lookup of debate cycles
@@ -182,10 +182,11 @@ export function Swarm() {
       }
 
       // Build items: group consecutive non-debate cycles into single sidebar entries
+      const MAX_SIDEBAR_ITEMS = 20;
       const items: SidebarItem[] = [];
       const cycles = recentCycles ?? [];
       let i = 0;
-      while (i < cycles.length) {
+      while (i < cycles.length && items.length < MAX_SIDEBAR_ITEMS) {
         const cycle = cycles[i];
         if (debateJudge.has(cycle.id)) {
           items.push({
