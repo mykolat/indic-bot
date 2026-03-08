@@ -22,6 +22,7 @@ import { extractExternalInsights } from './utils/soul-utils.js';
 import { MarketRegime, classifyRegime } from './market/regime-classifier.js';
 import { RegimeHysteresis } from './market/regime-hysteresis.js';
 import { getFilterProfile, type FilterProfile } from './market/filter-profiles.js';
+import { PreScreener, type ScreenAllResult } from './market/pre-screener.js';
 import { computeConfluence } from './market/confluence.js';
 import type { DecisionJournal, JournalEntry } from './logging/decision-journal.js';
 import type { TradeStoryLogger } from './logging/trade-story.js';
@@ -93,6 +94,7 @@ interface TradingLoopDeps {
   tradeStoryLogger?: TradeStoryLogger;
   sessionId?: string;
   watchdog?: Watchdog;
+  preScreener?: PreScreener;
   positionManagement?: {
     enabled: boolean;
     tp1CloseRatio: number;
@@ -728,6 +730,32 @@ export class TradingLoop {
         }
       }
 
+      // Pre-LLM screening: filter pairs algorithmically
+      const openPairSet = new Set(portfolio.positions.map(p => p.pair));
+      let screenResult: ScreenAllResult | undefined;
+      let filteredSnapshots = snapshots;
+
+      if (this.deps.preScreener) {
+        const screenInputs = snapshots.map(snap => ({
+          pair: snap.pair,
+          ind1h: indicators.get(snap.pair) ?? null,
+          ind4h: indicators4h.get(snap.pair) ?? null,
+          regime: pairRegimes.get(snap.pair)?.regime ?? marketRegime,
+          confluence: pairConfluence.get(snap.pair)?.score ?? 0,
+          hasPosition: openPairSet.has(snap.pair),
+        }));
+        screenResult = this.deps.preScreener.screenAll(screenInputs);
+
+        const passedPairs = new Set(screenResult.passed.map(v => v.pair));
+        filteredSnapshots = snapshots.filter(s => passedPairs.has(s.pair));
+
+        if (screenResult.held.length > 0) {
+          const heldSummary = screenResult.held.map(h => `${h.pair}:${h.reason}`).join(', ');
+          console.log(`[PreScreen] ${screenResult.held.length} pairs auto-HOLD: ${heldSummary}`);
+          console.log(`[PreScreen] ${filteredSnapshots.length}/${snapshots.length} pairs sent to LLM`);
+        }
+      }
+
       // Pair diversity context
       const diversityContext = buildDiversityContext(
         this.pairDecisionHistory,
@@ -752,7 +780,7 @@ export class TradingLoop {
       } catch { /* optional */ }
 
       const promptData = {
-        snapshots,
+        snapshots: filteredSnapshots,
         indicators,
         indicators4h,
         portfolio,
@@ -863,6 +891,22 @@ export class TradingLoop {
         } else {
           currentLayer = 3;
           console.log('[Loop] Layer 3 (rule-based) — no fallback LLM configured');
+        }
+      }
+
+      // Merge auto-HOLD decisions from pre-screener
+      if (screenResult?.held.length) {
+        for (const held of screenResult.held) {
+          decisions.push({
+            pair: held.pair,
+            action: 'HOLD',
+            size_pct: 0,
+            leverage: 0,
+            stop_loss_pct: 0,
+            take_profit_pct: 0,
+            reasoning: held.reason ?? 'pre_screen',
+            confidence: 0,
+          });
         }
       }
 

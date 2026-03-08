@@ -28,6 +28,7 @@ import { SwarmAgent } from './llm/swarm-agent.js';
 import { MemoryReviewAgent } from './memory/memory-review.js';
 import { RssNewsFetcher } from './news/rss-fetcher.js';
 import { GrokGrounder } from './news/grok-grounder.js';
+import { PreScreener } from './market/pre-screener.js';
 import { SourceHealthMonitor } from './news/source-health.js';
 import { EmbeddingClient } from './llm/embedding-client.js';
 import { EpisodicStore } from './memory/episodic-store.js';
@@ -294,6 +295,7 @@ async function main() {
     tradeStoryLogger,
     sessionId,
     positionManagement: config.positionManagement,
+    preScreener: new PreScreener(),
   });
 
   // Start Watchdog (1-min snapshots into DB)
