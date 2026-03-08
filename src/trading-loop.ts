@@ -842,6 +842,7 @@ export class TradingLoop {
         newsMarketFusion: this.lastNewsMarketFusion,
         sessionBlock: formatSessionPromptBlock(new Date()),
         screenedOutPairs: screenResult?.held.map(h => ({ pair: h.pair, reason: h.reason ?? 'unknown' })),
+        marginMode: screenResult?.marginMode,
       };
 
       let decisions: TradeDecision[] = [];
@@ -977,6 +978,12 @@ export class TradingLoop {
         nextCheckMinutes = 10;
       } else if (!hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes < 30)) {
         nextCheckMinutes = 30;
+      }
+
+      // No margin: slow down to 60-min cycles
+      if (screenResult?.marginMode === 'no_margin' && (nextCheckMinutes === undefined || nextCheckMinutes < 60)) {
+        nextCheckMinutes = 60;
+        console.log(`[PreScreen] No margin — cycle floor 60 min`);
       }
 
       // Safety guard: in Layer 2/3, filter out any LONG/SHORT decisions

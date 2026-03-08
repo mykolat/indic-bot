@@ -344,6 +344,12 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
 
   prompt += `## Technical Analysis\n\n`;
 
+  if ((data as any).marginMode === 'low_margin') {
+    const avail = ((data as any).portfolio?.availableUsd ?? data.portfolio.balanceUsd).toFixed(2);
+    prompt += `## LOW MARGIN MODE\n`;
+    prompt += `Available margin: $${avail}. Pick at most 1 new position. Leverage is doubled to compensate small margin. Be highly selective.\n\n`;
+  }
+
   if ((data as any).screenedOutPairs?.length) {
     prompt += `\n## PRE-SCREENED (auto-HOLD)\n`;
     prompt += `These pairs failed algorithmic filters — output HOLD with the reason slug:\n`;
