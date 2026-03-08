@@ -17,9 +17,9 @@ import { SignalBuffer } from './webhook/signal-buffer.js';
 import { createWebhookServer } from './webhook/server.js';
 import { TradingLoop } from './trading-loop.js';
 import { Logger } from './logger/index.js';
-import { CryptoPanicClient } from './news/cryptopanic.js';
 import { NewsCache } from './news/news-cache.js';
 import { NewsAnalystAgent } from './news/news-analyst.js';
+import { NewsEnricher } from './news/news-enricher.js';
 import { SessionMemory } from './memory/session.js';
 import { MacroFetcher } from './news/macro-fetcher.js';
 import { MacroAnalystAgent } from './news/macro-analyst.js';
@@ -179,12 +179,9 @@ async function main() {
 
   const signalBuffer = new SignalBuffer({ maxSize: 50, ttlMs: 30 * 60 * 1000 });
 
-  // News client (optional — only if Apify token is provided)
-  const newsClient = config.apifyToken
-    ? new CryptoPanicClient(config.apifyToken)
-    : undefined;
-  if (newsClient) console.log('[News] CryptoPanic via Apify enabled');
-  else console.log('[News] No APIFY_API_TOKEN — news disabled');
+  const newsEnricher = new NewsEnricher(llm);
+  const newsClient = new RssNewsFetcher();
+  console.log('[News] RSS ingestion enabled — 15 sources');
 
   const macroFetcher = new MacroFetcher();
   const macroAnalyst = new MacroAnalystAgent(llm);
@@ -203,9 +200,6 @@ async function main() {
   }
 
   const sourceHealth = new SourceHealthMonitor();
-
-  // Instantiate RSS Fetcher as primary news source if no Apify token, or as supplementary
-  const rssFetcher = new RssNewsFetcher();
 
   // Instantiate Grok Grounder if API key is provided
   const grokGrounder = config.xaiApiKey ? new GrokGrounder(config.xaiApiKey, sourceHealth) : undefined;
@@ -284,7 +278,7 @@ async function main() {
     fallbackLlm,
     memoryKeeper,
     memoryReview,
-    rssFetcher,
+    rssFetcher: newsClient,
     grokGrounder,
     sourceHealth,
     groundingConfig: {

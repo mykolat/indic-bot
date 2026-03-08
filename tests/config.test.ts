@@ -61,7 +61,6 @@ describe('loadConfig — config.yaml integration', () => {
     delete process.env.FALLBACK_MODEL;
     delete process.env.WEBHOOK_PORT;
     delete process.env.WEBHOOK_SECRET;
-    delete process.env.APIFY_API_TOKEN;
     delete process.env.BINANCE_TESTNET;
     delete process.env.TRADING_PAIRS;
     delete process.env.MAX_LEVERAGE;
@@ -210,9 +209,8 @@ describe('loadConfig — config.yaml integration', () => {
     expect(cfg.webhook.port).toBe(3000);
   });
 
-  it('env secrets override — OPENAI_API_KEY and APIFY_API_TOKEN', () => {
+  it('env secrets override — OPENAI_API_KEY and WEBHOOK_SECRET', () => {
     process.env.OPENAI_API_KEY = 'sk-test-key';
-    process.env.APIFY_API_TOKEN = 'apify-token';
     process.env.WEBHOOK_SECRET = 'wh-secret';
     process.env.OPENAI_API_KEY_FALLBACK = 'sk-fallback';
 
@@ -222,7 +220,6 @@ describe('loadConfig — config.yaml integration', () => {
 
     expect(cfg.openai.apiKey).toBe('sk-test-key');
     expect(cfg.openai.apiKeyFallback).toBe('sk-fallback');
-    expect(cfg.apifyToken).toBe('apify-token');
     expect(cfg.webhook.secret).toBe('wh-secret');
   });
 });

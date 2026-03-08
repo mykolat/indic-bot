@@ -430,7 +430,7 @@ export class TradingLoop {
               // Use current mark price as approximate exit price
               const snap = snapshots.find(s => s.pair === ghost.pair);
               if (snap) {
-                exitPrice = snap.price;
+                exitPrice = parseFloat(snap.markPrice);
                 const direction = ghost.side === 'BUY' ? 1 : -1;
                 pnlUsd = (exitPrice - entry) * qty * direction;
                 const margin = (entry * qty) / lev;
@@ -567,7 +567,7 @@ export class TradingLoop {
             }
           }
 
-          // Deduplicate by title, preferring CryptoPanic/non-RSS
+          // Deduplicate by title
           const seen = new Map<string, CryptoNews>();
           for (const item of allItems) {
             const key = item.title.toLowerCase().trim().replace(/\s+/g, ' ');

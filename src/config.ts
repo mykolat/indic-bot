@@ -22,7 +22,6 @@ export interface Config {
   database: {
     url: string | undefined;
   };
-  apifyToken: string | undefined;
   xaiApiKey: string | undefined;
   trading: {
     pairs: string[];
@@ -104,7 +103,6 @@ export function loadConfig(): Config {
     database: {
       url: process.env.DATABASE_URL,
     },
-    apifyToken: process.env.APIFY_API_TOKEN,
     xaiApiKey: process.env.XAI_API_KEY,
     trading: {
       pairs: t.pairs ?? ['BTCUSDT'],
