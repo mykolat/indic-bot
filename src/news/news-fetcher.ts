@@ -1,9 +1,9 @@
-import type { CryptoNews } from './types.js';
+import type { NewsEvent } from './types.js';
 
 /**
  * Common interface for all news sources.
- * CryptoPanicClient, RssNewsFetcher, and future paid sources implement this.
+ * RssNewsFetcher and future sources implement this.
  */
 export interface NewsFetcher {
-  fetchNews(limit?: number): Promise<CryptoNews[]>;
+  fetchNews(limit?: number): Promise<NewsEvent[]>;
 }

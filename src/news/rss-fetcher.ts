@@ -1,36 +1,31 @@
 import { XMLParser } from 'fast-xml-parser';
-import type { CryptoNews } from './types.js';
+import type { NewsEvent } from './types.js';
 import type { NewsFetcher } from './news-fetcher.js';
+import { NEWS_SOURCES, type NewsSource } from './sources.js';
 import { fetchWithTimeout } from '../utils/fetch-timeout.js';
 import { insertNewsArticles } from '../db/repository.js';
-
-export interface RssFeedSource {
-  name: string;
-  url: string;
-}
-
-const DEFAULT_FEEDS: RssFeedSource[] = [
-  { name: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/' },
-  { name: 'CoinTelegraph', url: 'https://cointelegraph.com/rss' },
-  { name: 'Decrypt', url: 'https://decrypt.co/feed' },
-];
 
 const RSS_TIMEOUT_MS = 10_000;
 
 export class RssNewsFetcher implements NewsFetcher {
-  private parser = new XMLParser({ ignoreAttributes: true });
+  private parser = new XMLParser({ ignoreAttributes: false });
 
-  constructor(private feeds: RssFeedSource[] = DEFAULT_FEEDS) {}
+  constructor(private feeds: NewsSource[] = NEWS_SOURCES) {}
 
-  async fetchNews(limit = 100): Promise<CryptoNews[]> {
+  async fetchNews(limit = 100): Promise<NewsEvent[]> {
     const results = await Promise.allSettled(
-      this.feeds.map((feed) => this.fetchFeed(feed)),
+      this.feeds.map(feed => this.fetchFeed(feed)),
     );
 
-    const allItems: CryptoNews[] = [];
+    const seenUrls = new Set<string>();
+    const allItems: NewsEvent[] = [];
+
     for (const result of results) {
-      if (result.status === 'fulfilled') {
-        allItems.push(...result.value);
+      if (result.status !== 'fulfilled') continue;
+      for (const item of result.value) {
+        if (item.url && seenUrls.has(item.url)) continue;
+        if (item.url) seenUrls.add(item.url);
+        allItems.push(item);
       }
     }
 
@@ -40,11 +35,11 @@ export class RssNewsFetcher implements NewsFetcher {
       return db - da;
     });
 
-    // Dual-write to DB
     const result = allItems.slice(0, limit);
+
     insertNewsArticles(result.map(a => ({
       title: a.title,
-      source: a.source || 'rss',
+      source: a.source,
       coins: a.coins,
       sentiment: a.sentiment,
       published_at: a.date || undefined,
@@ -53,17 +48,10 @@ export class RssNewsFetcher implements NewsFetcher {
     return result;
   }
 
-  private async fetchFeed(feed: RssFeedSource): Promise<CryptoNews[]> {
+  private async fetchFeed(feed: NewsSource): Promise<NewsEvent[]> {
     try {
-      const response = await fetchWithTimeout(
-        feed.url,
-        { method: 'GET' },
-        RSS_TIMEOUT_MS,
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      const response = await fetchWithTimeout(feed.url, { method: 'GET' }, RSS_TIMEOUT_MS);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const xml = await response.text();
       const parsed = this.parser.parse(xml);
@@ -72,12 +60,20 @@ export class RssNewsFetcher implements NewsFetcher {
 
       const arr = Array.isArray(items) ? items : [items];
 
-      return arr.map((item: any) => ({
-        title: item.title || '',
-        date: item.pubDate || '',
+      return arr.map((item: any): NewsEvent => ({
+        title: String(item.title || ''),
+        date: String(item.pubDate || ''),
+        url: String(item.link || item.guid?.['#text'] || item.guid || ''),
+        source: feed.name,
+        sourceType: feed.sourceType,
+        excerpt: item.description
+          ? String(item.description).replace(/<[^>]*>/g, '').slice(0, 200)
+          : undefined,
         coins: [],
         sentiment: 0,
-        source: feed.name,
+        tickers: [],
+        topics: [],
+        priority: 0,
       }));
     } catch (err) {
       console.error(`[RSS] ${feed.name} error:`, (err as Error).message);
