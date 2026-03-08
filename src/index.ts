@@ -193,10 +193,8 @@ async function main() {
     const grokForMacro = new (await import('./llm/grok-client.js')).GrokClient(config.xaiApiKey);
     grokMacroAnalyst = new GrokMacroAnalyst(grokForMacro);
     console.log('[Macro] Grok live search macro analyst enabled');
-  } else if (macroFetcher) {
-    console.log('[Macro] Direct Yahoo Finance macro fetcher enabled — refreshing every 3h');
   } else {
-    console.log('[Macro] No XAI_API_KEY — macro disabled');
+    console.log('[Macro] Direct Yahoo Finance macro fetcher enabled — refreshing every 3h');
   }
 
   const sourceHealth = new SourceHealthMonitor();
@@ -256,6 +254,7 @@ async function main() {
     signalBuffer,
     logger,
     newsClient,
+    newsEnricher,
     newsCache,
     newsAnalyst,
     newsConfig: {

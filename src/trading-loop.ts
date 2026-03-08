@@ -11,6 +11,7 @@ import type { Logger } from './logger/index.js';
 import type { NewsFetcher } from './news/news-fetcher.js';
 import type { NewsCache } from './news/news-cache.js';
 import type { NewsAnalystAgent } from './news/news-analyst.js';
+import type { NewsEnricher } from './news/news-enricher.js';
 import type { MacroFetcher } from './news/macro-fetcher.js';
 import type { MacroAnalystAgent } from './news/macro-analyst.js';
 import type { MacroAnalysis } from './llm/prompts.js';
@@ -49,6 +50,7 @@ interface TradingLoopDeps {
   signalBuffer: SignalBuffer;
   logger: Logger;
   newsClient?: NewsFetcher;
+  newsEnricher?: NewsEnricher;
   memory: SessionMemory;
   newsCache: NewsCache;
   newsAnalyst: NewsAnalystAgent;
@@ -578,7 +580,12 @@ export class TradingLoop {
               seen.set(key, item);
             }
           }
-          const uniqueItems = Array.from(seen.values());
+          let uniqueItems = Array.from(seen.values());
+
+          // Enrich items with LLM tagging (category, impact, coins)
+          if (this.deps.newsEnricher) {
+            uniqueItems = await this.deps.newsEnricher.enrich(uniqueItems);
+          }
 
           // Track source health
           if (this.deps.sourceHealth) {
