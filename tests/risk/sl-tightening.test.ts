@@ -79,6 +79,24 @@ describe('computeAllowedSlRange', () => {
     });
   });
 
+  describe('breakeven buffer', () => {
+    it('breakeven tier locks small buffer above entry (LONG)', () => {
+      const range = computeAllowedSlRange({
+        side: 'LONG', entryPrice: 100, currentPrice: 107, atrPct: 1.5,
+      });
+      expect(range.tier).toContain('breakeven');
+      expect(range.maxSlPrice).toBeGreaterThan(100);
+    });
+
+    it('breakeven tier locks small buffer below entry (SHORT)', () => {
+      const range = computeAllowedSlRange({
+        side: 'SHORT', entryPrice: 100, currentPrice: 93, atrPct: 1.5,
+      });
+      expect(range.tier).toContain('breakeven');
+      expect(range.maxSlPrice).toBeLessThan(100);
+    });
+  });
+
   describe('ATR distance enforcement', () => {
     it('SL must be at least 1.5x ATR from current price', () => {
       const range = computeAllowedSlRange({

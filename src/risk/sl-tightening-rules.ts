@@ -41,7 +41,7 @@ export function computeAllowedSlRange(input: SlRangeInput): SlRange {
     // No tightening allowed — SL stays at entry or worse
     return { maxSlPrice: entryPrice, minSlDistancePct: minDistancePct, tier };
   } else if (profitPct < 10) {
-    lockRatio = 0; // breakeven = lock 0% (SL at entry)
+    lockRatio = 0.05; // breakeven = lock 5% of profit (buffer above entry)
     tier = 'breakeven (5-10% profit)';
   } else if (profitPct < 20) {
     lockRatio = 0.4;
