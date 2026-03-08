@@ -181,9 +181,12 @@ export function Swarm() {
         }
       }
 
-      // Build items from ALL recent cycles
+      // Build items: group consecutive non-debate cycles into single sidebar entries
       const items: SidebarItem[] = [];
-      for (const cycle of recentCycles ?? []) {
+      const cycles = recentCycles ?? [];
+      let i = 0;
+      while (i < cycles.length) {
+        const cycle = cycles[i];
         if (debateJudge.has(cycle.id)) {
           items.push({
             cycleId: cycle.id,
@@ -191,15 +194,24 @@ export function Swarm() {
             summary: extractSummary(debateJudge.get(cycle.id)),
             votes: cycleVotes.get(cycle.id) ?? [],
           });
+          i++;
         } else {
-          const vol = cycle.volume_ratio != null ? Number(cycle.volume_ratio).toFixed(2) : '?';
+          // Collect consecutive skip cycles into a group
+          const groupStart = i;
+          while (i < cycles.length && !debateJudge.has(cycles[i].id)) i++;
+          const groupCycles = cycles.slice(groupStart, i);
+          const first = groupCycles[0];
+          const last = groupCycles[groupCycles.length - 1];
+          const count = groupCycles.length;
           items.push({
-            cycleId: cycle.id,
-            createdAt: cycle.created_at,
-            summary: `Single — Vol ${vol}x · ${cycle.regime ?? '?'}`,
+            cycleId: first.id,
+            createdAt: first.created_at,
+            summary: count === 1
+              ? `Single LLM #${first.id}`
+              : `Single LLM #${first.id}–#${last.id} (${count})`,
             votes: [],
             isSkip: true,
-            skipReason: `Vol ${vol}x below swarm threshold · ${cycle.regime}`,
+            skipReason: groupCycles.map(c => c.id).join(','),
           });
         }
       }
@@ -210,8 +222,8 @@ export function Swarm() {
       if (cycleParam) {
         const idx = items.findIndex(i => i.cycleId === Number(cycleParam));
         if (idx >= 0) setSelectedIdx(idx);
-      } else if (items.length > 0 && items[0].isSkip && items.length > 1) {
-        setSelectedIdx(1); // select first real debate by default
+      } else if (items.length > 0) {
+        setSelectedIdx(0); // select first item (latest group or debate)
       }
     })();
   }, [searchParams]);
@@ -229,14 +241,9 @@ export function Swarm() {
 
     setLoadingDetail(true);
 
-    // For skip items, fetch ALL consecutive single-LLM cycles up to previous debate
+    // For skip items, fetch ALL single-LLM cycles in this group
     if (item.isSkip) {
-      // Collect consecutive skip cycle IDs from this one downward
-      const skipCycleIds: number[] = [];
-      for (let i = idx; i < sidebarItems.length; i++) {
-        if (!sidebarItems[i].isSkip) break;
-        skipCycleIds.push(sidebarItems[i].cycleId);
-      }
+      const skipCycleIds = (item.skipReason ?? '').split(',').map(Number).filter(Boolean);
 
       const [{ data: convs }, { data: decisions }] = await Promise.all([
         supabase
@@ -263,16 +270,28 @@ export function Swarm() {
       }
 
       const singleCycles: SingleCycleEntry[] = skipCycleIds.map(cid => {
-        const si = sidebarItems.find(s => s.cycleId === cid)!;
         const conv = convMap.get(cid);
+        let decs = decMap.get(cid) ?? [];
+        // Fallback: parse decisions from raw_response if trade_decisions is empty
+        if (decs.length === 0 && conv?.raw_response) {
+          try {
+            const parsed = JSON.parse(conv.raw_response);
+            if (Array.isArray(parsed.decisions)) {
+              decs = parsed.decisions.map((d: any) => ({
+                pair: d.pair, action: d.action,
+                confidence: d.confidence, reasoning: d.reasoning,
+              }));
+            }
+          } catch { /* not JSON */ }
+        }
         return {
           cycleId: cid,
-          createdAt: si.createdAt,
+          createdAt: conv?.created_at ?? item.createdAt,
           model: conv?.model,
           latency_ms: conv?.latency_ms,
           tokens_in: conv?.tokens_in,
           tokens_out: conv?.tokens_out,
-          decisions: decMap.get(cid) ?? [],
+          decisions: decs,
           raw_response: conv?.raw_response,
         };
       });
