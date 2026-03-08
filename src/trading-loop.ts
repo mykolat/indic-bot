@@ -991,7 +991,7 @@ export class TradingLoop {
       }
 
       // No margin: slow down to 60-min cycles
-      if (screenResult?.marginMode === 'no_margin' && (nextCheckMinutes === undefined || nextCheckMinutes < 60)) {
+      if (screenResult?.marginMode === 'no_margin' && !hasPositions && (nextCheckMinutes === undefined || nextCheckMinutes < 60)) {
         nextCheckMinutes = 60;
         console.log(`[PreScreen] No margin — cycle floor 60 min`);
       }
