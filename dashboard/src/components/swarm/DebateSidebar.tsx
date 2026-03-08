@@ -26,9 +26,14 @@ export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarP
 
         if (d.isSkip) {
           return (
-            <div
+            <button
               key={i}
-              className="w-full text-left px-4 py-3 border-b border-border-subtle border-l-2 border-l-yellow-600/40 bg-yellow-950/10"
+              onClick={() => onSelect(i)}
+              className={`w-full text-left px-4 py-3 border-b border-border-subtle transition-all ${
+                isSelected
+                  ? 'bg-yellow-950/20 border-l-2 border-l-yellow-500'
+                  : 'border-l-2 border-l-yellow-600/40 bg-yellow-950/10 hover:bg-yellow-950/20'
+              }`}
             >
               <div className="flex justify-between items-center mb-1">
                 <span className="text-xs font-mono text-yellow-600/70">#{d.cycleId}</span>
@@ -36,9 +41,8 @@ export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarP
                   {new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
-              <p className="text-[10px] text-yellow-600/60 font-mono">SKIPPED</p>
-              <p className="text-[10px] text-zinc-600 mt-0.5">{d.skipReason}</p>
-            </div>
+              <p className="text-[11px] text-zinc-500 truncate">{d.summary}</p>
+            </button>
           );
         }
 

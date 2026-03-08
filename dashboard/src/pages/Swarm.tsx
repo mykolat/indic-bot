@@ -35,7 +35,8 @@ interface SingleCycleEntry {
   createdAt: string;
   model?: string;
   latency_ms?: number;
-  tokens?: number;
+  tokens_in?: number;
+  tokens_out?: number;
   decisions: Array<{ pair: string; action: string; confidence?: number; reasoning?: string }>;
   raw_response?: string;
 }
@@ -269,7 +270,8 @@ export function Swarm() {
           createdAt: si.createdAt,
           model: conv?.model,
           latency_ms: conv?.latency_ms,
-          tokens: conv ? (conv.tokens_in ?? 0) + (conv.tokens_out ?? 0) : undefined,
+          tokens_in: conv?.tokens_in,
+          tokens_out: conv?.tokens_out,
           decisions: decMap.get(cid) ?? [],
           raw_response: conv?.raw_response,
         };
@@ -577,7 +579,8 @@ export function Swarm() {
                         <div className="flex gap-3 text-xs text-zinc-600 font-mono">
                           {sc.model && <span>{sc.model}</span>}
                           {sc.latency_ms != null && <span>{(sc.latency_ms / 1000).toFixed(1)}s</span>}
-                          {sc.tokens != null && <span>{sc.tokens} tok</span>}
+                          {sc.tokens_in != null && <span>in:{sc.tokens_in}</span>}
+                          {sc.tokens_out != null && <span>out:{sc.tokens_out}</span>}
                         </div>
                       </div>
                       {sc.decisions.length > 0 ? sc.decisions.map((d, di) => (
