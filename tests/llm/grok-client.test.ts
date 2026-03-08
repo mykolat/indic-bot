@@ -63,6 +63,42 @@ describe('GrokClient', () => {
         expect(result.error).toContain('ECONNREFUSED');
     });
 
+    it('retries without tools on 410 Gone (search deprecated)', async () => {
+        const calls: any[] = [];
+        global.fetch = vi.fn().mockImplementation((_url: string, opts: any) => {
+            calls.push({ url: _url, body: JSON.parse(opts.body) });
+            if (calls.length === 1) {
+                // First call with tools → 410
+                return Promise.resolve({ ok: false, status: 410, text: () => Promise.resolve('Gone') });
+            }
+            // Retry without tools → success
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ output_text: 'Fallback response' }),
+            });
+        });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const client = new GrokClient('fake-key');
+        const res = await client.call('Sys', 'User', 'grok-4-1-fast-non-reasoning', { search: true });
+        expect(res).toBe('Fallback response');
+        expect(calls).toHaveLength(2);
+        expect(calls[0].body.tools).toBeDefined();
+        expect(calls[1].body.tools).toBeUndefined();
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('410 Gone'));
+        warnSpy.mockRestore();
+    });
+
+    it('throws on non-410 error in callWithTools', async () => {
+        global.fetch = vi.fn().mockResolvedValue({
+            ok: false,
+            status: 500,
+            text: () => Promise.resolve('Internal Server Error'),
+        });
+        const client = new GrokClient('fake-key');
+        await expect(client.call('Sys', 'User', 'grok-4-1-fast-non-reasoning', { search: true }))
+            .rejects.toThrow('xAI Error: 500');
+    });
+
     it('call() logs warning once when key is empty', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const client = new GrokClient('');

@@ -123,6 +123,47 @@ describe('GrokGrounder', () => {
     expect(mockHealth.recordFailure).toHaveBeenCalledWith('grok-grounder', expect.stringContaining('500'));
   });
 
+  it('retries without tools on 410 Gone and returns grounding result', async () => {
+    // First call returns 410
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 410,
+      text: async () => 'Gone',
+    } as any);
+    // Second call (retry without tools) succeeds
+    mockFetch.mockResolvedValueOnce(mockResponsesApi(
+      JSON.stringify({
+        verified: null,
+        confidence: 0.5,
+        summary: 'Cannot verify without search — based on model knowledge',
+        sources: [],
+        contradictions: [],
+      }),
+      100, 100,
+    ));
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const result = await grounder.verify('Some crypto claim');
+
+    expect(result.claim).toBe('Some crypto claim');
+    expect(result.verified).toBeNull();
+    expect(result.confidence).toBe(0.5);
+    expect(result.tokensUsed).toBe(200);
+    expect(result.error).toBeUndefined();
+
+    // Verify retry was made without tools
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse(mockFetch.mock.calls[1][1]!.body as string);
+    expect(retryBody.tools).toBeUndefined();
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('410 Gone'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('model knowledge only'));
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
   it('extracts enriched fields (claimType, tradability, sourceQuality)', async () => {
     mockFetch.mockResolvedValueOnce(mockResponsesApi(
       JSON.stringify({

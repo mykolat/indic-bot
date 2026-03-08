@@ -86,6 +86,32 @@ export class GrokClient {
             body: JSON.stringify(body),
         }, 30_000);
 
+        // 410 Gone = search tools deprecated — retry without tools
+        if (res.status === 410) {
+            console.warn('[Grok] 410 Gone — search tools deprecated, retrying without tools');
+            const { tools: _tools, ...bodyWithoutTools } = body;
+            const retryRes = await fetchWithTimeout(RESPONSES_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`,
+                },
+                body: JSON.stringify(bodyWithoutTools),
+            }, 30_000);
+
+            if (!retryRes.ok) {
+                const errText = await retryRes.text().catch(() => '');
+                throw new Error(`xAI Error: ${retryRes.status} ${errText.slice(0, 200)}`);
+            }
+            const retryData = await retryRes.json() as any;
+            if (retryData.output_text) return retryData.output_text;
+            if (Array.isArray(retryData.output)) {
+                const msg = retryData.output.find((o: any) => o.type === 'message');
+                if (msg?.content?.[0]?.text) return msg.content[0].text;
+            }
+            return '';
+        }
+
         if (!res.ok) {
             const errText = await res.text().catch(() => '');
             throw new Error(`xAI Error: ${res.status} ${errText.slice(0, 200)}`);

@@ -87,12 +87,38 @@ export class GrokGrounder {
         30_000,
       );
 
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '');
-        throw new Error(`xAI API ${response.status}: ${errText.slice(0, 200)}`);
+      // 410 Gone = search tools deprecated — retry without tools
+      let actualResponse = response;
+      if (response.status === 410) {
+        console.warn('[GrokGrounder] 410 Gone — search tools deprecated, retrying without tools');
+        actualResponse = await fetchWithTimeout(
+          XAI_RESPONSES_URL,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${this.xaiApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'grok-4-1-fast-non-reasoning',
+              input: [
+                { role: 'system', content: GROUNDING_PROMPT },
+                { role: 'user', content: `Verify this crypto claim using X/Twitter search:\n\n"${claim}"` },
+              ],
+              temperature: 0,
+            }),
+          },
+          30_000,
+        );
+        console.log('[GrokGrounder] No search available — grounding based on model knowledge only');
       }
 
-      const data = (await response.json()) as any;
+      if (!actualResponse.ok) {
+        const errText = await actualResponse.text().catch(() => '');
+        throw new Error(`xAI API ${actualResponse.status}: ${errText.slice(0, 200)}`);
+      }
+
+      const data = (await actualResponse.json()) as any;
       // /v1/responses format: output_text or output array
       let content = data.output_text ?? '';
       if (!content && Array.isArray(data.output)) {
