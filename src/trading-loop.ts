@@ -439,6 +439,10 @@ export class TradingLoop {
             }
           } catch { /* best effort */ }
 
+          if (pnlUsd !== undefined && heldHours !== undefined && heldHours > 1) {
+            console.log(`[Reconcile] ${ghost.pair}: PnL $${pnlUsd.toFixed(4)} (excl. funding fees, held ${heldHours.toFixed(1)}h)`);
+          }
+
           insertTradeClose({
             execution_id: ghost.id,
             pair: ghost.pair,
