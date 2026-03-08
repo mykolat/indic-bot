@@ -762,7 +762,14 @@ export class TradingLoop {
         if (exposureFull) {
           console.log(`[PreScreen] Exposure ${currentExposurePct.toFixed(1)}% >= max ${maxExposurePct}% — skipping new positions`);
         }
-        screenResult = this.deps.preScreener.screenAll(screenInputs, { exposureFull });
+        screenResult = this.deps.preScreener.screenAll(screenInputs, {
+          exposureFull,
+          margin: {
+            availableUsd: portfolio.availableUsd ?? portfolio.balanceUsd,
+            walletBalanceUsd: portfolio.balanceUsd,
+            minPositionUsd: 6,
+          },
+        });
 
         const passedPairs = new Set(screenResult.passed.map(v => v.pair));
         filteredSnapshots = snapshots.filter(s => passedPairs.has(s.pair));
@@ -771,6 +778,9 @@ export class TradingLoop {
           const heldSummary = screenResult.held.map(h => `${h.pair}:${h.reason}`).join(', ');
           console.log(`[PreScreen] ${screenResult.held.length} pairs auto-HOLD: ${heldSummary}`);
           console.log(`[PreScreen] ${filteredSnapshots.length}/${snapshots.length} pairs sent to LLM`);
+        }
+        if (screenResult.marginMode !== 'normal') {
+          console.log(`[PreScreen] Margin mode: ${screenResult.marginMode} (available: $${(portfolio.availableUsd ?? portfolio.balanceUsd).toFixed(2)})`);
         }
       }
 
