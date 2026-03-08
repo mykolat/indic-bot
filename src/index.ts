@@ -186,8 +186,8 @@ async function main() {
   if (newsClient) console.log('[News] CryptoPanic via Apify enabled');
   else console.log('[News] No APIFY_API_TOKEN — news disabled');
 
-  const macroFetcher = config.apifyToken ? new MacroFetcher(config.apifyToken) : undefined;
-  const macroAnalyst = macroFetcher ? new MacroAnalystAgent(llm) : undefined;
+  const macroFetcher = new MacroFetcher();
+  const macroAnalyst = new MacroAnalystAgent(llm);
 
   // Grok Macro Analyst — preferred over Apify (live search, no stale data)
   let grokMacroAnalyst: import('./news/grok-macro.js').GrokMacroAnalyst | undefined;
