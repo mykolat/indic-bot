@@ -25,5 +25,6 @@ describe('NEWS_SOURCES', () => {
     expect(types).toContain('newsroom');
     expect(types).toContain('venue');
     expect(types).toContain('protocol');
+    expect(types).toContain('research');
   });
 });
