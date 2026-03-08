@@ -389,11 +389,13 @@ export function Swarm() {
       }
     }
 
-    // Update sidebar votes for this item
+    // Update sidebar votes for this item (only if we got new data)
     const votes = personaList
       .filter(p => p.persona !== 'superuser' && (p.phase ?? 1) === 1)
       .map(p => ({ persona: p.persona, vote: p.vote }));
-    setSidebarItems(prev => prev.map((si, i) => i === idx ? { ...si, votes } : si));
+    if (votes.length > 0) {
+      setSidebarItems(prev => prev.map((si, i) => i === idx ? { ...si, votes } : si));
+    }
 
     const detail: DebateDetail = {
       cycleId: item.cycleId,
