@@ -344,6 +344,15 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
 
   prompt += `## Technical Analysis\n\n`;
 
+  if ((data as any).screenedOutPairs?.length) {
+    prompt += `\n## PRE-SCREENED (auto-HOLD)\n`;
+    prompt += `These pairs failed algorithmic filters — output HOLD with the reason slug:\n`;
+    for (const sp of (data as any).screenedOutPairs) {
+      prompt += `- ${sp.pair}: ${sp.reason}\n`;
+    }
+    prompt += `\n`;
+  }
+
   const openPairs = new Set(data.portfolio.positions.map(p => p.pair));
 
   for (const snap of data.snapshots) {
