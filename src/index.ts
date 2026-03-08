@@ -197,9 +197,9 @@ async function main() {
     grokMacroAnalyst = new GrokMacroAnalyst(grokForMacro);
     console.log('[Macro] Grok live search macro analyst enabled');
   } else if (macroFetcher) {
-    console.log('[Macro] Apify MacroFetcher enabled (legacy) — refreshing every 3h');
+    console.log('[Macro] Direct Yahoo Finance macro fetcher enabled — refreshing every 3h');
   } else {
-    console.log('[Macro] No XAI_API_KEY or APIFY_API_TOKEN — macro disabled');
+    console.log('[Macro] No XAI_API_KEY — macro disabled');
   }
 
   const sourceHealth = new SourceHealthMonitor();

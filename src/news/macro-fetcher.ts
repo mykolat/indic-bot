@@ -60,17 +60,19 @@ export class MacroFetcher {
 
       const meta = result.meta;
       const closes: number[] = result.indicators?.quote?.[0]?.close ?? [];
+      // Yahoo chart API returns closes in ascending date order (oldest first),
+      // so the first non-null value is the week-open price.
       const weekStart = closes.find((c: number | null) => c != null) ?? meta.regularMarketPrice;
       const weekChangeRaw = weekStart ? ((meta.regularMarketPrice - weekStart) / weekStart) * 100 : 0;
 
       return {
         symbol,
         name,
-        price: parseFloat(meta.regularMarketPrice ?? 0),
-        change24h: parseFloat(meta.regularMarketChangePercent ?? 0),
-        changeWeek: parseFloat(weekChangeRaw.toFixed(2)),
-        dayHigh: parseFloat(meta.regularMarketDayHigh ?? 0),
-        dayLow: parseFloat(meta.regularMarketDayLow ?? 0),
+        price: meta.regularMarketPrice ?? 0,
+        change24h: meta.regularMarketChangePercent ?? 0,
+        changeWeek: Math.round(weekChangeRaw * 100) / 100,
+        dayHigh: meta.regularMarketDayHigh ?? 0,
+        dayLow: meta.regularMarketDayLow ?? 0,
       };
     } catch (err) {
       console.error(`[MacroFetcher] ${symbol} error:`, (err as Error).message);
