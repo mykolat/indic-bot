@@ -813,6 +813,7 @@ export class TradingLoop {
         liquidations: liquidations.length > 0 ? liquidations : undefined,
         newsMarketFusion: this.lastNewsMarketFusion,
         sessionBlock: formatSessionPromptBlock(new Date()),
+        screenedOutPairs: screenResult?.held.map(h => ({ pair: h.pair, reason: h.reason ?? 'unknown' })),
       };
 
       let decisions: TradeDecision[] = [];
@@ -1427,6 +1428,15 @@ export class TradingLoop {
         confluence: confluenceResult?.score,
         confluenceFactors: confluenceResult?.factors,
         regime: marketRegime,
+        preScreen: screenResult ? {
+          total: screenResult.passed.length + screenResult.held.length,
+          passed: screenResult.passed.length,
+          held: screenResult.held.length,
+          heldReasons: screenResult.held.reduce((acc, h) => {
+            acc[h.reason ?? 'unknown'] = (acc[h.reason ?? 'unknown'] ?? 0) + 1;
+            return acc;
+          }, {} as Record<string, number>),
+        } : undefined,
       });
       this.cycleCount++;
 
