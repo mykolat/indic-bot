@@ -195,6 +195,62 @@ describe('SwarmBlackboard', () => {
     expect(parsed.risks).toContain('short squeeze risk');
   });
 
+  describe('graceful handling of malformed persona updates', () => {
+    it('handles risks as a string instead of array', () => {
+      const bb = new SwarmBlackboard(makeMarket());
+      const update = makeBullUpdate({ risks: 'single risk string' as unknown as string[] });
+
+      expect(() => bb.mergePersonaUpdate('BT', update)).not.toThrow();
+      const state = bb.getState();
+      expect(state.risks).toContain('single risk string');
+    });
+
+    it('handles risks as null', () => {
+      const bb = new SwarmBlackboard(makeMarket());
+      const update = makeBullUpdate({ risks: null as unknown as string[] });
+
+      expect(() => bb.mergePersonaUpdate('BT', update)).not.toThrow();
+      const state = bb.getState();
+      expect(state.risks).toEqual([]);
+    });
+
+    it('handles risks as undefined', () => {
+      const bb = new SwarmBlackboard(makeMarket());
+      const update = makeBullUpdate({ risks: undefined as unknown as string[] });
+
+      expect(() => bb.mergePersonaUpdate('BT', update)).not.toThrow();
+      const state = bb.getState();
+      expect(state.risks).toEqual([]);
+    });
+
+    it('handles signals with missing sub-arrays', () => {
+      const bb = new SwarmBlackboard(makeMarket());
+      const update = makeBullUpdate({
+        signals: { bullish: 'single signal', bearish: null, neutral: undefined } as unknown as PersonaUpdate['signals'],
+      });
+
+      expect(() => bb.mergePersonaUpdate('BT', update)).not.toThrow();
+      const state = bb.getState();
+      expect(state.signals.bullish).toContain('single signal');
+      expect(state.signals.bearish).toEqual([]);
+      expect(state.signals.neutral).toEqual([]);
+    });
+
+    it('handles signals as null', () => {
+      const bb = new SwarmBlackboard(makeMarket());
+      const update = makeBullUpdate({ signals: null as unknown as PersonaUpdate['signals'] });
+
+      expect(() => bb.mergePersonaUpdate('BT', update)).not.toThrow();
+    });
+
+    it('handles conflicts_with as null', () => {
+      const bb = new SwarmBlackboard(makeMarket());
+      const update = makeBullUpdate({ conflicts_with: null as unknown as Record<string, string> });
+
+      expect(() => bb.mergePersonaUpdate('BT', update)).not.toThrow();
+    });
+  });
+
   it('getState returns a deep clone — mutations do not affect blackboard', () => {
     const bb = new SwarmBlackboard(makeMarket());
     bb.mergePersonaUpdate('BT', makeBullUpdate());

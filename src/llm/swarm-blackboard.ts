@@ -57,6 +57,14 @@ function addUnique(arr: string[], item: string): void {
   if (!arr.includes(item)) arr.push(item);
 }
 
+/** Coerce an LLM-returned value into a string array.
+ *  Handles: string → [string], null/undefined → [], array passthrough. */
+function coerceArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') return [val];
+  return [];
+}
+
 /** Classify conflict severity between two votes. */
 function classifyConflictSeverity(
   voteA: BlackboardVote,
@@ -102,18 +110,22 @@ export class SwarmBlackboard {
    */
   mergePersonaUpdate(personaCode: string, update: PersonaUpdate): void {
     // ── Signals ──
-    for (const s of update.signals.bullish) addUnique(this.state.signals.bullish, s);
-    for (const s of update.signals.bearish) addUnique(this.state.signals.bearish, s);
-    for (const s of update.signals.neutral) addUnique(this.state.signals.neutral, s);
+    // LLM may return signals sub-fields as string, null, or undefined
+    const sig = update.signals ?? {};
+    for (const s of coerceArray(sig.bullish)) addUnique(this.state.signals.bullish, s);
+    for (const s of coerceArray(sig.bearish)) addUnique(this.state.signals.bearish, s);
+    for (const s of coerceArray(sig.neutral)) addUnique(this.state.signals.neutral, s);
 
     // ── Vote ──
     this.state.votes[personaCode] = { ...update.vote };
 
     // ── Risks ──
-    for (const r of update.risks) addUnique(this.state.risks, r);
+    // LLM may return risks as a string or null instead of array
+    for (const r of coerceArray(update.risks)) addUnique(this.state.risks, r);
 
     // ── Conflicts ──
-    for (const [otherCode, topic] of Object.entries(update.conflicts_with)) {
+    const conflictsWith = update.conflicts_with ?? {};
+    for (const [otherCode, topic] of Object.entries(conflictsWith)) {
       const otherVote = this.state.votes[otherCode];
       if (!otherVote) continue;   // can't classify without the other vote
 
