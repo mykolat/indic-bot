@@ -253,7 +253,6 @@ async function main() {
     riskManager,
     signalBuffer,
     logger,
-    newsClient,
     newsEnricher,
     newsCache,
     newsAnalyst,
