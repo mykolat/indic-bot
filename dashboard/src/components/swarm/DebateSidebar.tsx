@@ -36,7 +36,12 @@ export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarP
               }`}
             >
               <div className="flex justify-between items-center mb-1">
-                <span className="text-xs font-mono text-yellow-600/70">#{d.cycleId}</span>
+                <span className="text-xs font-mono text-yellow-600/70">
+                  {(() => {
+                    const ids = (d.skipReason ?? '').split(',').filter(Boolean);
+                    return ids.length > 1 ? `#${ids[ids.length - 1]}–${ids[0]}` : `#${d.cycleId}`;
+                  })()}
+                </span>
                 <span className="text-[10px] text-zinc-600 font-mono">
                   {new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>

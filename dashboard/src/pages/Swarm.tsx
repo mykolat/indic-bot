@@ -208,7 +208,7 @@ export function Swarm() {
             createdAt: first.created_at,
             summary: count === 1
               ? `Single LLM #${first.id}`
-              : `Single LLM #${first.id}–#${last.id} (${count})`,
+              : `Single LLM (${count})`,
             votes: [],
             isSkip: true,
             skipReason: groupCycles.map(c => c.id).join(','),
