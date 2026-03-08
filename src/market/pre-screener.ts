@@ -16,9 +16,18 @@ export interface ScreenVerdict {
   reason?: string;
 }
 
+export type MarginMode = 'normal' | 'low_margin' | 'no_margin';
+
+export interface MarginContext {
+  availableUsd: number;
+  walletBalanceUsd: number;
+  minPositionUsd: number;
+}
+
 export interface ScreenAllResult {
   passed: ScreenVerdict[];
   held: ScreenVerdict[];
+  marginMode: MarginMode;
 }
 
 export class PreScreener {
@@ -62,11 +71,27 @@ export class PreScreener {
     return { pair, verdict: 'pass' };
   }
 
-  screenAll(inputs: ScreenInput[], opts?: { exposureFull?: boolean }): ScreenAllResult {
+  screenAll(inputs: ScreenInput[], opts?: { exposureFull?: boolean; margin?: MarginContext }): ScreenAllResult {
+    let marginMode: MarginMode = 'normal';
+    if (opts?.margin) {
+      const { availableUsd, walletBalanceUsd, minPositionUsd } = opts.margin;
+      if (availableUsd < minPositionUsd) {
+        marginMode = 'no_margin';
+      } else if (availableUsd < walletBalanceUsd * 0.1) {
+        marginMode = 'low_margin';
+      }
+    }
+
     const passed: ScreenVerdict[] = [];
     const held: ScreenVerdict[] = [];
 
     for (const input of inputs) {
+      // No margin: only positions + BTC
+      if (marginMode === 'no_margin' && !input.hasPosition && input.pair !== 'BTCUSDT') {
+        held.push({ pair: input.pair, verdict: 'hold', reason: 'no_margin' });
+        continue;
+      }
+
       // If portfolio exposure is already maxed, skip new-position candidates
       if (opts?.exposureFull && !input.hasPosition) {
         held.push({ pair: input.pair, verdict: 'hold', reason: 'exposure_full' });
@@ -86,6 +111,6 @@ export class PreScreener {
       passed.push({ ...forced, verdict: 'pass' });
     }
 
-    return { passed, held };
+    return { passed, held, marginMode };
   }
 }

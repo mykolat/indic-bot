@@ -136,4 +136,34 @@ describe('PreScreener', () => {
     expect(results.held).toHaveLength(1);
     expect(results.held[0].pair).toBe('ETHUSDT');
   });
+
+  describe('margin modes', () => {
+    it('no_margin: only passes positions + BTC', () => {
+      const results = screener.screenAll([
+        { pair: 'BTCUSDT', ind1h: makeInd(), ind4h: makeInd(), regime: 'Range', confluence: 3, hasPosition: false },
+        { pair: 'ETHUSDT', ind1h: makeInd(), ind4h: makeInd(), regime: 'Range', confluence: 3, hasPosition: true },
+        { pair: 'SOLUSDT', ind1h: makeInd(), ind4h: makeInd(), regime: 'Range', confluence: 3, hasPosition: false },
+      ], { margin: { availableUsd: 3, walletBalanceUsd: 187, minPositionUsd: 5 } });
+      expect(results.marginMode).toBe('no_margin');
+      expect(results.passed.map(p => p.pair)).toEqual(['BTCUSDT', 'ETHUSDT']);
+      expect(results.held).toHaveLength(1);
+      expect(results.held[0].reason).toBe('no_margin');
+    });
+
+    it('low_margin: passes all filtered pairs (LLM picks best)', () => {
+      const results = screener.screenAll([
+        { pair: 'BTCUSDT', ind1h: makeInd(), ind4h: makeInd(), regime: 'Range', confluence: 3, hasPosition: false },
+        { pair: 'ETHUSDT', ind1h: makeInd({ volumeRatio: 0.1 }), ind4h: makeInd(), regime: 'Range', confluence: 0, hasPosition: false },
+      ], { margin: { availableUsd: 15, walletBalanceUsd: 187, minPositionUsd: 5 } });
+      expect(results.marginMode).toBe('low_margin');
+      expect(results.passed).toHaveLength(1);
+    });
+
+    it('normal mode when margin sufficient', () => {
+      const results = screener.screenAll([
+        { pair: 'BTCUSDT', ind1h: makeInd(), ind4h: makeInd(), regime: 'Range', confluence: 3, hasPosition: false },
+      ], { margin: { availableUsd: 100, walletBalanceUsd: 187, minPositionUsd: 5 } });
+      expect(results.marginMode).toBe('normal');
+    });
+  });
 });
