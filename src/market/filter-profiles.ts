@@ -40,10 +40,10 @@ const PROFILES: Record<MarketRegime, FilterProfile> = {
     },
     [MarketRegime.Breakout]: {
         rsiRange: [0, 100],  // any RSI
-        volumeMin: 1.2,
-        confluenceMin: 3,
+        volumeMin: 0.6,       // was 1.2 — breakouts start with low volume
+        confluenceMin: 2,     // was 3
         leverageMultiplier: 1,
-        minConfidence: 60,
+        minConfidence: 55,    // was 60
         slStyle: 'atr',
         tpStyle: 'momentum',
     },
@@ -61,7 +61,7 @@ const PROFILES: Record<MarketRegime, FilterProfile> = {
         volumeMin: 0.15,
         confluenceMin: 1,
         leverageMultiplier: 0.5,
-        minConfidence: 72,          // high bar — low liquidity = more false signals
+        minConfidence: 50,    // was 72 — unreachable for LLM
         slStyle: 'fixed',
         tpStyle: 'fixed',
     },

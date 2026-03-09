@@ -102,6 +102,30 @@ describe('PreScreener', () => {
     expect(result.verdict).toBe('pass');
   });
 
+  it('passes pair in Scalping with moderate confidence setup', () => {
+    const result = screener.screen({
+      pair: 'ETHUSDT',
+      ind1h: makeInd({ trend: 'bullish', volumeRatio: 0.2, rsi: 55 }),
+      ind4h: makeInd({ trend: 'bullish' }),
+      regime: 'Scalping',
+      confluence: 1,
+      hasPosition: false,
+    });
+    expect(result.verdict).toBe('pass');
+  });
+
+  it('passes pair in Breakout with sub-1x volume', () => {
+    const result = screener.screen({
+      pair: 'SOLUSDT',
+      ind1h: makeInd({ trend: 'bullish', volumeRatio: 0.7, rsi: 60 }),
+      ind4h: makeInd({ trend: 'bullish' }),
+      regime: 'Breakout',
+      confluence: 2,
+      hasPosition: false,
+    });
+    expect(result.verdict).toBe('pass');
+  });
+
   it('passes pair in Capitulation (permissive filters)', () => {
     const result = screener.screen({
       pair: 'AVAXUSDT',

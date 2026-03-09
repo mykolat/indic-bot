@@ -21,10 +21,11 @@ describe('getFilterProfile', () => {
         expect(profile.leverageMultiplier).toBe(0.5);
     });
 
-    it('returns breakout profile with high volume requirement', () => {
+    it('returns breakout profile with lowered thresholds', () => {
         const profile = getFilterProfile(MarketRegime.Breakout);
-        expect(profile.volumeMin).toBe(1.2);
-        expect(profile.confluenceMin).toBe(3);
+        expect(profile.volumeMin).toBe(0.6);
+        expect(profile.confluenceMin).toBe(2);
+        expect(profile.minConfidence).toBe(55);
     });
 
     it('returns capitulation profile with minimal filters', () => {
