@@ -14,6 +14,7 @@ export interface ScreenVerdict {
   pair: string;
   verdict: 'pass' | 'hold' | 'manage';
   reason?: string;
+  warning?: string;  // advisory, not blocking
 }
 
 export type MarginMode = 'normal' | 'low_margin' | 'no_margin';
@@ -52,8 +53,9 @@ export class PreScreener {
       return { pair, verdict: 'pass' };
     }
 
+    let warning: string | undefined;
     if (ind4h && ind1h.trend !== 'neutral' && ind4h.trend !== 'neutral' && ind1h.trend !== ind4h.trend) {
-      return { pair, verdict: 'hold', reason: '4h_conflict' };
+      warning = '4h_conflict';
     }
 
     if (ind1h.volumeRatio < profile.volumeMin) {
@@ -68,7 +70,7 @@ export class PreScreener {
       return { pair, verdict: 'hold', reason: 'low_confluence' };
     }
 
-    return { pair, verdict: 'pass' };
+    return { pair, verdict: 'pass', warning };
   }
 
   screenAll(inputs: ScreenInput[], opts?: { exposureFull?: boolean; margin?: MarginContext }): ScreenAllResult {
@@ -77,7 +79,7 @@ export class PreScreener {
       const { availableUsd, walletBalanceUsd, minPositionUsd } = opts.margin;
       if (availableUsd < minPositionUsd) {
         marginMode = 'no_margin';
-      } else if (availableUsd < walletBalanceUsd * 0.1) {
+      } else if (availableUsd < walletBalanceUsd * 0.2) {
         marginMode = 'low_margin';
       }
     }

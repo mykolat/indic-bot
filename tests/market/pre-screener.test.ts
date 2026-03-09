@@ -25,7 +25,7 @@ describe('PreScreener', () => {
     expect(result.verdict).toBe('manage');
   });
 
-  it('holds pair when 1h and 4h trends conflict for SHORT', () => {
+  it('warns (not blocks) when 1h and 4h trends conflict', () => {
     const result = screener.screen({
       pair: 'ETHUSDT',
       ind1h: makeInd({ trend: 'bearish' }),
@@ -34,8 +34,8 @@ describe('PreScreener', () => {
       confluence: 3,
       hasPosition: false,
     });
-    expect(result.verdict).toBe('hold');
-    expect(result.reason).toBe('4h_conflict');
+    expect(result.verdict).toBe('pass');
+    expect(result.warning).toBe('4h_conflict');
   });
 
   it('holds pair when volume below regime minimum', () => {
