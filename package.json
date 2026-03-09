@@ -11,12 +11,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "audit:bot": "tsx scripts/audit.ts",
+    "snapshot": "tsx scripts/snapshot.ts",
     "audit:remote": "bash scripts/remote-audit.sh",
     "soul:insight": "tsx scripts/soul-insight.ts",
     "deploy": "bash scripts/deploy.sh",
     "audit:md": "tsx scripts/audit-md.ts",
     "audit:db": "tsx scripts/audit-db.ts",
-    "sync:positions": "tsx scripts/sync-ghost-positions.ts"
+    "sync:positions": "tsx scripts/sync-ghost-positions.ts",
+    "token:add": "tsx scripts/token-add.ts"
   },
   "keywords": [],
   "author": "",
