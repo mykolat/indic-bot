@@ -25,6 +25,11 @@ export class LLMClient {
   private accountId: string;
   private systemPrompt: string;
   private tokenLogger = new TokenLogger('logs/tokens.jsonl');
+  private _rateLimitHeaders: Record<string, string> = {};
+
+  get rateLimitHeaders(): Record<string, string> {
+    return this._rateLimitHeaders;
+  }
 
   constructor(
     private accessToken: string,
@@ -190,6 +195,15 @@ export class LLMClient {
   }
 
   private async streamSSE(response: Response, promptLength = 0): Promise<{ content: string; usageIn: number; usageOut: number; estimated: boolean }> {
+    // Capture rate limit headers
+    this._rateLimitHeaders = {};
+    for (const key of ['x-codex-primary-used-percent', 'x-codex-secondary-used-percent',
+      'x-codex-primary-reset-at', 'x-codex-secondary-reset-at',
+      'x-codex-plan-type', 'x-codex-active-limit']) {
+      const val = response.headers?.get(key);
+      if (val) this._rateLimitHeaders[key] = val;
+    }
+
     if (!response.body) {
       const text = await response.text();
       const result = this.parseSSEText(text);
