@@ -25,8 +25,55 @@ export class TokenPool {
     if (eligible.length === 0) return null;
     eligible.sort((a, b) => (a.secondary_used_pct ?? 0) - (b.secondary_used_pct ?? 0));
     const best = eligible[0];
-    this.currentTokenId = best.id!;
-    return best;
+    const fresh = await this.ensureFreshToken(best);
+    this.currentTokenId = fresh.id!;
+    return fresh;
+  }
+
+  private async ensureFreshToken(token: DbToken): Promise<DbToken> {
+    if (token.auth_type !== 'oauth' || !token.expires_at || !token.refresh_token) return token;
+
+    const expiresAt = new Date(token.expires_at).getTime() / 1000;
+    const now = Math.floor(Date.now() / 1000);
+    if (expiresAt > now + 60) return token; // still valid
+
+    console.log(`[TokenPool] Refreshing expired token '${token.label}'...`);
+    const response = await fetch('https://auth.openai.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: token.refresh_token,
+        client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[TokenPool] Refresh failed for '${token.label}': ${response.status}`);
+      await updateTokenError(token.id!, `refresh_failed_${response.status}`).catch(() => {});
+      return token;
+    }
+
+    const json = (await response.json()) as any;
+    const newExpires = new Date((Math.floor(Date.now() / 1000) + (json.expires_in || 3600)) * 1000).toISOString();
+
+    await updateTokenStats(token.id!, {
+      primary_used_pct: token.primary_used_pct ?? 0,
+      secondary_used_pct: token.secondary_used_pct ?? 0,
+      primary_reset_at: token.primary_reset_at ?? null,
+      secondary_reset_at: token.secondary_reset_at ?? null,
+      last_used_at: new Date().toISOString(),
+      access_token: json.access_token,
+      expires_at: newExpires,
+    }).catch(() => {});
+
+    console.log(`[TokenPool] Token '${token.label}' refreshed successfully`);
+    return {
+      ...token,
+      access_token: json.access_token,
+      refresh_token: json.refresh_token ?? token.refresh_token,
+      expires_at: newExpires,
+    };
   }
 
   getCurrentTokenId(): number | null {
