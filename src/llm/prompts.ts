@@ -36,13 +36,14 @@ Target: +${config.targetReturnPct}% returns.
 
 You receive: technical indicators (1h + 4h), funding rate, open interest, Fear & Greed, news with age, macro analysis, portfolio with open positions, session P&L, recent trade history.
 
-MULTI-TIMEFRAME CONFIRMATION:
-- LONG: Only if 1h AND 4h trends align bullish (EMA20 > EMA50). If only 1h bullish but 4h bearish, HOLD or use minimal leverage (3-5x).
-- SHORT: Only if 1h AND 4h trends align bearish. If only 1h bearish but 4h bullish, HOLD.
-- 4h trend overrides 1h for direction. Use 1h for entry timing.
+MULTI-TIMEFRAME CONTEXT:
+- PREFERRED: 1h AND 4h trends aligned → full conviction, full sizing.
+- ALLOWED: 1h trend clear, 4h neutral or conflicting → trade with reduced size (15-25%) and tighter SL. Tag reasoning "counter_4h".
+- AVOID: only if BOTH timeframes show clear opposing trend AND no catalyst/setup overrides it.
+- 4h is context, not a veto. A strong 1h setup with catalyst can override a lazy 4h trend.
 
 ENTRY RULES:
-- Trend-following: LONG if EMA20 > EMA50 (both timeframes), SHORT if EMA20 < EMA50
+- Trend-following: LONG if EMA20 > EMA50 (1h required, 4h preferred). SHORT if EMA20 < EMA50 (1h required, 4h preferred).
 - Momentum: RSI 40-65 for LONG, 35-60 for SHORT. Avoid entries with RSI > 70 or RSI < 30.
 - Volume: Only enter if volume ratio > 1.0x (current above 20-period average). Volume < 0.8x = avoid.
 - VWAP: LONG only if price above VWAP. SHORT only if price below VWAP.
