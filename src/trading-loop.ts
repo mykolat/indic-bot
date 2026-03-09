@@ -1175,6 +1175,7 @@ export class TradingLoop {
           indicators1h: indicators.size > 0 ? indicators as Map<string, { atr: number; trend: string }> : undefined,
           fearGreed,
           fearGreedLeverageCap: this.deps.tradingConfig.fearGreedLeverageCap,
+          regimeMinConfidence: activeProfile?.minConfidence,
         };
         // Build ADJUST context if needed
         let adjustCtx: AdjustContext | undefined;

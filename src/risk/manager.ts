@@ -86,6 +86,7 @@ export interface ValidationContext {
   indicators1h?: Map<string, { atr: number; trend: string }>;
   fearGreed?: { value: number };
   fearGreedLeverageCap?: number;
+  regimeMinConfidence?: number;  // from FilterProfile, overrides global
 }
 
 export interface DecisionEnvelope {
@@ -168,10 +169,10 @@ export class RiskManager {
       return { approved: true };
     }
 
-    // Confidence check (only when minConfidence is configured)
-    if (this.config.minConfidence != null) {
+    // Confidence check — regime-specific overrides global
+    {
       const confidence = decision.confidence ?? 50;
-      const minConf = this.config.minConfidence;
+      const minConf = ctx?.regimeMinConfidence ?? this.config.minConfidence ?? 55;
       if (confidence < minConf) {
         return { approved: false, reason: `Low confidence: ${confidence} < ${minConf}` };
       }
@@ -272,11 +273,11 @@ export class RiskManager {
     if (ctx?.indicators4h) {
       const trend4h = ctx.indicators4h.get(decision.pair)?.trend;
       const confidence = decision.confidence ?? 50;
-      if (decision.action === 'LONG' && trend4h === 'bearish' && confidence < 80) {
-        return { approved: false, reason: `4h trend bearish — need confidence >=80 (got ${confidence})` };
+      if (decision.action === 'LONG' && trend4h === 'bearish' && confidence < 65) {
+        return { approved: false, reason: `4h trend bearish — need confidence >=65 (got ${confidence})` };
       }
-      if (decision.action === 'SHORT' && trend4h === 'bullish' && confidence < 80) {
-        return { approved: false, reason: `4h trend bullish — need confidence >=80 (got ${confidence})` };
+      if (decision.action === 'SHORT' && trend4h === 'bullish' && confidence < 65) {
+        return { approved: false, reason: `4h trend bullish — need confidence >=65 (got ${confidence})` };
       }
     }
 
