@@ -8,6 +8,7 @@ import { LlmCosts } from './pages/LlmCosts';
 import { Swarm } from './pages/Swarm';
 import { Chat } from './pages/Chat';
 import { Wiki } from './pages/Wiki';
+import { Tokens } from './pages/Tokens';
 
 const primaryNav = [
   { to: '/', label: 'Dashboard' },
@@ -21,6 +22,7 @@ const secondaryNav = [
   { to: '/costs', label: 'LLM Costs' },
   { to: '/chat', label: 'Chat' },
   { to: '/wiki', label: 'Wiki' },
+  { to: '/tokens', label: 'Tokens' },
 ];
 
 function MoreMenu() {
@@ -40,7 +42,7 @@ function MoreMenu() {
       <button
         onClick={() => setOpen(o => !o)}
         className={`text-sm px-2 py-1.5 border-b-2 transition-colors ${
-          open ? 'border-accent text-white' : 'border-transparent text-zinc-600 hover:text-zinc-400'
+          open ? 'border-accent text-fg' : 'border-transparent text-fg-faint hover:text-fg-muted'
         }`}
       >
         &bull;&bull;&bull;
@@ -54,7 +56,7 @@ function MoreMenu() {
               onClick={() => setOpen(false)}
               className={({ isActive }) =>
                 `block px-4 py-2 text-sm transition-colors ${
-                  isActive ? 'text-accent bg-surface-3' : 'text-zinc-400 hover:text-zinc-200 hover:bg-surface-3/50'
+                  isActive ? 'text-accent bg-surface-3' : 'text-fg-muted hover:text-fg hover:bg-surface-3/50'
                 }`
               }
             >
@@ -68,16 +70,21 @@ function MoreMenu() {
 }
 
 export default function App() {
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(() => {
+    const stored = localStorage.getItem('theme');
+    if (stored) return stored === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
   }, [dark]);
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-surface-0 text-[#e4e4ed]">
+      <div className="min-h-screen bg-surface-0 text-fg">
         <nav className="border-b border-border px-6 py-3 flex items-center gap-1">
-          <span className="font-mono font-bold text-accent text-base mr-6 tracking-tight">Indic<span className="text-zinc-500 font-normal text-xs ml-1">bot</span></span>
+          <span className="font-mono font-bold text-accent text-base mr-6 tracking-tight">Indic<span className="text-fg-muted font-normal text-xs ml-1">bot</span></span>
           {primaryNav.map((item) => (
             <NavLink
               key={item.to}
@@ -86,8 +93,8 @@ export default function App() {
               className={({ isActive }) =>
                 `text-sm px-3 py-1.5 border-b-2 transition-colors ${
                   isActive
-                    ? 'border-accent text-white'
-                    : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                    ? 'border-accent text-fg'
+                    : 'border-transparent text-fg-muted hover:text-fg'
                 }`
               }
             >
@@ -109,6 +116,7 @@ export default function App() {
             <Route path="/swarm" element={<Swarm />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/wiki" element={<Wiki />} />
+            <Route path="/tokens" element={<Tokens />} />
           </Routes>
         </main>
       </div>
