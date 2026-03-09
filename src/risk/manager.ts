@@ -53,6 +53,11 @@ export interface ValidationResult {
   approved: boolean;
   reason?: string;
   shutdown?: boolean;
+  marginShortfall?: {
+    neededMargin: number;
+    availableMargin: number;
+    shortfall: number;
+  };
 }
 
 interface RiskConfig {
@@ -234,6 +239,20 @@ export class RiskManager {
     }
 
     const newMargin = (decision.size_pct / 100) * portfolio.balanceUsd;
+
+    // Hard check: enough free margin to actually place the order
+    if (portfolio.availableUsd > 0 && newMargin > portfolio.availableUsd) {
+      return {
+        approved: false,
+        reason: `margin needed $${newMargin.toFixed(2)} exceeds available $${portfolio.availableUsd.toFixed(2)}`,
+        marginShortfall: {
+          neededMargin: newMargin,
+          availableMargin: portfolio.availableUsd,
+          shortfall: newMargin - portfolio.availableUsd,
+        },
+      };
+    }
+
     const newBetaMargin = newMargin * getBeta(decision.pair);
     if (decision.action === 'LONG') longExposure += newBetaMargin;
     else shortExposure += newBetaMargin;

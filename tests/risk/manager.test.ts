@@ -400,6 +400,31 @@ describe('RiskManager', () => {
     });
   });
 
+  it('returns MARGIN_SHORTFALL with details when margin insufficient', () => {
+    const rm = new RiskManager({
+      maxLeverage: 10, maxPositionPct: 50, maxExposurePct: 150,
+      maxStopLossPct: 5, maxLossUsd: 30, maxLossPct: 0, maxDrawdownPct: 15,
+    });
+    const decision: TradeDecision = {
+      pair: 'LINKUSDT', action: 'SHORT', size_pct: 30,
+      leverage: 10, stop_loss_pct: 2, take_profit_pct: 5, reasoning: 'test',
+      confidence: 75,
+    };
+    const portfolio: PortfolioState = {
+      balanceUsd: 188, availableUsd: 20, positions: [
+        { pair: 'ETHUSDT', sizeUsd: 280, leverage: 5, side: 'SHORT', entryPrice: 1941, unrealizedPnlPct: -3.8, heldHours: 6, marginUsd: 56 },
+      ],
+      sessionPnl: 3, drawdownPct: 0,
+    };
+
+    const result = rm.validate(decision, portfolio);
+    expect(result.approved).toBe(false);
+    expect(result.marginShortfall).toBeDefined();
+    expect(result.marginShortfall!.neededMargin).toBeCloseTo(56.4, 0);
+    expect(result.marginShortfall!.availableMargin).toBe(20);
+    expect(result.marginShortfall!.shortfall).toBeCloseTo(36.4, 0);
+  });
+
   describe('ADJUST validation', () => {
     const adjustPortfolio: PortfolioState = {
       balanceUsd: 1000,

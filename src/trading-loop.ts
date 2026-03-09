@@ -30,7 +30,7 @@ import type { DecisionJournal, JournalEntry } from './logging/decision-journal.j
 import type { TradeStoryLogger } from './logging/trade-story.js';
 import type { CryptoNews } from './news/types.js';
 import type { SwarmAgent } from './llm/swarm-agent.js';
-import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getDbOpenPositions, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp, getRecentLiquidations } from './db/repository.js';
+import { insertCycle, insertTradeDecision, insertTradeExecution, insertTradeClose, insertRiskValidation, insertIndicatorSnapshot, insertLlmConversation, getOpenPositionContexts, getDbOpenPositions, getMarketSnapshotsSince, getRecentDecisions, insertSlTpAdjustment, updateExecutionSlTp, getRecentLiquidations, insertRebalancingEvent } from './db/repository.js';
 import { getPool } from './db/connection.js';
 import { detectGhostPositions } from './position-reconciler.js';
 import type { AdjustContext } from './risk/manager.js';
@@ -40,6 +40,9 @@ import type { Watchdog, Tp1Target } from './watchdog.js';
 import { buildNewsMarketFusion, formatFusionBlock } from './news/news-market-fusion.js';
 import type { GroundingResult } from './news/grok-grounder.js';
 import { getMarketSession, formatSessionPromptBlock } from './market/session.js';
+import { computeCorrelationPenalty, computeRegimeFit, computeReentryValue, computeCandidateValue, evaluateRebalancing } from './risk/portfolio-allocator.js';
+import type { OpportunityCache } from './risk/opportunity-cache.js';
+import type { AllocationConfig } from './config.js';
 
 interface TradingLoopDeps {
   pairs: string[];
@@ -107,6 +110,11 @@ interface TradingLoopDeps {
     trailing: { enabled: boolean; callbackRatePct: number };
     regimeOverrides: Record<string, Partial<{ tp1CloseRatio: number; callbackRatePct: number }>>;
   };
+  allocator?: {
+    enabled: boolean;
+    config: AllocationConfig;
+  };
+  opportunityCache?: OpportunityCache;
 }
 
 export class TradingLoop {
@@ -124,6 +132,8 @@ export class TradingLoop {
   private lastNewsMarketFusion?: string;
   private _lastPositionCount = 0;
   private pairDecisionHistory: PairDecisionEntry[] = [];
+  private rebalanceCountLastHour = 0;
+  private lastRebalanceReset = Date.now();
 
   constructor(deps: TradingLoopDeps) {
     this.deps = deps;
@@ -1241,10 +1251,202 @@ export class TradingLoop {
             reason: validation.reason || 'unknown',
             timestamp: new Date().toISOString(),
           });
+
           if (validation.shutdown) {
             this._shutdown = true;
             logger.logError('SHUTDOWN', 'Max loss reached — stopping bot');
+            continue;
           }
+
+          // --- Portfolio Rebalancing ---
+          if (
+            validation.marginShortfall
+            && this.deps.allocator?.enabled
+            && (decision.action === 'LONG' || decision.action === 'SHORT')
+          ) {
+            const allocConfig = this.deps.allocator.config;
+
+            // Reset hourly counter
+            if (Date.now() - this.lastRebalanceReset > 3_600_000) {
+              this.rebalanceCountLastHour = 0;
+              this.lastRebalanceReset = Date.now();
+            }
+
+            // Cache the blocked candidate
+            this.deps.opportunityCache?.add({
+              pair: decision.pair,
+              side: decision.action,
+              setupType: decision.setup_type ?? 'unknown',
+              regime: marketRegime,
+              entryScore: 0,
+              price: parseFloat(snapshots.find(s => s.pair === decision.pair)?.markPrice ?? '0'),
+            });
+
+            // Compute candidate value
+            const candCorr = computeCorrelationPenalty(
+              decision.pair, decision.action,
+              portfolio.positions.map(p => ({ pair: p.pair, side: p.side })),
+            );
+            const candRegimeFit = computeRegimeFit(decision.action, marketRegime);
+            const pairInd = indicators.get(decision.pair);
+            const candidateValue = computeCandidateValue({
+              confidence: decision.confidence ?? 60,
+              remainingRR: decision.take_profit_pct / Math.max(decision.stop_loss_pct, 0.1),
+              regimeFit: candRegimeFit,
+              confluenceNorm: (pairConfluence.get(decision.pair)?.score ?? 2) / 5,
+              momentumConfirmation: pairInd ? Math.min(1, Math.max(0, pairInd.volumeRatio * 0.5)) : 0.5,
+              entryCost: 4,
+              correlationPenalty: candCorr,
+            });
+
+            // Score existing positions
+            const positionsScored = portfolio.positions.map(pos => {
+              const posInd = indicators.get(pos.pair);
+              const posCtx = positionContexts.find(c => c.pair === pos.pair);
+              const slPrice = posCtx ? Number(posCtx.sl_price) : 0;
+              const tpPrice = posCtx ? Number(posCtx.tp_price) : 0;
+              const markPrice = pos.entryPrice * (1 + (pos.side === 'LONG' ? 1 : -1) * pos.unrealizedPnlPct / 100);
+
+              let remainingRR = 1.0;
+              if (slPrice > 0 && tpPrice > 0 && markPrice > 0) {
+                const distToTp = Math.abs(tpPrice - markPrice);
+                const distToSl = Math.abs(markPrice - slPrice);
+                remainingRR = distToSl > 0 ? distToTp / distToSl : 0;
+              }
+
+              const tpProgress = pos.unrealizedPnlPct > 0 && tpPrice > 0
+                ? Math.min(1, pos.unrealizedPnlPct / (Math.abs(tpPrice - pos.entryPrice) / pos.entryPrice * 100))
+                : 0;
+
+              const posCorr = computeCorrelationPenalty(
+                pos.pair, pos.side,
+                portfolio.positions.filter(p => p.pair !== pos.pair).map(p => ({ pair: p.pair, side: p.side })),
+              );
+              const posRegimeFit = computeRegimeFit(pos.side as 'LONG' | 'SHORT', marketRegime);
+
+              const reentryValue = computeReentryValue(
+                { pair: pos.pair, side: pos.side },
+                portfolio.positions.filter(p => p.pair !== pos.pair).map(p => ({ pair: p.pair, side: p.side })),
+                {
+                  confidence: 60,
+                  remainingRR,
+                  regimeFit: posRegimeFit,
+                  confluenceNorm: (pairConfluence.get(pos.pair)?.score ?? 2) / 5,
+                  momentumConfirmation: posInd ? Math.min(1, Math.max(0, posInd.volumeRatio * 0.3)) : 0.3,
+                  exitCost: 4,
+                  correlationPenalty: posCorr,
+                },
+              );
+
+              return {
+                pair: pos.pair,
+                side: pos.side as 'LONG' | 'SHORT',
+                marginUsd: pos.marginUsd ?? pos.sizeUsd / pos.leverage,
+                heldHours: pos.heldHours,
+                tpProgress,
+                reentryValue,
+                notional: pos.sizeUsd,
+              };
+            });
+
+            const rebalanceResult = evaluateRebalancing({
+              shortfall: validation.marginShortfall,
+              candidate: decision,
+              candidateValue,
+              positions: positionsScored,
+              maxRebalancesPerHour: allocConfig.maxRebalancesPerHour,
+              rebalanceCountLastHour: this.rebalanceCountLastHour,
+              minHoldMinutes: allocConfig.minHoldBeforeEvictMinutes,
+              tpProgressLock: allocConfig.tpProgressLockThreshold,
+            });
+
+            if (rebalanceResult.action !== 'skip') {
+              console.log(`[Allocator] ${rebalanceResult.action}: evict ${rebalanceResult.evictPair} (reentry=${positionsScored.find(p => p.pair === rebalanceResult.evictPair)?.reentryValue?.toFixed(1)}) → open ${decision.pair} (value=${candidateValue.toFixed(1)}) delta=${rebalanceResult.delta?.toFixed(1)}`);
+
+              const evictPos = portfolio.positions.find(p => p.pair === rebalanceResult.evictPair);
+              if (evictPos) {
+                if (rebalanceResult.action === 'trim_and_open' && rebalanceResult.trimPct) {
+                  const trimResult = await orders.partialClose(evictPos.pair, evictPos.side, rebalanceResult.trimPct);
+                  if (!trimResult.success) {
+                    console.error(`[Allocator] Trim failed: ${trimResult.error}`);
+                    continue;
+                  }
+                  console.log(`[Allocator] Trimmed ${evictPos.pair} by ${(rebalanceResult.trimPct * 100).toFixed(0)}%`);
+                } else {
+                  const closeResult = await orders.close(evictPos.pair, evictPos.side);
+                  if (!closeResult.success) {
+                    console.error(`[Allocator] Close failed: ${closeResult.error}`);
+                    continue;
+                  }
+                  this.lastClosedAt.set(evictPos.pair, Date.now());
+                  console.log(`[Allocator] Closed ${evictPos.pair} to free margin`);
+
+                  const pnlUsd = evictPos.unrealizedPnlPct * (evictPos.marginUsd ?? evictPos.sizeUsd / evictPos.leverage) / 100;
+                  this.deps.memory.addTrade({
+                    pair: evictPos.pair,
+                    action: 'CLOSE',
+                    pnlUsd: parseFloat(pnlUsd.toFixed(2)),
+                    pnlPct: evictPos.unrealizedPnlPct,
+                    closedAt: new Date().toISOString(),
+                  });
+                  logger.logTrade({ type: 'REBALANCE_CLOSE', pair: evictPos.pair });
+                }
+
+                const execResult = await orders.execute(decision, portfolio.balanceUsd);
+                if (execResult.success) {
+                  this.rebalanceCountLastHour++;
+                  logger.logTrade({
+                    type: 'REBALANCE_OPEN', pair: decision.pair,
+                    orderId: execResult.orderId,
+                    fillPrice: execResult.fillPrice,
+                  });
+                  this.deps.memory.setLastOrderResult(
+                    `${decision.pair} ${decision.action} (rebalanced from ${rebalanceResult.evictPair})`
+                  );
+
+                  if (cycleId) {
+                    insertTradeExecution({
+                      decision_id: decisionId,
+                      pair: decision.pair,
+                      side: decision.action === 'LONG' ? 'buy' : 'sell',
+                      action: decision.action.toLowerCase(),
+                      quantity: execResult.quantity,
+                      fill_price: execResult.fillPrice,
+                      order_id: execResult.orderId,
+                      sl_price: execResult.slPrice,
+                      tp_price: execResult.tpPrice,
+                      leverage: decision.leverage,
+                      commission_usd: execResult.commissionUsd,
+                      commission_asset: execResult.commissionAsset,
+                      entry_thesis: decision.reasoning,
+                    }).catch(e => console.error('[DB] rebalance exec error:', e.message));
+                  }
+                } else {
+                  console.error(`[Allocator] Open failed after eviction: ${execResult.error}`);
+                  logger.logError('REBALANCE_OPEN_FAIL', execResult.error || 'unknown');
+                }
+              }
+            } else {
+              if (rebalanceResult.reason !== 'rate_limited') {
+                console.log(`[Allocator] Skip: ${rebalanceResult.reason} (candidate=${candidateValue.toFixed(1)})`);
+              }
+            }
+
+            // Log rebalancing event to DB
+            insertRebalancingEvent({
+              cycle_id: cycleId,
+              action_type: rebalanceResult.action,
+              evicted_pair: rebalanceResult.evictPair,
+              evicted_reentry_value: positionsScored.find(p => p.pair === rebalanceResult.evictPair)?.reentryValue,
+              new_pair: decision.pair,
+              new_candidate_value: candidateValue,
+              delta: rebalanceResult.delta,
+              swap_cost: rebalanceResult.swapCost,
+              trim_pct: rebalanceResult.trimPct,
+              reason: rebalanceResult.reason,
+            }).catch(e => console.error('[DB] rebalancing event error:', e.message));
+          }
+
           continue;
         }
 

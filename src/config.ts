@@ -60,6 +60,18 @@ export interface Config {
     trailing: { enabled: boolean; callbackRatePct: number };
     regimeOverrides: Record<string, Partial<{ tp1CloseRatio: number; callbackRatePct: number }>>;
   };
+  allocation: AllocationConfig;
+}
+
+export interface AllocationConfig {
+  enabled: boolean;
+  minFreeMarginPct: number;
+  maxRebalancesPerHour: number;
+  minHoldBeforeEvictMinutes: number;
+  tpProgressLockThreshold: number;
+  minDelta: number;
+  churnPenalty: number;
+  uncertaintyBand: number;
 }
 
 function requiredEnv(key: string): string {
@@ -143,6 +155,16 @@ export function loadConfig(): Config {
         callbackRatePct: pmTrailing.callbackRatePct ?? 1.0,
       },
       regimeOverrides: pm.regimeOverrides ?? {},
+    },
+    allocation: {
+      enabled: (y.allocation ?? {}).enabled ?? true,
+      minFreeMarginPct: (y.allocation ?? {}).minFreeMarginPct ?? 15,
+      maxRebalancesPerHour: (y.allocation ?? {}).maxRebalancesPerHour ?? 2,
+      minHoldBeforeEvictMinutes: (y.allocation ?? {}).minHoldBeforeEvictMinutes ?? 30,
+      tpProgressLockThreshold: (y.allocation ?? {}).tpProgressLockThreshold ?? 0.8,
+      minDelta: (y.allocation ?? {}).minDelta ?? 5,
+      churnPenalty: (y.allocation ?? {}).churnPenalty ?? 3,
+      uncertaintyBand: (y.allocation ?? {}).uncertaintyBand ?? 2,
     },
   };
 }
