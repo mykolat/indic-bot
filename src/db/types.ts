@@ -362,3 +362,24 @@ export interface DbLiquidation {
   spike_ratio: number;
   created_at?: string;
 }
+
+export interface DbToken {
+  id?: number;
+  label: string;
+  provider: string;
+  auth_type: string;
+  api_key?: string;
+  access_token?: string;
+  refresh_token?: string;
+  account_id?: string;
+  expires_at?: string;
+  primary_used_pct?: number;
+  secondary_used_pct?: number;
+  primary_reset_at?: string;
+  secondary_reset_at?: string;
+  is_active?: boolean;
+  last_used_at?: string;
+  last_error?: string;
+  created_at?: string;
+  updated_at?: string;
+}

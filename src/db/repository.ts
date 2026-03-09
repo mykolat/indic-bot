@@ -8,6 +8,7 @@ import type {
   DbTokenUsage, DbWebhookSignal, DbIndicatorSnapshot, DbMarketSnapshot,
   DbSlTpAdjustment, DbLiquidation,
   DbDailyDirective, DbHourlyPlan, DbExpertCall,
+  DbToken,
 } from './types.js';
 
 function q(): pg.Pool {
@@ -515,4 +516,75 @@ export async function insertExpertCall(e: Omit<DbExpertCall, 'id' | 'created_at'
     [e.cycle_id, e.tier, e.expert_name, e.llm_provider, e.input_tokens, e.output_tokens, JSON.stringify(e.result), e.latency_ms],
   );
   return rows[0].id;
+}
+
+// --- Portfolio Rebalancing Events ---
+
+export async function insertRebalancingEvent(e: {
+  cycle_id?: number;
+  action_type: string;
+  evicted_pair?: string;
+  evicted_reentry_value?: number;
+  new_pair: string;
+  new_candidate_value?: number;
+  delta?: number;
+  swap_cost?: number;
+  trim_pct?: number;
+  reason?: string;
+}): Promise<void> {
+  await q().query(
+    `INSERT INTO portfolio_rebalancing_events (cycle_id, action_type, evicted_pair, evicted_reentry_value, new_pair, new_candidate_value, delta, swap_cost, trim_pct, reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [e.cycle_id, e.action_type, e.evicted_pair, e.evicted_reentry_value, e.new_pair, e.new_candidate_value, e.delta, e.swap_cost, e.trim_pct, e.reason],
+  );
+}
+
+// --- Tokens ---
+
+export async function insertToken(t: Omit<DbToken, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
+  const { rows } = await q().query(
+    `INSERT INTO tokens (label, provider, auth_type, api_key, access_token, refresh_token, account_id, expires_at, is_active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    [t.label, t.provider, t.auth_type, t.api_key ?? null,
+     t.access_token ?? null, t.refresh_token ?? null, t.account_id ?? null,
+     t.expires_at ?? null, t.is_active ?? true],
+  );
+  return rows[0].id;
+}
+
+export async function getActiveTokens(provider: string): Promise<DbToken[]> {
+  const { rows } = await q().query(
+    `SELECT * FROM tokens WHERE provider = $1 AND is_active = true ORDER BY secondary_used_pct ASC`,
+    [provider],
+  );
+  return rows;
+}
+
+export async function updateTokenStats(id: number, stats: {
+  primary_used_pct: number;
+  secondary_used_pct: number;
+  primary_reset_at: string | null;
+  secondary_reset_at: string | null;
+  last_used_at: string;
+  access_token?: string;
+  expires_at?: string;
+}): Promise<void> {
+  await q().query(
+    `UPDATE tokens SET
+       primary_used_pct = $2, secondary_used_pct = $3,
+       primary_reset_at = $4, secondary_reset_at = $5,
+       last_used_at = $6, access_token = COALESCE($7, access_token),
+       expires_at = COALESCE($8, expires_at), updated_at = NOW()
+     WHERE id = $1`,
+    [id, stats.primary_used_pct, stats.secondary_used_pct,
+     stats.primary_reset_at, stats.secondary_reset_at,
+     stats.last_used_at, stats.access_token ?? null, stats.expires_at ?? null],
+  );
+}
+
+export async function updateTokenError(id: number, error: string): Promise<void> {
+  await q().query(
+    `UPDATE tokens SET last_error = $2, updated_at = NOW() WHERE id = $1`,
+    [id, error],
+  );
 }
