@@ -12,6 +12,7 @@ import { OrderExecutor, computeDecimalsFromStep } from './binance/orders.js';
 import { LLMClient } from './llm/client.js';
 import { FallbackLLMClient } from './llm/fallback-client.js';
 import { getOpenAIAccessToken } from './llm/oauth.js';
+import { TokenPool } from './llm/token-pool.js';
 import { RiskManager } from './risk/manager.js';
 import { SignalBuffer } from './webhook/signal-buffer.js';
 import { createWebhookServer } from './webhook/server.js';
@@ -27,6 +28,7 @@ import { MemoryKeeper } from './memory/memory-keeper.js';
 import { SwarmAgent } from './llm/swarm-agent.js';
 import { MemoryReviewAgent } from './memory/memory-review.js';
 import { RssNewsFetcher } from './news/rss-fetcher.js';
+import { OpportunityCache } from './risk/opportunity-cache.js';
 import { GrokGrounder } from './news/grok-grounder.js';
 import { PreScreener } from './market/pre-screener.js';
 import { SourceHealthMonitor } from './news/source-health.js';
@@ -111,13 +113,18 @@ async function main() {
     limitEntryTimeoutMs: config.trading.limitEntryTimeoutMs,
   });
 
-  // OpenAI auth: OAuth (default) or API key fallback
+  // Token pool: multi-account rotation
+  const tokenPool = new TokenPool();
+  let currentToken = await tokenPool.getBestToken('codex');
   let accessToken: string;
-  if (config.openai.apiKey && config.openai.apiKey !== 'oauth') {
-    console.log('[Auth] Using OpenAI API key from env');
+  if (currentToken?.access_token) {
+    console.log(`[Auth] Using token pool — '${currentToken.label}' (${currentToken.account_id?.slice(0, 8)}...)`);
+    accessToken = currentToken.access_token;
+  } else if (config.openai.apiKey && config.openai.apiKey !== 'oauth') {
+    console.log('[Auth] No pool tokens — using OpenAI API key from env');
     accessToken = config.openai.apiKey;
   } else {
-    console.log('[Auth] Using OpenAI OAuth flow...');
+    console.log('[Auth] No pool tokens — using OAuth flow fallback');
     accessToken = await getOpenAIAccessToken();
   }
 
@@ -289,6 +296,11 @@ async function main() {
     sessionId,
     positionManagement: config.positionManagement,
     preScreener: new PreScreener(),
+    allocator: {
+      enabled: config.allocation.enabled,
+      config: config.allocation,
+    },
+    opportunityCache: new OpportunityCache(),
   });
 
   // Start Watchdog (1-min snapshots into DB)
@@ -331,16 +343,44 @@ async function main() {
       process.exit(0);
     }
 
-    // Auto-refresh OAuth token if needed (getOpenAIAccessToken returns cached or refreshes)
+    // Token rotation: update stats from last call, rotate if needed
     try {
-      const freshToken = await getOpenAIAccessToken();
-      llm.updateAccessToken(freshToken);
+      const headers = llm.rateLimitHeaders;
+      if (currentToken?.id && Object.keys(headers).length > 0) {
+        const stats = await tokenPool.updateStats(currentToken.id, headers);
+        if (tokenPool.needsRotation(stats)) {
+          const next = await tokenPool.getBestToken('codex');
+          if (next?.access_token) {
+            console.log(`[Auth] Rotating token: '${currentToken.label}' → '${next.label}' (5h: ${stats.primary_used_pct}%, weekly: ${stats.secondary_used_pct}%)`);
+            currentToken = next;
+            llm.updateAccessToken(next.access_token);
+          } else {
+            console.warn('[Auth] All tokens exhausted — staying on current, Layer 2/3 will catch failures');
+          }
+        }
+      } else if (!currentToken) {
+        // Fallback: try OAuth refresh as before
+        const freshToken = await getOpenAIAccessToken();
+        llm.updateAccessToken(freshToken);
+      }
     } catch (err: any) {
-      console.warn('[Auth] Token refresh skipped:', err.message);
+      console.warn('[Auth] Token rotation skipped:', err.message);
     }
 
     console.log(`\n--- Cycle at ${new Date().toISOString()} ---`);
     const nextCheckMinutes = await loop.runOnce();
+
+    // Reactive rotation: if last cycle hit 429, try to rotate now
+    if (currentToken?.id && llm.last429) {
+      console.warn(`[Auth] 429 detected on '${currentToken.label}' — rotating...`);
+      const next = await tokenPool.rotateOnError(currentToken.id, '429 rate limit');
+      if (next?.access_token) {
+        currentToken = next;
+        llm.updateAccessToken(next.access_token);
+        console.log(`[Auth] Rotated to '${next.label}'`);
+      }
+      llm.last429 = false;
+    }
 
     // Dynamic interval: LLM suggests next check, fallback to config default
     const minBrainMs = 10 * 60_000; // 10 min minimum for Brain without positions

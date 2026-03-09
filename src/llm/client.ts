@@ -43,6 +43,7 @@ export class LLMClient {
   sessionId: string | undefined;
   cycleId: number | undefined;
   lastNextCheckMinutes: number | undefined;
+  last429 = false;
 
   async analyze(
     data: EnrichedPromptData,
@@ -75,7 +76,9 @@ export class LLMClient {
 
       if (!response.ok) {
         const errText = await response.text().catch(() => '');
-        throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
+        const err = new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
+        (err as any).status = response.status;
+        throw err;
       }
 
       const promptLength = this.systemPrompt.length + userPrompt.length;
@@ -152,6 +155,7 @@ export class LLMClient {
       }
       return [];
     } catch (err: any) {
+      if ((err as any).status === 429) this.last429 = true;
       console.error('[LLM] API error:', err);
       this.emergencyAlert(err);
       throw err;  // Let TradingLoop switch to Layer 2/3
@@ -377,7 +381,10 @@ export class LLMClient {
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      throw new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
+      const err = new Error(`Codex API ${response.status}: ${errText.slice(0, 300)}`);
+      (err as any).status = response.status;
+      if (response.status === 429) this.last429 = true;
+      throw err;
     }
 
     const callPromptLen = systemPrompt.length + userPrompt.length;
