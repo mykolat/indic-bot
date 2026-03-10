@@ -70,7 +70,7 @@ export function VerdictBar({ rawResponse, isIntermediate }: VerdictBarProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {isIntermediate && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/30 text-amber-400 font-mono">CONTINUE</span>
+              <span className="text-[10px] px-1.5 py-px rounded border border-amber-800/40 text-amber-500/70 font-mono uppercase tracking-wider">continue</span>
             )}
             <span className="text-[32px] font-mono font-bold" style={{ color }}>{v.action}</span>
             {v.pair && <span className="text-xl font-mono text-zinc-300">{v.pair}</span>}
