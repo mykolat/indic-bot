@@ -18,6 +18,24 @@ export const VOTE_COLORS: Record<string, string> = {
   CLOSE: '#eab308',
 };
 
+/** Fixed display order for persona dots (RM first as gatekeeper, then structure, then thesis, then special) */
+export const PERSONA_ORDER: string[] = [
+  'risk_manager',
+  'market_structure',
+  'bull_thesis',
+  'bear_thesis',
+  'narrative_expert',
+  'devils_advocate',
+];
+
+export function sortPersonas<T extends { persona: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const ai = PERSONA_ORDER.indexOf(a.persona);
+    const bi = PERSONA_ORDER.indexOf(b.persona);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+}
+
 export function getPersona(name: string) {
   return PERSONA_CONFIG[name as PersonaKey] ?? { code: name.slice(0, 2).toUpperCase(), label: name.replace(/_/g, ' '), emoji: '\u{1F916}', color: '#a1a1aa' };
 }
