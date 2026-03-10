@@ -81,4 +81,52 @@ describe('buildWatchdogSummary', () => {
     const summary = buildWatchdogSummary('BTCUSDT', snapshots as any, undefined);
     expect(summary).not.toContain('OBI');
   });
+
+  // --- NaN guards for zero/null values (PEPE bug) ---
+
+  it('handles zero mark_price without NaN', () => {
+    const snapshots = [
+      { pair: 'PEPEUSDT', mark_price: 0, open_interest: 1000000, created_at: '2026-03-10T09:00:00Z' },
+      { pair: 'PEPEUSDT', mark_price: 0.0000085, open_interest: 1000000, created_at: '2026-03-10T09:10:00Z' },
+    ];
+    const result = buildWatchdogSummary('PEPEUSDT', snapshots as any, undefined);
+    expect(result).not.toContain('NaN');
+  });
+
+  it('handles both mark_prices being zero without NaN', () => {
+    const snapshots = [
+      { pair: 'PEPEUSDT', mark_price: 0, open_interest: 1000000, created_at: '2026-03-10T09:00:00Z' },
+      { pair: 'PEPEUSDT', mark_price: 0, open_interest: 1000000, created_at: '2026-03-10T09:10:00Z' },
+    ];
+    const result = buildWatchdogSummary('PEPEUSDT', snapshots as any, undefined);
+    expect(result).not.toContain('NaN');
+  });
+
+  it('handles zero open_interest without NaN', () => {
+    const snapshots = [
+      { pair: 'PEPEUSDT', mark_price: 0.0000085, open_interest: 0, created_at: '2026-03-10T09:00:00Z' },
+      { pair: 'PEPEUSDT', mark_price: 0.0000090, open_interest: 500000, created_at: '2026-03-10T09:10:00Z' },
+    ];
+    const result = buildWatchdogSummary('PEPEUSDT', snapshots as any, undefined);
+    expect(result).not.toContain('NaN');
+  });
+
+  it('handles null/undefined imbalance_pct without NaN', () => {
+    const snapshots = [
+      { pair: 'PEPEUSDT', mark_price: 0.0000085, open_interest: 1000000, imbalance_pct: undefined, created_at: '2026-03-10T09:00:00Z' },
+      { pair: 'PEPEUSDT', mark_price: 0.0000090, open_interest: 1000000, imbalance_pct: undefined, created_at: '2026-03-10T09:10:00Z' },
+    ];
+    const result = buildWatchdogSummary('PEPEUSDT', snapshots as any, undefined);
+    expect(result).not.toContain('NaN');
+    expect(result).not.toContain('OBI');
+  });
+
+  it('computes correct price delta for normal snapshots', () => {
+    const snapshots = [
+      { pair: 'BTCUSDT', mark_price: 69000, open_interest: 50000, created_at: '2026-03-10T09:00:00Z' },
+      { pair: 'BTCUSDT', mark_price: 69690, open_interest: 50000, created_at: '2026-03-10T09:10:00Z' },
+    ];
+    const result = buildWatchdogSummary('BTCUSDT', snapshots as any, undefined);
+    expect(result).toContain('+1.0%');
+  });
 });

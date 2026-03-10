@@ -11,14 +11,22 @@ export function buildWatchdogSummary(
 
   const first = snapshots[0];
   const last = snapshots[snapshots.length - 1];
-  const priceDelta = ((Number(last.mark_price) - Number(first.mark_price)) / Number(first.mark_price) * 100).toFixed(1);
+  const firstPrice = Number(first.mark_price);
+  const lastPrice = Number(last.mark_price);
+  const priceDelta = firstPrice > 0
+    ? ((lastPrice - firstPrice) / firstPrice * 100).toFixed(1)
+    : '0.0';
   const sign = Number(priceDelta) >= 0 ? '+' : '';
   const minutes = Math.round((new Date(last.created_at!).getTime() - new Date(first.created_at!).getTime()) / 60000);
 
   let summary = `${pair}: ${sign}${priceDelta}% over ${minutes}m (${snapshots.length} snapshots)`;
 
   if (first.open_interest && last.open_interest) {
-    const oiDelta = ((Number(last.open_interest) - Number(first.open_interest)) / Number(first.open_interest) * 100).toFixed(1);
+    const firstOI = Number(first.open_interest);
+    const lastOI = Number(last.open_interest);
+    const oiDelta = firstOI > 0
+      ? ((lastOI - firstOI) / firstOI * 100).toFixed(1)
+      : '0.0';
     summary += ` | OI ${Number(oiDelta) >= 0 ? '+' : ''}${oiDelta}%`;
     const oiDeltaNum = Number(oiDelta);
     const priceDeltaNum = Number(priceDelta);
@@ -31,10 +39,12 @@ export function buildWatchdogSummary(
   // Order Book Imbalance
   if (last.imbalance_pct != null) {
     const obi = Number(last.imbalance_pct);
-    const obiSignal = interpretOBI(obi);
-    summary += ` | OBI ${obi >= 0 ? '+' : ''}${obi.toFixed(0)}%`;
-    if (obiSignal.label !== 'BALANCED') {
-      summary += ` (${obiSignal.label})`;
+    if (!isNaN(obi)) {
+      const obiSignal = interpretOBI(obi);
+      summary += ` | OBI ${obi >= 0 ? '+' : ''}${obi.toFixed(0)}%`;
+      if (obiSignal.label !== 'BALANCED') {
+        summary += ` (${obiSignal.label})`;
+      }
     }
   }
 
