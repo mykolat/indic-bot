@@ -142,7 +142,6 @@ export function Swarm() {
         .limit(20);
 
       // Fetch votes for all debate conversations eagerly
-      const debateCycleIds = [...new Set((judges ?? []).map(j => j.cycle_id))];
       const debateConvIds = (judges ?? []).map(j => j.id);
 
       const [{ data: recentCycles }, { data: allVotes }] = await Promise.all([
@@ -161,7 +160,7 @@ export function Swarm() {
       ]);
 
       // Build vote lookup: conversation_id → cycle_id
-      const cycleVotes = new Map<number, Array<{ persona: string; vote: string | null }>>();
+      const cycleVotes = new Map<number, Array<{ persona: string; vote: string | null; phase: number }>>();
       const convToCycle = new Map<number, number>();
       for (const j of judges ?? []) convToCycle.set(j.id, j.cycle_id);
       for (const v of allVotes ?? []) {
@@ -201,7 +200,6 @@ export function Swarm() {
           while (i < cycles.length && !debateJudge.has(cycles[i].id)) i++;
           const groupCycles = cycles.slice(groupStart, i);
           const first = groupCycles[0];
-          const last = groupCycles[groupCycles.length - 1];
           const count = groupCycles.length;
           items.push({
             cycleId: first.id,

@@ -30,8 +30,8 @@ export const PERSONA_ORDER: PersonaKey[] = [
 
 export function sortPersonas<T extends { persona: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
-    const ai = PERSONA_ORDER.indexOf(a.persona);
-    const bi = PERSONA_ORDER.indexOf(b.persona);
+    const ai = PERSONA_ORDER.indexOf(a.persona as PersonaKey);
+    const bi = PERSONA_ORDER.indexOf(b.persona as PersonaKey);
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
 }
