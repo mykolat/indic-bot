@@ -1,9 +1,9 @@
-import { VOTE_COLORS, getPersona } from '../../lib/theme';
+import { VOTE_COLORS, getPersona, sortPersonas } from '../../lib/theme.js';
 
 interface DebateItem {
   cycleId: number;
   createdAt: string;
-  votes: Array<{ persona: string; vote: string | null }>;
+  votes: Array<{ persona: string; vote: string | null; phase: number }>;
   summary: string;
   isSkip?: boolean;
   skipReason?: string;
@@ -13,6 +13,19 @@ interface DebateSidebarProps {
   debates: DebateItem[];
   selectedIdx: number;
   onSelect: (idx: number) => void;
+}
+
+/** Group votes by phase, sort personas within each phase */
+function groupByRound(votes: DebateItem['votes']) {
+  const rounds = new Map<number, DebateItem['votes']>();
+  for (const v of votes) {
+    const arr = rounds.get(v.phase) ?? [];
+    arr.push(v);
+    rounds.set(v.phase, arr);
+  }
+  return Array.from(rounds.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([phase, vs]) => ({ phase, votes: sortPersonas(vs) }));
 }
 
 export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarProps) {
@@ -51,6 +64,9 @@ export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarP
           );
         }
 
+        const rounds = groupByRound(d.votes);
+        const totalRounds = rounds.length;
+
         return (
           <button
             key={i}
@@ -62,19 +78,34 @@ export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarP
             }`}
           >
             <div className="flex justify-between items-center mb-1.5">
-              <span className="text-xs font-mono text-zinc-400">#{d.cycleId}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-zinc-400">#{d.cycleId}</span>
+                {totalRounds > 1 && (
+                  <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-surface-3 text-zinc-500">
+                    {totalRounds}R
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] text-zinc-600 font-mono">
                 {new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
-            <div className="flex gap-1 mb-1.5">
-              {d.votes.map((v, j) => (
-                <div
-                  key={j}
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: VOTE_COLORS[v.vote ?? 'HOLD'] ?? '#71717a' }}
-                  title={`${getPersona(v.persona).label}: ${v.vote ?? 'N/A'}`}
-                />
+            {/* Dots grouped by round with separator */}
+            <div className="flex items-center gap-0.5 mb-1.5 flex-wrap">
+              {rounds.map((r, ri) => (
+                <div key={r.phase} className="flex items-center gap-0.5">
+                  {ri > 0 && (
+                    <div className="w-px h-2 mx-0.5" style={{ backgroundColor: 'var(--border)' }} />
+                  )}
+                  {r.votes.map((v, j) => (
+                    <div
+                      key={j}
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: VOTE_COLORS[v.vote ?? 'HOLD'] ?? '#71717a' }}
+                      title={`R${r.phase} ${getPersona(v.persona).label}: ${v.vote ?? 'N/A'}`}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
             <p className="text-[11px] text-zinc-500 truncate">{d.summary}</p>
