@@ -49,7 +49,7 @@ try {
   console.log(`  Cycles: ${overview.total_cycles} | Active hours: ${overview.active_hours} | Avg vol: ${overview.avg_volume}x | Regime: ${overview.dominant_regime}`);
 
   // ── 2. Decision funnel ──
-  section('DECISION FUNNEL');
+  section('DECISION FUNNEL (note: HOLD decisions are NOT saved to DB — only LONG/SHORT/CLOSE)');
 
   const { rows: [funnel] } = await pool.query(`
     SELECT
@@ -60,7 +60,7 @@ try {
       (SELECT COUNT(*) FROM trade_decisions WHERE created_at > ${since} AND action = 'ADJUST') as adjusts,
       (SELECT COUNT(*) FROM risk_validations rv JOIN trade_decisions td ON rv.decision_id = td.id
         WHERE td.created_at > ${since} AND rv.passed = false) as risk_rejected,
-      (SELECT COUNT(*) FROM trade_executions WHERE created_at > ${since}) as executed
+      (SELECT COUNT(*) FROM trade_executions WHERE opened_at > ${since}) as executed
   `);
 
   const total = Number(funnel.total_decisions) || 1;
