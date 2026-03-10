@@ -360,6 +360,13 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += `\n`;
   }
 
+  if ((data as any).conflictWarningPairs?.length >= 3) {
+    const pairs = (data as any).conflictWarningPairs as string[];
+    prompt += `\n## NOTE: 1h/4h Trend Divergence (${pairs.length} pairs)\n`;
+    prompt += `${pairs.join(', ')} show 1h vs 4h trend conflict. This is NORMAL during market transitions.\n`;
+    prompt += `Trade on 1h trend if setup is strong. A 4h bearish trend during 1h recovery is an OPPORTUNITY, not a blocker.\n\n`;
+  }
+
   const openPairs = new Set(data.portfolio.positions.map(p => p.pair));
 
   for (const snap of data.snapshots) {

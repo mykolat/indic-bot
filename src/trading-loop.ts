@@ -792,6 +792,7 @@ export class TradingLoop {
       const openPairSet = new Set(portfolio.positions.map(p => p.pair));
       let screenResult: ScreenAllResult | undefined;
       let filteredSnapshots = snapshots;
+      let conflictWarningPairs: string[] = [];
 
       if (this.deps.preScreener) {
         const screenInputs = snapshots.map(snap => ({
@@ -829,6 +830,10 @@ export class TradingLoop {
 
         const passedPairs = new Set(screenResult.passed.map(v => v.pair));
         filteredSnapshots = snapshots.filter(s => passedPairs.has(s.pair));
+
+        conflictWarningPairs = screenResult.passed
+          .filter(v => v.warning === '4h_conflict')
+          .map(v => v.pair);
 
         if (screenResult.held.length > 0) {
           const heldSummary = screenResult.held.map(h => `${h.pair}:${h.reason}`).join(', ');
@@ -908,6 +913,7 @@ export class TradingLoop {
         newsMarketFusion: this.lastNewsMarketFusion,
         sessionBlock: formatSessionPromptBlock(new Date()),
         screenedOutPairs: screenResult?.held.map(h => ({ pair: h.pair, reason: h.reason ?? 'unknown' })),
+        conflictWarningPairs,
         marginMode: screenResult?.marginMode,
       };
 
