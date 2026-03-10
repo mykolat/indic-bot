@@ -16,6 +16,14 @@ export class RegimeHysteresis {
     }
 
     const current = this.confirmed.get(pair) ?? MarketRegime.Range;
+
+    // Instant exit from critical regimes (symmetric with instant entry)
+    if (BYPASS_REGIMES.has(current) && newRegime !== current) {
+      this.confirmed.set(pair, newRegime);
+      this.pending.delete(pair);
+      return newRegime;
+    }
+
     if (newRegime === current) {
       this.pending.delete(pair);
       return current;

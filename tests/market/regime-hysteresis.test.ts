@@ -31,6 +31,16 @@ describe('RegimeHysteresis', () => {
     expect(h.update('ETHUSDT', MarketRegime.BearTrend)).toBe(MarketRegime.BearTrend);
   });
 
+  it('exits Capitulation instantly when classifier disagrees (symmetric bypass)', () => {
+    const h = new RegimeHysteresis(3);
+    h.update('BTCUSDT', MarketRegime.Capitulation);
+    expect(h.get('BTCUSDT')).toBe(MarketRegime.Capitulation);
+    // Next cycle: classifier says BearTrend — should exit immediately
+    const result = h.update('BTCUSDT', MarketRegime.BearTrend);
+    expect(result).toBe(MarketRegime.BearTrend);
+    expect(h.get('BTCUSDT')).toBe(MarketRegime.BearTrend);
+  });
+
   it('returns current confirmed regime via get()', () => {
     const h = new RegimeHysteresis(2);
     expect(h.get('BTCUSDT')).toBe(MarketRegime.Range);
