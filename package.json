@@ -20,7 +20,8 @@
     "sync:positions": "tsx scripts/sync-ghost-positions.ts",
     "token:add": "tsx scripts/token-add.ts",
     "audit:pipeline": "tsx scripts/pipeline-audit.ts",
-    "audit:decision": "tsx scripts/audit-decision.ts"
+    "audit:decision": "tsx scripts/audit-decision.ts",
+    "audit:swarm": "tsx scripts/audit-swarm.ts"
   },
   "keywords": [],
   "author": "",
