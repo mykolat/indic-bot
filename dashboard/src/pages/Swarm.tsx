@@ -14,6 +14,7 @@ interface SidebarItem {
   votes: Array<{ persona: string; vote: string | null; phase: number }>;
   isSkip?: boolean;
   skipReason?: string;
+  outcome?: { pricePct: number; hoursAfter: number } | null;
 }
 
 interface SwarmMessage {
@@ -226,6 +227,61 @@ export function Swarm() {
         .limit(1);
       if (latestSnap?.[0]?.mark_price) {
         setCurrentPrice(Number(latestSnap[0].mark_price));
+      }
+
+      // Hindsight: fetch price at debate time and ~12h later for debates older than 6h
+      const debateItems = items.filter(i => !i.isSkip);
+      if (debateItems.length > 0) {
+        const now = Date.now();
+        const eligibleDebates = debateItems.filter(d =>
+          now - new Date(d.createdAt).getTime() > 6 * 60 * 60_000
+        );
+
+        const hindsightPromises = eligibleDebates.map(async (item) => {
+          const debateTime = new Date(item.createdAt);
+          const afterTime = new Date(debateTime.getTime() + 12 * 60 * 60_000);
+          const actualAfter = afterTime > new Date() ? new Date() : afterTime;
+
+          const [{ data: atDebate }, { data: atAfter }] = await Promise.all([
+            supabase
+              .from('market_snapshots')
+              .select('mark_price')
+              .eq('pair', 'BTCUSDT')
+              .lte('created_at', debateTime.toISOString())
+              .order('created_at', { ascending: false })
+              .limit(1),
+            supabase
+              .from('market_snapshots')
+              .select('mark_price, created_at')
+              .eq('pair', 'BTCUSDT')
+              .gte('created_at', actualAfter.toISOString())
+              .order('created_at', { ascending: true })
+              .limit(1),
+          ]);
+
+          const pBefore = atDebate?.[0]?.mark_price ? Number(atDebate[0].mark_price) : null;
+          const pAfter = atAfter?.[0]?.mark_price ? Number(atAfter[0].mark_price) : null;
+          if (!pBefore || !pAfter) return null;
+          const hoursAfter = (new Date((atAfter![0] as any).created_at).getTime() - debateTime.getTime()) / 3_600_000;
+          return {
+            cycleId: item.cycleId,
+            pricePct: ((pAfter - pBefore) / pBefore) * 100,
+            hoursAfter,
+          };
+        });
+
+        const outcomes = await Promise.all(hindsightPromises);
+        const outcomeMap = new Map<number, { pricePct: number; hoursAfter: number }>();
+        for (const o of outcomes) {
+          if (o) outcomeMap.set(o.cycleId, { pricePct: o.pricePct, hoursAfter: o.hoursAfter });
+        }
+
+        if (outcomeMap.size > 0) {
+          setSidebarItems(prev => prev.map(si => ({
+            ...si,
+            outcome: outcomeMap.get(si.cycleId) ?? si.outcome ?? null,
+          })));
+        }
       }
 
       // Auto-select from ?cycle= param (default to first debate, not skip)
@@ -534,7 +590,7 @@ export function Swarm() {
   return (
     <div className="flex h-[calc(100vh-5rem)]">
       <DebateSidebar
-        debates={sidebarItems.map(d => ({ cycleId: d.cycleId, createdAt: d.createdAt, votes: d.votes, summary: d.summary, isSkip: d.isSkip, skipReason: d.skipReason }))}
+        debates={sidebarItems.map(d => ({ cycleId: d.cycleId, createdAt: d.createdAt, votes: d.votes, summary: d.summary, isSkip: d.isSkip, skipReason: d.skipReason, outcome: d.outcome }))}
         selectedIdx={selectedIdx}
         onSelect={setSelectedIdx}
       />

@@ -7,6 +7,7 @@ interface DebateItem {
   summary: string;
   isSkip?: boolean;
   skipReason?: string;
+  outcome?: { pricePct: number; hoursAfter: number } | null;
 }
 
 interface DebateSidebarProps {
@@ -109,6 +110,20 @@ export function DebateSidebar({ debates, selectedIdx, onSelect }: DebateSidebarP
               ))}
             </div>
             <p className="text-[11px] text-zinc-500 truncate">{d.summary}</p>
+            {d.outcome && (
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className={`text-[9px] font-mono font-semibold ${
+                  d.outcome.pricePct > 0.5 ? 'text-green-500' :
+                  d.outcome.pricePct < -0.5 ? 'text-red-500' :
+                  'text-zinc-500'
+                }`}>
+                  {d.outcome.pricePct >= 0 ? '+' : ''}{d.outcome.pricePct.toFixed(1)}%
+                </span>
+                <span className="text-[8px] text-zinc-600">
+                  {Math.round(d.outcome.hoursAfter)}h later
+                </span>
+              </div>
+            )}
           </button>
         );
       })}
