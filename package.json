@@ -21,7 +21,8 @@
     "token:add": "tsx scripts/token-add.ts",
     "audit:pipeline": "tsx scripts/pipeline-audit.ts",
     "audit:decision": "tsx scripts/audit-decision.ts",
-    "audit:swarm": "tsx scripts/audit-swarm.ts"
+    "audit:swarm": "tsx scripts/audit-swarm.ts",
+    "audit:hindsight": "tsx scripts/audit-hindsight.ts"
   },
   "keywords": [],
   "author": "",
