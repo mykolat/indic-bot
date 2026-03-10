@@ -48,6 +48,7 @@ interface DebateDetail {
   userPrompt: string;
   blackboardStates: Array<{ phase: number; state: any }>;
   singleCycles?: SingleCycleEntry[];
+  debatePrice?: number | null;
 }
 
 // ── Helpers ──
@@ -125,6 +126,7 @@ export function Swarm() {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [currentDetail, setCurrentDetail] = useState<DebateDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [superInput, setSuperInput] = useState('');
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -214,6 +216,17 @@ export function Swarm() {
         }
       }
       setSidebarItems(items);
+
+      // Fetch current price (latest snapshot)
+      const { data: latestSnap } = await supabase
+        .from('market_snapshots')
+        .select('mark_price')
+        .eq('pair', 'BTCUSDT')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (latestSnap?.[0]?.mark_price) {
+        setCurrentPrice(Number(latestSnap[0].mark_price));
+      }
 
       // Auto-select from ?cycle= param (default to first debate, not skip)
       const cycleParam = searchParams.get('cycle');
@@ -315,7 +328,7 @@ export function Swarm() {
       : new Date(new Date(item.createdAt).getTime() - 300_000).toISOString(); // fallback: 5min before
     const windowEnd = new Date(new Date(item.createdAt).getTime() + 60_000).toISOString();
 
-    const [personasRes, judgeConvsRes] = await Promise.all([
+    const [personasRes, judgeConvsRes, priceRes] = await Promise.all([
       supabase
         .from('swarm_personas')
         .select('persona, vote, confidence, reasoning, created_at, phase, conflicts_with, signals')
@@ -328,6 +341,13 @@ export function Swarm() {
         .eq('cycle_id', item.cycleId)
         .eq('method', 'swarm_consensus')
         .order('created_at', { ascending: true }),
+      supabase
+        .from('market_snapshots')
+        .select('mark_price')
+        .eq('pair', 'BTCUSDT')
+        .lte('created_at', windowEnd)
+        .order('created_at', { ascending: false })
+        .limit(1),
     ]);
 
     const personaList = personasRes.data || [];
@@ -393,6 +413,7 @@ export function Swarm() {
       messages,
       userPrompt: (judgeConvs[0] as any)?.user_prompt ?? '',
       blackboardStates,
+      debatePrice: priceRes.data?.[0]?.mark_price ? Number(priceRes.data[0].mark_price) : null,
     };
 
     detailCache.current.set(item.cycleId, detail);
@@ -571,6 +592,8 @@ export function Swarm() {
                   regime={ctx.regime}
                   fearGreed={ctx.fearGreed}
                   volumeRatio={ctx.volumeRatio}
+                  debatePrice={currentDetail.debatePrice}
+                  currentPrice={currentPrice}
                 />
               )}
               {rounds.map(r => (

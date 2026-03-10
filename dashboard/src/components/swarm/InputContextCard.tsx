@@ -7,6 +7,8 @@ interface InputContextCardProps {
   regime: string;
   fearGreed: number;
   volumeRatio: number;
+  debatePrice?: number | null;
+  currentPrice?: number | null;
 }
 
 function extractField(text: string, field: string): string {
@@ -15,7 +17,7 @@ function extractField(text: string, field: string): string {
   return m?.[1]?.trim() ?? '\u2014';
 }
 
-export function InputContextCard({ userPrompt, pair, regime, fearGreed, volumeRatio }: InputContextCardProps) {
+export function InputContextCard({ userPrompt, pair, regime, fearGreed, volumeRatio, debatePrice, currentPrice }: InputContextCardProps) {
   const [expanded, setExpanded] = useState(false);
   const sessionPnl = extractField(userPrompt, 'Session P&L');
   const time = extractField(userPrompt, 'Current time');
@@ -28,9 +30,24 @@ export function InputContextCard({ userPrompt, pair, regime, fearGreed, volumeRa
           <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Input Context</h3>
           <span className="text-[10px] text-zinc-600 font-mono">{time}</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
             { label: 'Pair', value: pair, sub: '', color: 'text-white' },
+            ...(debatePrice != null ? [{
+              label: 'Mark Price',
+              value: `$${debatePrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+              sub: currentPrice != null
+                ? (() => {
+                    const delta = ((currentPrice - debatePrice) / debatePrice * 100);
+                    return `Now $${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} (${delta >= 0 ? '+' : ''}${delta.toFixed(2)}%)`;
+                  })()
+                : '',
+              color: currentPrice != null && currentPrice > debatePrice
+                ? 'text-green-400'
+                : currentPrice != null && currentPrice < debatePrice
+                ? 'text-red-400'
+                : 'text-zinc-300',
+            }] : []),
             { label: 'Regime', value: regime, sub: '', color: 'text-accent' },
             { label: 'Fear & Greed', value: String(fearGreed), sub: fearGreed < 25 ? 'Extreme Fear' : fearGreed < 45 ? 'Fear' : fearGreed < 56 ? 'Neutral' : fearGreed < 76 ? 'Greed' : 'Extreme Greed', color: fearGreed < 25 ? 'text-red-400' : fearGreed > 60 ? 'text-green-400' : 'text-yellow-400' },
             { label: 'Volume Ratio', value: `${volumeRatio.toFixed(2)}x`, sub: volumeRatio > 1.5 ? 'High' : volumeRatio < 0.5 ? 'Low' : 'Normal', color: volumeRatio > 1.5 ? 'text-green-400' : 'text-zinc-300' },
