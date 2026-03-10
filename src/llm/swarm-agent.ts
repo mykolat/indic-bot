@@ -137,19 +137,60 @@ for (const [name, code] of Object.entries(BB_PERSONA_CODES)) {
 }
 
 function parsePersonaUpdate(raw: string): PersonaUpdate | null {
+  // 1. Try direct JSON parse
   try {
     const parsed = JSON.parse(raw);
     if (parsed?.vote) return parsed;
-  } catch {
-    const match = raw.match(/\{[\s\S]*"vote"[\s\S]*\}/);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[0]);
-        if (parsed?.vote) return parsed;
-      } catch { /* */ }
-    }
+  } catch { /* not pure JSON */ }
+
+  // 2. Extract from ```json ... ``` code blocks
+  const codeBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlock) {
+    try {
+      const parsed = JSON.parse(codeBlock[1]);
+      if (parsed?.vote) return parsed;
+    } catch { /* bad JSON in code block */ }
   }
+
+  // 3. Greedy regex for JSON with "vote"
+  const match = raw.match(/\{[\s\S]*"vote"[\s\S]*\}/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[0]);
+      if (parsed?.vote) return parsed;
+    } catch { /* */ }
+  }
+
   return null;
+}
+
+const EXTRACT_JSON_PROMPT = `You are a JSON extraction tool. Extract structured trading vote from the analyst text below.
+Return ONLY valid JSON, no markdown, no explanation:
+{"vote":{"d":"LONG|SHORT|HOLD|CLOSE","c":<confidence 0-100>,"prob":<probability 0-100>,"reason":"<compact reason>"},"signals":{"bullish":[],"bearish":[],"neutral":[]},"risks":[],"conflicts_with":{}}
+
+Rules:
+- d = the analyst's recommended direction. If unclear, use HOLD.
+- c = how confident they sound (0-100)
+- prob = their estimated probability of success (0-100)
+- reason = one-line summary of their main argument
+- signals = key market signals mentioned (bullish/bearish/neutral arrays of short strings)
+- risks = key risks mentioned (array of short strings)`;
+
+async function extractViaLLM(raw: string, llm: LLMClient): Promise<PersonaUpdate | null> {
+  try {
+    console.log('[Swarm] parsePersonaUpdate: JSON parse failed, using LLM extraction');
+    const result = await llm.call(EXTRACT_JSON_PROMPT, raw.slice(0, 2000));
+    const parsed = parsePersonaUpdate(result);
+    if (parsed) {
+      console.log(`[Swarm] LLM extraction success: ${parsed.vote.d} c=${parsed.vote.c}`);
+    } else {
+      console.warn('[Swarm] LLM extraction also failed:', result.slice(0, 200));
+    }
+    return parsed;
+  } catch (e: any) {
+    console.warn('[Swarm] LLM extraction error:', e.message);
+    return null;
+  }
 }
 
 // ── SwarmAgent (Blackboard Pattern) ───────────────────────────────────
@@ -166,6 +207,8 @@ export class SwarmAgent {
 
   async getConsensus(data: EnrichedPromptData): Promise<TradeDecision[]> {
     // Fingerprint-based dedup: skip debate if market state unchanged
+    const btcVolumeRatio = data.indicators.get('BTCUSDT')?.volumeRatio
+      ?? data.indicators.values().next().value?.volumeRatio ?? 0;
     const fp = buildSwarmFingerprint({
       positions: data.portfolio.positions.map(p => ({
         pair: p.pair,
@@ -173,7 +216,7 @@ export class SwarmAgent {
         unrealizedPnlPct: p.unrealizedPnlPct,
       })),
       regime: data.regime ?? '',
-      volumeRatio: data.snapshots[0]?.volumeRatio ?? 0,
+      volumeRatio: btcVolumeRatio,
       fearGreedValue: data.fearGreed?.value ?? 50,
     });
 
@@ -194,7 +237,7 @@ export class SwarmAgent {
       pairs: data.snapshots.map(s => s.pair),
       regime: data.regime ?? '',
       fearGreed: data.fearGreed?.value ?? 50,
-      volumeRatio: data.snapshots[0]?.volumeRatio ?? 0,
+      volumeRatio: btcVolumeRatio,
     });
 
     // Keep conversation history for DB backward compatibility
@@ -223,7 +266,8 @@ export class SwarmAgent {
         const res = results[i];
         if (res.status === 'fulfilled') {
           const raw = res.value;
-          const update = parsePersonaUpdate(raw);
+          let update = parsePersonaUpdate(raw);
+          if (!update) update = await extractViaLLM(raw, this.llm);
           if (speakers[i] === 'narrative_expert') this.sourceHealth?.recordSuccess('grok-narrative');
 
           if (update?.vote) {
@@ -293,7 +337,8 @@ export class SwarmAgent {
             const daRaw = this.grokLlm
               ? await this.grokLlm.call(daPrompt, userPrompt, 'grok-4-1-fast-non-reasoning', { search: true })
               : await this.llm.call(daPrompt, userPrompt);
-            const daUpdate = parsePersonaUpdate(daRaw);
+            let daUpdate = parsePersonaUpdate(daRaw);
+            if (!daUpdate) daUpdate = await extractViaLLM(daRaw, this.llm);
             if (daUpdate?.vote) {
               bb.mergePersonaUpdate('DA', daUpdate);
               conversationHistory.push({ persona: 'devils_advocate', content: daRaw.slice(0, 500), vote: daUpdate.vote.d, phase: round });

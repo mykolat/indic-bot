@@ -551,10 +551,12 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     }
     prompt += '\nHeadlines:\n';
     for (const n of data.recentNewsWithAge.slice(0, 30)) {
-      const age = Math.round(n.age_hours);
+      const ageLabel = n.age_hours < 1
+        ? `${Math.max(1, Math.round(n.age_hours * 60))}m ago`
+        : `${Math.round(n.age_hours)}h ago`;
       const coins = n.coins.length > 0 ? `[${n.coins.join('/')}] ` : '';
       const sent = n.sentiment > 0 ? '▲' : n.sentiment < 0 ? '▼' : '─';
-      prompt += `  [${age}h ago] ${coins}${sent} ${n.title}\n`;
+      prompt += `  [${ageLabel}] ${coins}${sent} ${n.title}\n`;
     }
     prompt += '\n';
   } else if (data.newsAnalysis) {
