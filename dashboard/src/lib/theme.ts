@@ -19,7 +19,7 @@ export const VOTE_COLORS: Record<string, string> = {
 };
 
 /** Fixed display order for persona dots (RM first as gatekeeper, then structure, then thesis, then special) */
-export const PERSONA_ORDER: string[] = [
+export const PERSONA_ORDER: PersonaKey[] = [
   'risk_manager',
   'market_structure',
   'bull_thesis',
