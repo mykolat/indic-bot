@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getPersona } from '../../lib/theme.js';
+import { getPersona, sortPersonas } from '../../lib/theme.js';
 
 interface PersonaDotProps {
   persona: string;
@@ -21,16 +21,17 @@ const DOT_COLORS: Record<string, string> = {
 
 export function PersonaDots({ votes }: PersonaDotsProps) {
   const [hovered, setHovered] = useState<number | null>(null);
+  const sorted = sortPersonas(votes);
 
   return (
-    <div className="flex items-center gap-3 justify-center relative">
-      {votes.map((v, i) => {
+    <div className="flex items-center gap-2 justify-center flex-wrap relative">
+      {sorted.map((v, i) => {
         const p = getPersona(v.persona);
         const color = DOT_COLORS[v.vote ?? 'HOLD'] ?? 'var(--text-faint)';
         return (
           <div
             key={v.persona}
-            className="relative"
+            className="relative flex items-center gap-1"
             onMouseEnter={() => setHovered(i)}
             onMouseLeave={() => setHovered(null)}
           >
@@ -41,6 +42,12 @@ export function PersonaDots({ votes }: PersonaDotsProps) {
                 transform: hovered === i ? 'scale(1.5)' : 'scale(1)',
               }}
             />
+            <span
+              className="text-[9px] font-mono font-semibold cursor-pointer"
+              style={{ color, opacity: hovered === i ? 1 : 0.6 }}
+            >
+              {p.code}
+            </span>
             {hovered === i && (
               <div
                 className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs z-10"
