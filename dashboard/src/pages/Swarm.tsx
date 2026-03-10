@@ -11,7 +11,7 @@ interface SidebarItem {
   cycleId: number;
   createdAt: string;
   summary: string;
-  votes: Array<{ persona: string; vote: string | null }>;
+  votes: Array<{ persona: string; vote: string | null; phase: number }>;
   isSkip?: boolean;
   skipReason?: string;
 }
@@ -155,7 +155,6 @@ export function Swarm() {
           ? supabase
               .from('swarm_personas')
               .select('conversation_id, persona, vote, phase')
-              .eq('phase', 1)
               .neq('persona', 'superuser')
               .in('conversation_id', debateConvIds)
           : Promise.resolve({ data: [] as any[] }),
@@ -169,7 +168,7 @@ export function Swarm() {
         const cid = convToCycle.get(v.conversation_id);
         if (!cid) continue;
         const arr = cycleVotes.get(cid) ?? [];
-        arr.push({ persona: v.persona, vote: v.vote });
+        arr.push({ persona: v.persona, vote: v.vote, phase: v.phase ?? 1 });
         cycleVotes.set(cid, arr);
       }
 
@@ -388,14 +387,6 @@ export function Swarm() {
           blackboardStates.push({ phase: level, state: (jc as any).blackboard_state });
         }
       }
-    }
-
-    // Update sidebar votes for this item (only if we got new data)
-    const votes = personaList
-      .filter(p => p.persona !== 'superuser' && (p.phase ?? 1) === 1)
-      .map(p => ({ persona: p.persona, vote: p.vote }));
-    if (votes.length > 0) {
-      setSidebarItems(prev => prev.map((si, i) => i === idx ? { ...si, votes } : si));
     }
 
     const detail: DebateDetail = {
