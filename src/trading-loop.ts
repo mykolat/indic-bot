@@ -300,6 +300,7 @@ export class TradingLoop {
             if (result.success) {
               logger.logTrade({ type: 'EMERGENCY_CLOSE', pair: pos.pair, reason: 'flash_crash_panic' });
               this.lastClosedAt.set(pos.pair, Date.now());
+              this.adjustFailCount.delete(pos.pair);
             }
           }
         } catch (err: any) {
@@ -496,6 +497,7 @@ export class TradingLoop {
               timestamp: new Date().toISOString(),
             });
             this.lastClosedAt.set(pos.pair, Date.now());
+            this.adjustFailCount.delete(pos.pair);
             this.deps.memory.addTrade({
               pair: pos.pair,
               action: 'AUTO_CLOSE',
@@ -1038,6 +1040,7 @@ export class TradingLoop {
           if (result.success) {
             logger.logTrade({ type: 'EMERGENCY_CLOSE', pair: pos.pair, layer: 3, sessionPnlPct });
             this.lastClosedAt.set(pos.pair, Date.now());
+            this.adjustFailCount.delete(pos.pair);
             this.deps.memory.addTrade({
               pair: pos.pair,
               action: 'EMERGENCY_CLOSE',
@@ -1586,8 +1589,10 @@ export class TradingLoop {
           } else {
             console.error(`[Adjust] Failed for ${decision.pair}: ${result.error}`);
             logger.logError('ADJUST_FAIL', result.error || 'Unknown');
-            const prev = this.adjustFailCount.get(decision.pair) ?? 0;
-            this.adjustFailCount.set(decision.pair, prev + 1);
+            if (result.error?.toLowerCase().includes('immediately trigger') || result.error?.toLowerCase().includes('would trigger')) {
+              const prev = this.adjustFailCount.get(decision.pair) ?? 0;
+              this.adjustFailCount.set(decision.pair, prev + 1);
+            }
           }
         } else {
           const lastClose = this.lastClosedAt.get(decision.pair);
