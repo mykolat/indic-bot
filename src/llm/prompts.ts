@@ -173,6 +173,7 @@ export interface EnrichedPromptData {
   macroAnalysis?: MacroAnalysis;
   sessionPnlPct?: number;
   lastOrderResult?: string;
+  adjustFailWarnings?: string[];
   riskStatus?: string;  // 'normal' | 'reduced' | 'critical'
   staticSoul?: string;
   memoryContent?: string;
@@ -341,6 +342,14 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
     prompt += `\n>>> ⚠️ SHARK MODE WARNING ⚠️ <<<\n`;
     prompt += `System technical filters FAILED: ${data.filterWarning}\n`;
     prompt += `ACTION REQUIRED: You are heavily advised to HOLD. ONLY execute LONG/SHORT if you have EXTREME CONVICTION from news/fundamentals that overrides this technical weakness.\n\n`;
+  }
+
+  if (data.adjustFailWarnings?.length) {
+    prompt += `\n>>> ⚠️ ADJUST BLOCKED ⚠️ <<<\n`;
+    for (const w of data.adjustFailWarnings) {
+      prompt += `${w}\n`;
+    }
+    prompt += `Do NOT output ADJUST for these pairs. Use PARTIAL_CLOSE or CLOSE instead.\n\n`;
   }
 
   prompt += `## Technical Analysis\n\n`;
