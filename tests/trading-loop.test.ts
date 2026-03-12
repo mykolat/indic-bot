@@ -4,8 +4,27 @@ vi.mock('../src/news/fear-greed.js', () => ({
   fetchFearGreed: vi.fn().mockResolvedValue({ value: 50, label: 'Neutral' }),
 }));
 
+vi.mock('../src/db/repository.js', () => ({
+  insertCycle: vi.fn().mockResolvedValue(undefined),
+  insertTradeDecision: vi.fn().mockResolvedValue(undefined),
+  insertTradeExecution: vi.fn().mockResolvedValue(undefined),
+  insertTradeClose: vi.fn().mockResolvedValue(undefined),
+  insertRiskValidation: vi.fn().mockResolvedValue(undefined),
+  insertIndicatorSnapshot: vi.fn().mockResolvedValue(undefined),
+  insertLlmConversation: vi.fn().mockResolvedValue(undefined),
+  getOpenPositionContexts: vi.fn().mockResolvedValue([]),
+  getDbOpenPositions: vi.fn().mockResolvedValue([]),
+  getMarketSnapshotsSince: vi.fn().mockResolvedValue([]),
+  getRecentDecisions: vi.fn().mockResolvedValue([]),
+  insertSlTpAdjustment: vi.fn().mockResolvedValue(undefined),
+  updateExecutionSlTp: vi.fn().mockResolvedValue(undefined),
+  getRecentLiquidations: vi.fn().mockResolvedValue([]),
+  insertRebalancingEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { TradingLoop } from '../src/trading-loop.js';
 import { MemoryKeeper } from '../src/memory/memory-keeper.js';
+import * as repository from '../src/db/repository.js';
 
 describe('TradingLoop', () => {
   let loop: TradingLoop;
@@ -46,6 +65,7 @@ describe('TradingLoop', () => {
     mockOrders = {
       execute: vi.fn().mockResolvedValue({ success: true, orderId: 123 }),
       close: vi.fn().mockResolvedValue({ success: true }),
+      adjustSlTp: vi.fn().mockResolvedValue({ success: true }),
     };
     mockRisk = {
       validate: vi.fn().mockReturnValue({ approved: true }),
@@ -646,6 +666,44 @@ describe('TradingLoop', () => {
     expect(mockEpisodicAgent.getRelevantContext).toHaveBeenCalled();
     const callArg = mockLlm.analyze.mock.calls[0][0];
     expect(callArg.ragContext).toBe('Past Episode: Chop. PNL -2%');
+  });
+
+  it('tracks consecutive ADJUST failures', async () => {
+    vi.mocked(repository.getOpenPositionContexts).mockResolvedValue([
+      { pair: 'BTCUSDT', id: 1, sl_price: 49000, tp_price: 55000, entry_thesis: 'test', fill_price: 50000 } as any,
+    ]);
+    mockOrders.adjustSlTp = vi.fn().mockResolvedValue({ success: false, error: 'Order would immediately trigger' });
+    mockLlm.analyze = vi.fn().mockResolvedValue([{
+      pair: 'BTCUSDT', action: 'ADJUST', stop_loss_pct: 1, take_profit_pct: 6,
+      size_pct: 30, leverage: 5, confidence: 80, reasoning: 'lock profit',
+      setup_detected: false, entry_valid_now: false,
+    }]);
+    mockMarketData.getPortfolioState = vi.fn().mockResolvedValue({
+      balanceUsd: 100,
+      positions: [{ pair: 'BTCUSDT', side: 'LONG', sizeUsd: 50, leverage: 5, unrealizedPnlPct: 22, heldHours: 2 }],
+      sessionPnl: 0, drawdownPct: 0,
+    });
+    // Pass sessionId so positionContexts are fetched from (mocked) DB
+    const loopWithSession = new TradingLoop({
+      pairs: ['BTCUSDT'],
+      marketData: mockMarketData,
+      llm: mockLlm,
+      orders: mockOrders,
+      riskManager: mockRisk,
+      signalBuffer: mockSignalBuffer,
+      logger: mockLogger,
+      memory: mockSessionMemory,
+      newsCache: loop['deps'].newsCache,
+      newsAnalyst: loop['deps'].newsAnalyst,
+      newsConfig: { refreshIntervalH: 12, maxItems: 100 },
+      churnCooldownMs: 900000,
+      tradingConfig: { targetReturnPct: 100, minTakeProfitPct: 5, maxLeverage: 20, maxPositionPct: 50, maxStopLossPct: 5 },
+      sessionId: 'test-session',
+    });
+    await loopWithSession.runOnce();
+    await loopWithSession.runOnce();
+    // adjustSlTp should have been called at least twice (one per cycle)
+    expect(mockOrders.adjustSlTp).toHaveBeenCalledTimes(2);
   });
 
   it('closes all positions on PANIC from FlashCrashScanner', async () => {

@@ -122,6 +122,7 @@ export class TradingLoop {
   private _shutdown = false;
   private cycleCount = 0;
   private lastClosedAt = new Map<string, number>();
+  private adjustFailCount: Map<string, number> = new Map();
   private lastOI = new Map<string, number>();
   private spreadHistory = new Map<string, number[]>();
   private lastMacroRefresh = 0;
@@ -878,6 +879,15 @@ export class TradingLoop {
         todayRealizedPnl = await (this.deps.marketData as any).getTodayRealizedPnl();
       } catch { /* optional */ }
 
+      const adjustFailWarnings: string[] = [];
+      for (const [pair, count] of this.adjustFailCount.entries()) {
+        if (count >= 2) {
+          adjustFailWarnings.push(
+            `${pair}: ADJUST failed ${count}x — "Order would immediately trigger". SL is already at market price. ADJUST is impossible. Valid actions: PARTIAL_CLOSE or CLOSE only.`
+          );
+        }
+      }
+
       const promptData = {
         snapshots: filteredSnapshots,
         indicators,
@@ -915,6 +925,7 @@ export class TradingLoop {
         screenedOutPairs: screenResult?.held.map(h => ({ pair: h.pair, reason: h.reason ?? 'unknown' })),
         conflictWarningPairs,
         marginMode: screenResult?.marginMode,
+        adjustFailWarnings: adjustFailWarnings.length > 0 ? adjustFailWarnings : undefined,
       };
 
       let decisions: TradeDecision[] = [];
@@ -1474,6 +1485,7 @@ export class TradingLoop {
               const pnlUsd = pos.unrealizedPnlPct * (pos.sizeUsd / pos.leverage) / 100;
               logger.logTrade({ type: 'CLOSE', pair: decision.pair, orderId: result.orderId });
               this.lastClosedAt.set(decision.pair, Date.now());
+              this.adjustFailCount.delete(decision.pair);
               this.deps.memory.addTrade({
                 pair: decision.pair,
                 action: 'CLOSE',
@@ -1567,12 +1579,15 @@ export class TradingLoop {
               }).catch(() => {});
             }
 
+            this.adjustFailCount.delete(decision.pair);
             this.deps.memory.setLastOrderResult(
               `${decision.pair} ADJUST — SL→$${newSlPrice.toFixed(4)}, TP→$${newTpPrice.toFixed(4)}: ${decision.reasoning}`
             );
           } else {
             console.error(`[Adjust] Failed for ${decision.pair}: ${result.error}`);
             logger.logError('ADJUST_FAIL', result.error || 'Unknown');
+            const prev = this.adjustFailCount.get(decision.pair) ?? 0;
+            this.adjustFailCount.set(decision.pair, prev + 1);
           }
         } else {
           const lastClose = this.lastClosedAt.get(decision.pair);
