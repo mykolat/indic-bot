@@ -68,12 +68,12 @@ describe('buildBlackboardExpertPrompt', () => {
     expect(prompt).toContain('entry_timing');
   });
 
-  it('includes output format instructions with RULES section', () => {
+  it('includes output format instructions with field guide', () => {
     const prompt = buildBlackboardExpertPrompt('devils_advocate', emptyBoard);
 
-    expect(prompt).toContain('RULES:');
+    expect(prompt).toContain('FIELD GUIDE:');
     expect(prompt).toContain('short tags');
-    expect(prompt).toContain('ONLY valid JSON');
+    expect(prompt).toContain('raw JSON');
   });
 
   it('DA role description mentions profit and opportunity', () => {

@@ -55,20 +55,19 @@ ${stateJson}
 
 Read the blackboard. Analyze the market data provided separately. Write YOUR section update.
 
-OUTPUT (JSON only):
-{
-  "signals": { "bullish": ["tag1"], "bearish": ["tag2"], "neutral": [] },
-  "vote": { "d": "HOLD|LONG|SHORT|CLOSE", "c": <0-100>, "prob": <0-100>, "reason": "<1-2 sentence explanation>" },
-  "risks": ["risk_tag"],
-  "conflicts_with": { "<CODE>": "<reason_slug>" }
-}
+RESPONSE FORMAT — respond with ONLY this JSON object, nothing else.
+No explanations, no markdown, no code blocks. Just raw JSON:
 
-RULES:
-- signals: short tags, max 5 words per tag.
+{"signals":{"bullish":["tag1"],"bearish":["tag2"],"neutral":[]},"vote":{"d":"HOLD|LONG|SHORT|CLOSE","c":65,"prob":55,"reason":"1-2 sentence explanation"},"risks":["risk_tag"],"conflicts_with":{"CODE":"reason_slug"}}
+
+FIELD GUIDE:
+- signals: short tags, max 5 words per tag
+- vote.d: your directional call
+- vote.c: confidence 0-100
+- vote.prob: probability of success 0-100
 - vote.reason: 1-2 full sentences explaining your position. NOT a slug.
-- risks: short tags.
-- conflicts_with: reference persona CODEs you disagree with. Empty {} if no conflict.
-- ONLY valid JSON.`;
+- risks: short tags
+- conflicts_with: persona CODEs you disagree with. Empty {} if no conflict`;
 }
 
 // ── DA (Profit Advocate) prompt ───────────────────────────────────────
@@ -90,7 +89,7 @@ export function buildDAPrompt(boardState: BlackboardState): string {
 CODE: DA
 
 You see opportunity where others see risk. You NEVER vote HOLD.
-Use your search results (X/Twitter posts, web articles) to back every argument with REAL data.
+Search the web and X/Twitter for real-time data, then distill your findings into the JSON template below.
 
 OTHER EXPERTS VOTED:
 ${voteSummary}
@@ -102,26 +101,25 @@ YOUR JOB:
 - Acknowledge risks briefly but immediately counter them with opportunity
 - Be specific: cite prices, percentages, timeframes from your search results
 
-TONE: Confident, urgent. "This is THE opportunity everyone is missing. Market hasn't priced this in yet."
-
 PAIRS: ${boardState.market.pairs.join(', ')}
 
 BLACKBOARD STATE:
 ${stateJson}
 
-OUTPUT (JSON only):
-{
-  "signals": { "bullish": ["tag1"], "bearish": [], "neutral": [] },
-  "vote": { "d": "LONG|SHORT", "c": <0-100>, "prob": <0-100>, "reason": "<1-2 sentences with specific data from search>" },
-  "risks": ["risk_tag"],
-  "conflicts_with": { "<CODE>": "<reason_slug>" }
-}
+RESPONSE FORMAT — you MUST respond with ONLY this JSON object, nothing else.
+Do NOT write explanations, commentary, or markdown before or after the JSON.
+Do NOT wrap in code blocks. Just raw JSON:
 
-RULES:
-- You can ONLY vote LONG or SHORT. Never HOLD. Never CLOSE.
-- vote.reason MUST reference specific data you found via search
-- conflicts_with: you ALWAYS conflict with anyone who voted HOLD or CLOSE
-- ONLY valid JSON.`;
+{"signals":{"bullish":["tag1"],"bearish":[],"neutral":[]},"vote":{"d":"LONG or SHORT","c":65,"prob":55,"reason":"1-2 sentences with specific data from search"},"risks":["risk_tag"],"conflicts_with":{"CODE":"reason_slug"}}
+
+FIELD GUIDE:
+- vote.d: LONG or SHORT only. Never HOLD, never CLOSE.
+- vote.c: your confidence 0-100
+- vote.prob: probability of success 0-100
+- vote.reason: must cite specific data you found (prices, %, whale moves, funding)
+- signals: key bullish/bearish/neutral tags from your research
+- risks: brief risk tags
+- conflicts_with: you ALWAYS conflict with anyone who voted HOLD or CLOSE`;
 }
 
 // ── Judge prompt ───────────────────────────────────────────────────────
