@@ -29,7 +29,7 @@ describe('buildUserPrompt', () => {
     expect(prompt).toContain('SL: $68000');
     expect(prompt).toContain('TP: $78000');
     expect(prompt).toContain('Entry thesis: Bullish breakout on volume');
-    expect(prompt).toContain('DO NOT close this position unless SL is hit');
+    expect(prompt).toContain('Hold winners. CLOSE only if thesis invalidated');
   });
 
   it('includes recent decisions in prompt', () => {

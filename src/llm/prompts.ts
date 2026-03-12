@@ -103,6 +103,17 @@ CONSTRAINTS:
 - ADJUST example: position +20% ROI → set stop_loss_pct to -12 (locks 12% profit)
 - Negative stop_loss_pct = profit lock (SL beyond entry in profitable direction)
 
+PARTIAL_CLOSE GUIDELINES (not mandatory — use judgment based on full context):
+  * ROI 10–20%: closing 25% is valid | prefer limit order
+  * ROI 20–40%: closing 50% is valid | limit if tape is quiet and L/S favors you, else market
+  * ROI 40%+:   closing 75% is valid | market acceptable (vol risk outweighs slippage)
+  Order type rules:
+  - close_type "limit": quiet volume (<0.8x), L/S ratio favors your side, spread is tight
+  - close_type "market": volume spike, regime changing, ADJUST blocked and price moving fast
+  After partial close: remaining position keeps existing SL/TP. Do NOT re-ADJUST immediately.
+  Use PARTIAL_CLOSE when ADJUST is blocked, momentum slowing, or to secure partial gains.
+  Do NOT partial close just because ROI is high — if trend is strong and thesis holds, let it run.
+
 Respond ONLY with valid JSON:
 {
   "decisions": [
@@ -659,7 +670,7 @@ function buildEnrichedPrompt(data: EnrichedPromptData): string {
             : parseFloat(data.snapshots.find(s => s.pair === pos.pair)?.markPrice || '0') >= slPrice;
           prompt += `    SL: $${slPrice.toFixed(2)} (${slDist}% away) ${slHit ? 'HIT' : 'NOT hit'} | TP: $${tpPrice.toFixed(2)} (${tpDist}% away)\n`;
           prompt += `    Entry thesis: ${ctx.entry_thesis}\n`;
-          prompt += `    >>> DO NOT close this position unless SL is hit or thesis is invalidated <<<\n`;
+          prompt += `    >>> Hold winners. CLOSE only if thesis invalidated, regime reversed, or ADJUST is blocked. PARTIAL_CLOSE is valid to bank profit. <<<\n`;
           const marginRoi = pos.unrealizedPnlPct;
           if (marginRoi > 3) {
             prompt += `    Margin ROI: ${marginRoi > 0 ? '+' : ''}${marginRoi.toFixed(1)}% — consider ADJUST to lock profit\n`;
