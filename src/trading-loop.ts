@@ -1571,8 +1571,11 @@ export class TradingLoop {
                 exit_reason: `partial_close_${(ratio * 100).toFixed(0)}pct`,
                 pnl_usd: parseFloat(pnlUsd.toFixed(2)),
                 pnl_pct: pos.unrealizedPnlPct * ratio,
-                regime_at_exit: pairRegimes.get(decision.pair)?.regime ?? marketRegime,
-              }).catch(() => {});
+                held_hours: pos.heldHours,
+                holding_time_minutes: pos.heldHours ? Math.round(pos.heldHours * 60) : undefined,
+                order_id: result.orderId,
+                regime_at_exit: pairRegimes.get(decision.pair)?.regime ?? marketRegime?.regime,
+              }).catch((e) => console.error('[PartialClose] DB log failed:', e));
             }
           } else {
             console.error(`[PartialClose] Failed for ${decision.pair}: ${result.error}`);
