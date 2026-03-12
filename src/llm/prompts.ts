@@ -119,7 +119,9 @@ Respond ONLY with valid JSON:
   "decisions": [
     {
       "pair": "BTCUSDT",
-      "action": "LONG" | "SHORT" | "CLOSE" | "HOLD" | "ADJUST",
+      "action": "LONG" | "SHORT" | "CLOSE" | "PARTIAL_CLOSE" | "HOLD" | "ADJUST",
+      "close_pct": <25-75, only for PARTIAL_CLOSE — omit for other actions>,
+      "close_type": "limit" | "market",  // only for PARTIAL_CLOSE — omit for other actions
       "size_pct": <0-${config.maxPositionPct}>,
       "leverage": <1-${config.maxLeverage}>,
       "stop_loss_pct": <1-${config.maxStopLossPct}>,

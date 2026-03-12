@@ -2,7 +2,9 @@ import { computeAllowedSlRange } from './sl-tightening-rules.js';
 
 export interface TradeDecision {
   pair: string;
-  action: 'LONG' | 'SHORT' | 'CLOSE' | 'HOLD' | 'FETCH_NEWS' | 'ADJUST';
+  action: 'LONG' | 'SHORT' | 'CLOSE' | 'PARTIAL_CLOSE' | 'HOLD' | 'FETCH_NEWS' | 'ADJUST';
+  close_pct?: number;        // for PARTIAL_CLOSE: 25-75
+  close_type?: 'limit' | 'market'; // for PARTIAL_CLOSE
   size_pct: number;
   leverage: number;
   stop_loss_pct: number;
@@ -126,7 +128,7 @@ export class RiskManager {
   constructor(private config: RiskConfig) { }
 
   validate(decision: TradeDecision, portfolio: PortfolioState, ctx?: ValidationContext, adjustCtx?: AdjustContext, extra?: RiskExtraContext): ValidationResult {
-    if (decision.action === 'HOLD' || decision.action === 'CLOSE' || decision.action === 'FETCH_NEWS') {
+    if (decision.action === 'HOLD' || decision.action === 'CLOSE' || decision.action === 'PARTIAL_CLOSE' || decision.action === 'FETCH_NEWS') {
       return { approved: true };
     }
 
