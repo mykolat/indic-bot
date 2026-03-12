@@ -208,9 +208,10 @@ export function Trades() {
     if (d.risk_passed === false) return 'RISK_REJECTED';
     if (!d.executed && d.risk_passed) return 'ORDER_FAIL';
     if (!d.executed) return 'PENDING';
-    if (d.close_reason === 'TP') return 'TP';
-    if (d.close_reason === 'SL') return 'SL';
-    if (d.close_reason) return 'MANUAL';
+    const r = d.close_reason;
+    if (r === 'TP' || r === 'tp_triggered') return 'TP';
+    if (r === 'SL' || r === 'sl_triggered') return 'SL';
+    if (r) return 'MANUAL';
     return 'OPEN';
   };
 
@@ -352,11 +353,9 @@ export function Trades() {
             }`}
           >
             {tab.label}
-            {tab.count > 0 && (
-              <span className={`ml-1.5 text-[10px] font-mono ${activeTab === tab.key ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                {tab.count}
-              </span>
-            )}
+            <span className={`ml-1.5 text-[10px] font-mono ${activeTab === tab.key ? 'text-zinc-400' : tab.count === 0 ? 'text-zinc-700' : 'text-zinc-600'}`}>
+              {tab.count}
+            </span>
           </button>
         ))}
       </div>

@@ -138,14 +138,25 @@ export function Decisions() {
       {funnel.data && funnel.data.rejectionReasons.length > 0 && (
         <div className="bg-surface-1 rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Rejection Breakdown</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={funnel.data.rejectionReasons} layout="vertical" margin={{ left: 120 }}>
-              <XAxis type="number" tick={{ fill: '#71717a', fontSize: 11 }} />
-              <YAxis type="category" dataKey="reason" tick={{ fill: '#a1a1aa', fontSize: 11 }} width={120} />
-              <Tooltip contentStyle={tt} />
-              <Bar dataKey="count" fill="#f87171" radius={[0, 3, 3, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="space-y-2">
+            {(() => {
+              const max = funnel.data.rejectionReasons[0].count;
+              return funnel.data.rejectionReasons.map((r) => (
+                <div key={r.reason} className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-zinc-400 mb-1 truncate" title={r.reason}>{r.reason}</div>
+                    <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-red-500/70"
+                        style={{ width: `${(r.count / max) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono text-zinc-400 shrink-0 w-6 text-right">{r.count}</span>
+                </div>
+              ));
+            })()}
+          </div>
         </div>
       )}
 
