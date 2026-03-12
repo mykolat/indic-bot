@@ -243,29 +243,43 @@ export class OrderExecutor {
     }
   }
 
-  async partialClose(pair: string, side: 'LONG' | 'SHORT', ratio: number): Promise<OrderResult> {
+  async partialClose(
+    pair: string,
+    side: 'LONG' | 'SHORT',
+    ratio: number,
+    limitPrice?: number,
+  ): Promise<OrderResult> {
     try {
       const closeSide = side === 'LONG' ? 'SELL' : 'BUY';
       const positions = await this.client.getPositions({ symbol: pair });
       const pos = positions.find((p: any) => p.symbol === pair && parseFloat(p.positionAmt) !== 0);
-      if (!pos) {
-        return { success: false, error: `No open position found for ${pair}` };
-      }
+      if (!pos) return { success: false, error: `No open position found for ${pair}` };
+
       const fullQty = Math.abs(parseFloat(pos.positionAmt));
       const partialQty = this.roundQuantity(fullQty * ratio, pair);
-      if (partialQty <= 0) {
-        return { success: false, error: `Partial quantity too small for ${pair}` };
+      if (partialQty <= 0) return { success: false, error: `Partial quantity too small for ${pair}` };
+
+      if (limitPrice) {
+        const price = this.formatPrice(limitPrice, pair);
+        try {
+          const order = await this.client.submitNewOrder({
+            symbol: pair, side: closeSide, type: 'LIMIT',
+            price, quantity: String(partialQty),
+            reduceOnly: 'true', timeInForce: 'GTC',
+          });
+          console.log(`[Orders] Partial close LIMIT ${pair} ${side}: ${(ratio * 100).toFixed(0)}% @ $${price}`);
+          return { success: true, orderId: order.orderId, quantity: partialQty, fillPrice: limitPrice };
+        } catch (limitErr: any) {
+          console.warn(`[Orders] Partial close LIMIT failed for ${pair}, falling back to MARKET: ${limitErr.message}`);
+          // fall through to MARKET below
+        }
       }
 
       const order = await this.client.submitNewOrder({
-        symbol: pair,
-        side: closeSide,
-        type: 'MARKET',
-        quantity: String(partialQty),
-        reduceOnly: 'true',
+        symbol: pair, side: closeSide, type: 'MARKET',
+        quantity: String(partialQty), reduceOnly: 'true',
       });
-
-      console.log(`[Orders] Partial close ${pair} ${side}: ${(ratio * 100).toFixed(0)}% (${partialQty})`);
+      console.log(`[Orders] Partial close MARKET ${pair} ${side}: ${(ratio * 100).toFixed(0)}% (${partialQty})`);
       return { success: true, orderId: order.orderId, quantity: partialQty };
     } catch (err: any) {
       return { success: false, error: err.message };

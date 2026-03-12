@@ -715,6 +715,23 @@ describe('TradingLoop', () => {
     }
   });
 
+  it('executes PARTIAL_CLOSE with market order', async () => {
+    mockOrders.partialClose = vi.fn().mockResolvedValue({ success: true, orderId: 999, quantity: 100 });
+    mockLlm.analyze = vi.fn().mockResolvedValue([{
+      pair: 'BTCUSDT', action: 'PARTIAL_CLOSE', close_pct: 50, close_type: 'market',
+      size_pct: 0, leverage: 1, stop_loss_pct: 2, take_profit_pct: 6,
+      confidence: 80, reasoning: 'take partial profit',
+      setup_detected: false, entry_valid_now: false,
+    }]);
+    mockMarketData.getPortfolioState = vi.fn().mockResolvedValue({
+      balanceUsd: 100,
+      positions: [{ pair: 'BTCUSDT', side: 'LONG', sizeUsd: 50, leverage: 5, unrealizedPnlPct: 22, heldHours: 2 }],
+      sessionPnl: 0, drawdownPct: 0,
+    });
+    await loop.runOnce();
+    expect(mockOrders.partialClose).toHaveBeenCalledWith('BTCUSDT', 'LONG', 0.5, undefined);
+  });
+
   it('closes all positions on PANIC from FlashCrashScanner', async () => {
     mockMarketData.getPortfolioState.mockResolvedValue({
       balanceUsd: 1000, sessionPnl: 0, drawdownPct: 0,

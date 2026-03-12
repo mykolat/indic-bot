@@ -1534,6 +1534,50 @@ export class TradingLoop {
               logger.logError('ORDER_FAIL', result.error || 'Unknown error');
             }
           }
+        } else if (decision.action === 'PARTIAL_CLOSE') {
+          const pos = portfolio.positions.find((p) => p.pair === decision.pair);
+          if (!pos) {
+            console.log(`[PartialClose] No open position for ${decision.pair} — skipping`);
+            continue;
+          }
+          const ratio = Math.min(Math.max((decision.close_pct ?? 50) / 100, 0.1), 0.9);
+
+          // Compute limit price if requested
+          let limitPrice: number | undefined;
+          if (decision.close_type === 'limit') {
+            const snap = filteredSnapshots.find(s => s.pair === decision.pair);
+            const markPrice = parseFloat(snap?.markPrice ?? '0');
+            if (markPrice > 0) {
+              const offsetPct = 0.05 / 100;
+              limitPrice = pos.side === 'LONG'
+                ? markPrice * (1 + offsetPct)
+                : markPrice * (1 - offsetPct);
+            }
+          }
+
+          const result = await orders.partialClose(decision.pair, pos.side, ratio, limitPrice);
+          if (result.success) {
+            console.log(`[PartialClose] ${decision.pair}: closed ${(ratio * 100).toFixed(0)}% (${decision.close_type ?? 'market'})`);
+            this.adjustFailCount.delete(decision.pair);
+            this.deps.memory.setLastOrderResult(
+              `${decision.pair} PARTIAL_CLOSE ${(ratio * 100).toFixed(0)}% ${decision.close_type ?? 'market'}: ${decision.reasoning}`
+            );
+            if (cycleId) {
+              const posCtxForClose = positionContexts.find(c => c.pair === decision.pair);
+              const pnlUsd = pos.unrealizedPnlPct * (pos.sizeUsd / pos.leverage) / 100 * ratio;
+              insertTradeClose({
+                execution_id: posCtxForClose?.id,
+                pair: decision.pair,
+                exit_reason: `partial_close_${(ratio * 100).toFixed(0)}pct`,
+                pnl_usd: parseFloat(pnlUsd.toFixed(2)),
+                pnl_pct: pos.unrealizedPnlPct * ratio,
+                regime_at_exit: pairRegimes.get(decision.pair)?.regime ?? marketRegime,
+              }).catch(() => {});
+            }
+          } else {
+            console.error(`[PartialClose] Failed for ${decision.pair}: ${result.error}`);
+            logger.logError('PARTIAL_CLOSE_FAIL', result.error || 'Unknown');
+          }
         } else if (decision.action === 'ADJUST') {
           const pos = portfolio.positions.find(p => p.pair === decision.pair);
           const posCtx = positionContexts.find(c => c.pair === decision.pair);
