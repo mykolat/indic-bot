@@ -702,8 +702,17 @@ describe('TradingLoop', () => {
     });
     await loopWithSession.runOnce();
     await loopWithSession.runOnce();
-    // adjustSlTp should have been called at least twice (one per cycle)
-    expect(mockOrders.adjustSlTp).toHaveBeenCalledTimes(2);
+    await loopWithSession.runOnce();
+    // adjustSlTp should have been called at least three times (one per cycle)
+    expect(mockOrders.adjustSlTp).toHaveBeenCalledTimes(3);
+    // Verify warnings were injected into the third cycle's prompt
+    // (count reaches 2 after cycle 2, so cycle 3's analyze call sees warnings)
+    const thirdCallArgs = mockLlm.analyze.mock.calls[2];
+    if (thirdCallArgs) {
+      const promptData = thirdCallArgs[0];
+      expect(promptData.adjustFailWarnings).toBeDefined();
+      expect(promptData.adjustFailWarnings?.length).toBeGreaterThan(0);
+    }
   });
 
   it('closes all positions on PANIC from FlashCrashScanner', async () => {
