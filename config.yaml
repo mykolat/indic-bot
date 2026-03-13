@@ -51,3 +51,10 @@ binance:
 
 webhook:
   port: 3000
+
+grok:
+  enableFlashCrash: false      # Grok scan every cycle — expensive, disable to save credits
+  enableGrounder: false         # Fact-check high-importance news via Grok
+  enableMacro: false            # Grok macro analyst (every 3h)
+  enableNarrativeExpert: false  # Swarm round 1 narrative_expert via Grok
+  # DA always runs — uses OpenAI fallback when Grok disabled

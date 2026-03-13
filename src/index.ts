@@ -195,7 +195,7 @@ async function main() {
 
   // Grok Macro Analyst — preferred over Apify (live search, no stale data)
   let grokMacroAnalyst: import('./news/grok-macro.js').GrokMacroAnalyst | undefined;
-  if (config.xaiApiKey) {
+  if (config.xaiApiKey && config.grok.enableMacro) {
     const { GrokMacroAnalyst } = await import('./news/grok-macro.js');
     const grokForMacro = new (await import('./llm/grok-client.js')).GrokClient(config.xaiApiKey);
     grokMacroAnalyst = new GrokMacroAnalyst(grokForMacro);
@@ -207,9 +207,9 @@ async function main() {
   const sourceHealth = new SourceHealthMonitor();
 
   // Instantiate Grok Grounder if API key is provided
-  const grokGrounder = config.xaiApiKey ? new GrokGrounder(config.xaiApiKey, sourceHealth) : undefined;
+  const grokGrounder = (config.xaiApiKey && config.grok.enableGrounder) ? new GrokGrounder(config.xaiApiKey, sourceHealth) : undefined;
   if (grokGrounder) console.log('[Grok] xAI Grounder enabled for claim verification');
-  else console.log('[Grok] No XAI_API_KEY — claim verification disabled');
+  else console.log('[Grok] Grounder disabled');
 
   // Start webhook server
   const app = createWebhookServer(signalBuffer, logger, config.webhook.secret, marketData);
@@ -222,15 +222,18 @@ async function main() {
     const healthy = await runGrokHealthCheck(grokClient);
     if (!healthy) console.error('[Grok] WARNING: xAI API key invalid — Grok features will fail');
   }
+  // Pass grokClient to SwarmAgent only if narrative_expert is enabled; DA always uses OpenAI fallback
+  const grokForSwarm = (grokClient && config.grok.enableNarrativeExpert) ? grokClient : undefined;
   const enableSwarm = process.env.ENABLE_SWARM !== 'false';
-  const swarmAgent = enableSwarm ? new SwarmAgent(llm, grokClient, sourceHealth) : undefined;
-  if (swarmAgent) console.log('[Swarm] SwarmAgent enabled (disable with ENABLE_SWARM=false)');
+  const swarmAgent = enableSwarm ? new SwarmAgent(llm, grokForSwarm, sourceHealth) : undefined;
+  if (swarmAgent) console.log(`[Swarm] SwarmAgent enabled — narrative_expert: ${config.grok.enableNarrativeExpert ? 'Grok' : 'disabled'}, DA: OpenAI fallback`);
   if (swarmAgent && sessionId) {
     swarmAgent.sessionId = sessionId;
   }
 
-  const flashCrashScanner = grokClient ? new FlashCrashScanner(grokClient, sourceHealth) : undefined;
+  const flashCrashScanner = (grokClient && config.grok.enableFlashCrash) ? new FlashCrashScanner(grokClient, sourceHealth) : undefined;
   if (flashCrashScanner) console.log('[FlashCrash] Scanner enabled (Grok)');
+  else console.log('[FlashCrash] Scanner disabled');
 
   const decisionJournal = new DecisionJournal('logs/decisions-journal.jsonl');
   const tradeStoryLogger = new TradeStoryLogger('logs/trade-stories.jsonl');

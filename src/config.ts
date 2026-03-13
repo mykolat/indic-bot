@@ -23,6 +23,12 @@ export interface Config {
     url: string | undefined;
   };
   xaiApiKey: string | undefined;
+  grok: {
+    enableFlashCrash: boolean;
+    enableGrounder: boolean;
+    enableMacro: boolean;
+    enableNarrativeExpert: boolean;
+  };
   trading: {
     pairs: string[];
     minLeverage: number;
@@ -116,6 +122,12 @@ export function loadConfig(): Config {
       url: process.env.DATABASE_URL,
     },
     xaiApiKey: process.env.XAI_API_KEY,
+    grok: {
+      enableFlashCrash: yaml.grok?.enableFlashCrash ?? true,
+      enableGrounder: yaml.grok?.enableGrounder ?? true,
+      enableMacro: yaml.grok?.enableMacro ?? true,
+      enableNarrativeExpert: yaml.grok?.enableNarrativeExpert ?? true,
+    },
     trading: {
       pairs: t.pairs ?? ['BTCUSDT'],
       minLeverage: t.minLeverage ?? 1,
