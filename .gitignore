@@ -6,3 +6,7 @@ logs/
 tmp/
 .worktrees/
 .claude/worktrees/
+
+# private research, not for the repo
+docs/deepresult/
+docs/knowledge/
